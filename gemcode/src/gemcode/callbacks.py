@@ -10,6 +10,7 @@ Maps to Claude Code patterns:
 from __future__ import annotations
 
 import os
+import sys
 from typing import Any
 
 from google.adk.tools.base_tool import BaseTool
@@ -75,6 +76,26 @@ def _is_computer_use_tool(tool: BaseTool) -> bool:
 def make_before_tool_callback(cfg: GemCodeConfig):
   """Permission gate + circuit breaker (open after too many tool errors in a row)."""
 
+  def _tool_confirmation_state(tool_context) -> bool | None:
+    """
+    Returns:
+      - True  => tool call was confirmed by the user for this invocation context
+      - False => user explicitly rejected
+      - None  => no confirmation info present
+    """
+    if tool_context is None:
+      return None
+    try:
+      tc = getattr(tool_context, "tool_confirmation", None)
+      if tc is None:
+        return None
+      confirmed = getattr(tc, "confirmed", None)
+      if confirmed is None:
+        return None
+      return bool(confirmed)
+    except Exception:
+      return None
+
   def before_tool(
     tool: BaseTool,
     args: dict[str, Any],
@@ -121,6 +142,34 @@ def make_before_tool_callback(cfg: GemCodeConfig):
           "error_kind": _ERROR_KIND_PERMISSION_DENIED,
         }
       if not cfg.yes_to_all:
+        # In-run HITL: request ADK tool confirmation and pause execution until
+        # the user approves in the current terminal session.
+        if getattr(cfg, "interactive_permission_ask", False):
+          tc_state = _tool_confirmation_state(tool_context)
+          if tc_state is True:
+            return None
+          if tc_state is False:
+            return {
+              "error": "This tool call was rejected.",
+              "error_kind": _ERROR_KIND_PERMISSION_DENIED,
+            }
+          if tool_context is not None and hasattr(
+              tool_context, "request_confirmation"
+          ):
+            if is_computer_tool:
+              tool_context.request_confirmation(
+                  hint="Approve to allow browser automation for the requested computer-use action."
+              )
+            else:
+              tool_context.request_confirmation(
+                  hint="Approve to apply the requested file mutation (write_file/search_replace)."
+              )
+            return {
+              "error": "This tool call requires confirmation.",
+              "error_kind": _ERROR_KIND_PERMISSION_BLOCK,
+            }
+
+        # Default behavior: user must re-run with --yes.
         if is_computer_tool:
           return {
             "error": (
@@ -136,7 +185,36 @@ def make_before_tool_callback(cfg: GemCodeConfig):
           "error_kind": _ERROR_KIND_PERMISSION_DENIED,
         }
     if name in SHELL_TOOLS:
-      pass
+      if cfg.permission_mode == "strict":
+        return {
+          "error": "strict mode: shell tools disabled",
+          "error_kind": _ERROR_KIND_PERMISSION_DENIED,
+        }
+      if not cfg.yes_to_all:
+        if getattr(cfg, "interactive_permission_ask", False):
+          tc_state = _tool_confirmation_state(tool_context)
+          if tc_state is True:
+            return None
+          if tc_state is False:
+            return {
+              "error": "This tool call was rejected.",
+              "error_kind": _ERROR_KIND_PERMISSION_DENIED,
+            }
+          if tool_context is not None and hasattr(tool_context, "request_confirmation"):
+            cmd = args.get("command")
+            cmd_args = args.get("args")
+            hint = f"Approve to run command: {cmd} {cmd_args}" if cmd_args else f"Approve to run command: {cmd}"
+            tool_context.request_confirmation(hint=hint)
+            return {
+              "error": "This tool call requires confirmation.",
+              "error_kind": _ERROR_KIND_PERMISSION_BLOCK,
+            }
+        return {
+          "error": (
+            "Shell tools require confirmation: re-run with --yes or --interactive-ask to allow run_command."
+          ),
+          "error_kind": _ERROR_KIND_PERMISSION_DENIED,
+        }
     return None
 
   return before_tool
@@ -209,6 +287,24 @@ def make_after_tool_callback(cfg: GemCodeConfig):
             else:
               summary[k] = v
       append_audit(cfg.project_root, summary)
+      # Also print a concise, user-visible summary in CLI contexts.
+      # (Claude Code renders tool cards; this is the lightweight equivalent.)
+      try:
+        # Full-screen TUIs get corrupted by stray stderr prints.
+        if _truthy_env("GEMCODE_TUI_ACTIVE", default=False):
+          return None
+        ok = bool(summary.get("ok"))
+        prefix = "[tool ok]" if ok else "[tool err]"
+        details = ""
+        if isinstance(summary.get("exit_code"), int):
+          details += f" exit={summary['exit_code']}"
+        if not ok and summary.get("error_kind"):
+          details += f" kind={summary.get('error_kind')}"
+        if not ok and summary.get("error"):
+          details += f" error={str(summary.get('error'))[:200]}"
+        print(f"{prefix} {name}{details}", file=sys.stderr)
+      except Exception:
+        pass
     return None
 
   return after_tool

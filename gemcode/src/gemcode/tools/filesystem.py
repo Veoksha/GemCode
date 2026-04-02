@@ -6,13 +6,17 @@ from pathlib import Path
 
 from gemcode.config import GemCodeConfig
 from gemcode.paths import PathEscapeError, resolve_under_root
+from gemcode.trust import is_trusted_root
 
 
 def make_filesystem_tools(cfg: GemCodeConfig):
   root = cfg.project_root
+  trusted = is_trusted_root(root)
 
   def read_file(path: str, max_bytes: int = 200_000) -> dict:
     """Read a text file relative to the project root. Large files are truncated."""
+    if not trusted:
+      return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
     try:
       p = resolve_under_root(root, path)
     except PathEscapeError as e:
@@ -31,6 +35,8 @@ def make_filesystem_tools(cfg: GemCodeConfig):
 
   def list_directory(path: str = ".") -> dict:
     """List files and directories under path (relative to project root)."""
+    if not trusted:
+      return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
     try:
       p = resolve_under_root(root, path)
     except PathEscapeError as e:
@@ -49,6 +55,8 @@ def make_filesystem_tools(cfg: GemCodeConfig):
 
   def glob_files(pattern: str) -> dict:
     """Glob file paths relative to project root (e.g. 'src/**/*.py')."""
+    if not trusted:
+      return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
     if ".." in pattern or pattern.startswith("/"):
       return {"error": "Invalid pattern"}
     matches: list[str] = []

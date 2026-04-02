@@ -3,3 +3,16 @@
 .env
 .gemcode/
 *.sqlite
+
+# Python build artifacts
+**/__pycache__/
+**/*.pyc
+gemcode/dist/
+gemcode/build/
+gemcode/*.egg-info/
+
+# Web artifacts (keep repo lean)
+gemcode-web-ui/node_modules/
+gemcode-web-ui/.next/
+gemcode-web-ui/out/
+gemcode-web-api/node_modules/

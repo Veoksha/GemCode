@@ -42,6 +42,10 @@ gemcode --session mysess --yes "Continue: run tests and fix failures"
   - Controlled by `GEMCODE_TOOL_COMBINATION_MODE` / `--tool-combination-mode` (`deep_research|always|never|auto`, default: `deep_research`).
 - **Embeddings**: set `--embeddings` (or `GEMCODE_ENABLE_EMBEDDINGS=1`) to enable embeddings-based semantic retrieval (and embedding-backed memory when `GEMCODE_ENABLE_MEMORY=1`).
 - **Capability routing**: set `--capability-mode` (or `GEMCODE_CAPABILITY_MODE`) to `auto|research|embeddings|computer|audio|all` to enable the right toolsets (deep research / embeddings / computer-use) and route to role-appropriate models when applicable.
+- **Tool inventory / validation**:
+  - `gemcode tools list` prints the exact tool inventory and whether each tool can build a Gemini tool declaration
+  - `gemcode tools smoke` fails non-zero if any tool’s declaration compilation fails
+  - Optional inspection flags: `--deep-research`, `--maps-grounding`, `--embeddings`, `--memory`
 - **Optional compaction**: set `GEMCODE_ENABLE_COMPACT=1` to trim old `Content` entries before each model call (MVP sliding window; can break complex tool chains if too aggressive—tune `GEMCODE_MAX_CONTENT_ITEMS`).
 - **Session token ceiling**: set `GEMCODE_MAX_SESSION_TOKENS` to stop the next LLM call when cumulative `usage_metadata.total_token_count` exceeds the limit.
 - **Token budget tracking**: set `GEMCODE_TOKEN_BUDGET` to enforce continuation/stop decisions per user turn (token-budget audit in `.gemcode/audit.log`).
@@ -71,6 +75,10 @@ gemcode --session mysess --yes "Continue: run tests and fix failures"
 
 - **`GEMCODE_PERMISSION_MODE=strict`**: writes and `run_command` are blocked unless the command name is in `GEMCODE_ALLOW_COMMANDS`.
 - **`default`**: reads always allowed; writes require `--yes`; shell runs only allowlisted commands (see `.env.example`).
+- **In-run HITL permission ask (optional)**:
+  - Enable with `--interactive-ask` or `GEMCODE_INTERACTIVE_PERMISSION_ASK=1`.
+  - When enabled and you did NOT pass `--yes`, GemCode prompts you in the terminal to approve mutating tools (`write_file`, `search_replace`) and computer-use actions (browser automation).
+  - If you don’t approve, the tool call is blocked (no silent re-execution).
 
 When tools are blocked by policy, the consecutive-tool circuit breaker does not count those policy rejections as “tool failures”.
 
@@ -113,6 +121,34 @@ the user’s project.
 
 Tool execution is still controlled by permission gates and then governed by
 GemCode’s circuit breaker + recovery behavior.
+
+### In-run interactive permission ask (HITL)
+
+GemCode can switch from “fail closed unless you re-run with `--yes`” to an
+in-run approval workflow:
+
+- If enabled (`--interactive-ask` / `GEMCODE_INTERACTIVE_PERMISSION_ASK=1`) and you did not pass `--yes`,
+  any mutating tool call or computer-use action will trigger a terminal prompt.
+- Approving continues the same run; rejecting blocks the tool call.
+
+This applies to both the standard CLI (`gemcode "..."`) and the Kairos daemon (`gemcode kairos`).
+
+### Kairos proactive scheduler (daemon)
+
+`gemcode kairos` runs a long-lived scheduler that turns prompts into queued
+jobs:
+
+- You type one prompt per line into stdin; each line becomes a job.
+- Jobs are run with a priority queue; the daemon also exposes Kairos tools so
+  the model itself can `kairos_enqueue_prompt()` additional work.
+
+Kairos tools available to the model (per job):
+
+- `kairos_sleep_ms(duration_ms: int)`: pauses just that job for `duration_ms` without blocking other queued jobs.
+- `kairos_enqueue_prompt(prompt: str, priority: int = 0, session_id: str | None = None)`:
+  enqueues a new job. If `session_id` is omitted, it defaults to the current job’s session.
+
+Priority defaults for stdin-enqueued jobs are controlled by `--default-priority`.
 
 ### Deep research (built-in Gemini tools + optional tool combination)
 

@@ -67,8 +67,19 @@ Code trees) that combines:
    - `--mcp` loads `.gemcode/mcp.json` toolsets
    - Install extra: `pip install -e ".[mcp]"`
 
+## Tool audit
+
+- `gemcode tools list` and `gemcode tools smoke` enumerate and validate the
+  tool set active for a given config (deep research/embeddings/maps grounding).
+
 ## Docs
 
 Full, detailed documentation (including CLI flags, env vars, and tool
 behavior) lives in [`gemcode/README.md`](gemcode/README.md).
+
+## Web UI (Claude Code compatible)
+
+This workspace includes a Claude Code–style web UI in [`claude-code-leaked/web`](claude-code-leaked/web) and a documented backend contract in [`docs/claude-web-contract.md`](docs/claude-web-contract.md).
+
+Run instructions and environment variables are in [`web-ui/README.md`](web-ui/README.md).
 

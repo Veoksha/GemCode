@@ -90,6 +90,17 @@ class GemCodeConfig:
   )
   allow_commands: frozenset[str] | None = None
   yes_to_all: bool = False
+  # When enabled, GemCode will ask for user confirmation in the *same run*
+  # (HITL) before mutating tools / computer-use tools execute.
+  #
+  # Default behavior is controlled in the CLI:
+  # - If `GEMCODE_INTERACTIVE_PERMISSION_ASK` is set, we honor it.
+  # - Otherwise we enable when stdin is a TTY and `--yes` is not provided.
+  interactive_permission_ask: bool = field(
+    default_factory=lambda: _truthy_env(
+      "GEMCODE_INTERACTIVE_PERMISSION_ASK", default=False
+    )
+  )
   max_content_items: int = field(
     default_factory=lambda: int(os.environ.get("GEMCODE_MAX_CONTENT_ITEMS", "40"))
   )
@@ -210,7 +221,20 @@ class GemCodeConfig:
         self.allow_commands = frozenset(_split_csv(env))
       else:
         self.allow_commands = frozenset(
-          ("pytest", "python3", "python", "npm", "npx", "git", "ruff", "uv", "cargo", "go")
+          (
+            "pytest",
+            "python3",
+            "python",
+            "pip",
+            "pip3",
+            "npm",
+            "npx",
+            "git",
+            "ruff",
+            "uv",
+            "cargo",
+            "go",
+          )
         )
 
 

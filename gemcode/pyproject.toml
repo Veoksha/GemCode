@@ -4,26 +4,53 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gemcode"
-version = "0.1.0"
-description = "Local-first coding agent on Google Gemini + ADK (clean-room)"
+version = "0.2.0"
+description = "Local-first coding agent on Google Gemini + ADK"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = { file = "LICENSE" }
+authors = [{ name = "GemCode Contributors" }]
+keywords = ["ai", "agent", "coding", "gemini", "adk", "cli", "tui"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Terminals",
+]
 dependencies = [
   "google-adk>=1.0.0",
   "google-genai>=1.0.0",
   "python-dotenv>=1.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/spiderdev27/GemCode"
+Repository = "https://github.com/spiderdev27/GemCode"
+Issues = "https://github.com/spiderdev27/GemCode/issues"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0"]
 mcp = ["mcp>=1.0.0"]
+tui = ["prompt_toolkit>=3.0.0", "rich>=13.0.0"]
 
 [project.scripts]
 gemcode = "gemcode.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools]
+include-package-data = true
+license-files = ["LICENSE"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

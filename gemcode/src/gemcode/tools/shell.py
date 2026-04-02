@@ -8,10 +8,12 @@ import subprocess
 from pathlib import Path
 
 from gemcode.config import GemCodeConfig
+from gemcode.trust import is_trusted_root
 
 
 def make_run_command(cfg: GemCodeConfig):
   root = cfg.project_root
+  trusted = is_trusted_root(root)
 
   def run_command(
     command: str,
@@ -24,6 +26,8 @@ def make_run_command(cfg: GemCodeConfig):
     The executable must be a basename (no shell metacharacters) and appear in
     GEMCODE_ALLOW_COMMANDS / default allowlist.
     """
+    if not trusted:
+      return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
     args = args or []
     if timeout_seconds < 1:
       timeout_seconds = 1

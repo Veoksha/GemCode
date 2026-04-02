@@ -24,6 +24,7 @@ from gemcode.config import GemCodeConfig
 from gemcode.limits import make_before_model_limits_callback, make_before_model_token_budget_callback
 from gemcode.thinking import build_thinking_config
 from gemcode.tools import build_function_tools
+from gemcode.tool_prompt_manifest import build_tool_manifest
 
 
 def _chain_before_model_callbacks(*callbacks):
@@ -57,6 +58,11 @@ def build_instruction(cfg: GemCodeConfig) -> str:
   base = """You are GemCode, an expert software engineering agent.
 You work only inside the user's project directory. Use tools to read and explore before editing.
 Prefer small, testable edits. Explain assumptions briefly."""
+
+  tool_manifest = build_tool_manifest(cfg)
+
+  if tool_manifest:
+    base = f"{base}\n\n{tool_manifest}"
   extra = _load_gemini_md(cfg.project_root)
   if extra.strip():
     return f"{base}\n\n## Project instructions (GEMINI.md)\n{extra}"

@@ -7,13 +7,16 @@ import asyncio
 import os
 import sys
 import uuid
+import warnings
 from pathlib import Path
 
 from gemcode.config import GemCodeConfig, load_dotenv_optional
+from gemcode.tools_inspector import inspect_tools, smoke_tools
 from gemcode.invoke import run_turn
 from gemcode.model_routing import pick_effective_model
 from gemcode.capability_routing import apply_capability_routing
 from gemcode.session_runtime import create_runner
+from gemcode.trust import is_trusted_root, trust_root
 
 
 def _events_to_text(events) -> str:
@@ -27,10 +30,37 @@ def _events_to_text(events) -> str:
   return "".join(parts)
 
 
+def _maybe_prompt_trust(cfg: GemCodeConfig) -> None:
+  """
+  Claude Code-style folder trust prompt.
+
+  On first run in a new project root, ask the user to trust the folder.
+  If not trusted, we exit early so tools/filesystem/shell access never happens.
+  """
+  # Non-interactive sessions can't answer prompts.
+  if not (hasattr(sys.stdin, "isatty") and sys.stdin.isatty()):
+    return
+  if os.environ.get("GEMCODE_TRUST_PROMPT", "1").lower() not in ("1", "true", "yes", "on"):
+    return
+  root = cfg.project_root
+  if is_trusted_root(root):
+    return
+  try:
+    print(f"Trust this folder for GemCode access?\n  {root}\n[y/N] ", file=sys.stderr, end="")
+    ans = input().strip().lower()
+  except EOFError:
+    raise SystemExit("Folder is not trusted; aborting.")
+  if ans in ("y", "yes"):
+    trust_root(root, trusted=True)
+    return
+  raise SystemExit("Folder is not trusted; aborting.")
+
+
 async def _run_prompt(
   cfg: GemCodeConfig, prompt: str, session_id: str, *, use_mcp: bool
 ) -> str:
   load_dotenv_optional()
+  _maybe_prompt_trust(cfg)
   extra: list = []
   if use_mcp:
     from gemcode.mcp_loader import load_mcp_toolsets
@@ -54,7 +84,161 @@ async def _run_prompt(
     await runner.close()
 
 
+async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> None:
+  """
+  Interactive REPL mode (Claude Code-like): keep the session open for multiple turns.
+  """
+  load_dotenv_optional()
+  _maybe_prompt_trust(cfg)
+  extra: list = []
+  if use_mcp:
+    from gemcode.mcp_loader import load_mcp_toolsets
+
+    extra = load_mcp_toolsets(cfg)
+
+  runner = create_runner(cfg, extra_tools=extra or None)
+  try:
+    # For CLI UX, show concise tool summaries (helps users see what ran).
+    if os.environ.get("GEMCODE_EMIT_TOOL_USE_SUMMARIES") is None:
+      os.environ["GEMCODE_EMIT_TOOL_USE_SUMMARIES"] = "1"
+
+    # One-time permission prompt (interactive UX).
+    # This maps to the existing flags:
+    # - "auto"  => --yes (auto-approve mutating tools)
+    # - "ask"   => --interactive-ask (HITL prompts during runs)
+    # - "ro"    => read-only (default)
+    if os.environ.get("GEMCODE_CLI_PERMISSION_PROMPT", "1").lower() in (
+      "1",
+      "true",
+      "yes",
+      "on",
+    ):
+      try:
+        if (
+          hasattr(sys.stdin, "isatty")
+          and sys.stdin.isatty()
+          and not cfg.yes_to_all
+          and not cfg.interactive_permission_ask
+        ):
+          print(
+            "Permission mode: [Enter]=read-only, (a)sk each time, (y)es auto-approve (writes + shell)",
+            file=sys.stderr,
+          )
+          choice = input("perm> ").strip().lower()
+          if choice in ("y", "yes"):
+            cfg.yes_to_all = True
+          elif choice in ("a", "ask"):
+            cfg.interactive_permission_ask = True
+      except EOFError:
+        pass
+
+    # Optional TUI. Claude-like default is "scrollback" (no internal scrolling).
+    tui_enabled = os.environ.get("GEMCODE_TUI", "1").lower() in ("1", "true", "yes", "on")
+    if tui_enabled:
+      term = (os.environ.get("TERM") or "").strip().lower()
+      # Guardrails: Prompt Toolkit needs a real interactive terminal.
+      if not sys.stdin.isatty() or not sys.stdout.isatty() or term in ("", "dumb", "unknown"):
+        print(
+          f"[tui] disabled (stdin/stdout isatty={sys.stdin.isatty()}/{sys.stdout.isatty()}, TERM={term or '<unset>'}); using plain REPL",
+          file=sys.stderr,
+        )
+      else:
+        try:
+          style = os.environ.get("GEMCODE_TUI_STYLE", "scrollback").strip().lower()
+          if style in ("scrollback", "claude", "claude-like"):
+            from gemcode.tui.scrollback import run_gemcode_scrollback_tui
+
+            await run_gemcode_scrollback_tui(cfg=cfg, runner=runner, session_id=session_id)
+          else:
+            from gemcode.tui.app import run_gemcode_tui
+
+            await run_gemcode_tui(cfg=cfg, runner=runner, session_id=session_id)
+          return
+        except Exception as e:
+          # Dependency missing or terminal doesn't support full-screen.
+          # Print one line so users know how to fix it.
+          print(
+            f"[tui] failed to start: {type(e).__name__}: {e} (falling back to plain REPL). "
+            "Install extras with: pip install 'gemcode[tui]'",
+            file=sys.stderr,
+          )
+
+    print(
+      "GemCode CLI is running. Type your prompt and press Enter. (Ctrl+D to exit)",
+      file=sys.stderr,
+    )
+    while True:
+      try:
+        raw = input("> ")
+      except EOFError:
+        break
+
+      prompt_text = (raw or "").strip()
+      if not prompt_text:
+        continue
+      if prompt_text in (":q", "quit", "exit", "/exit"):
+        break
+
+      apply_capability_routing(cfg, prompt_text, context="prompt")
+      cfg.model = pick_effective_model(cfg, prompt_text)
+      collected = await run_turn(
+        runner,
+        user_id="local",
+        session_id=session_id,
+        prompt=prompt_text,
+        max_llm_calls=cfg.max_llm_calls,
+        cfg=cfg,
+      )
+      out = _events_to_text(collected)
+      if out:
+        print(out)
+        print()
+  finally:
+    await runner.close()
+
+
 def main() -> None:
+  # Reduce startup noise: hide the experimental ReflectAndRetryToolPlugin warning
+  # unless explicitly enabled.
+  if os.environ.get("GEMCODE_SHOW_EXPERIMENTAL_WARNINGS", "").lower() not in (
+    "1",
+    "true",
+    "yes",
+    "on",
+  ):
+    warnings.filterwarnings(
+      "ignore",
+      message=r"^\[EXPERIMENTAL\] ReflectAndRetryToolPlugin: .*",
+      category=UserWarning,
+    )
+    # Google SDK warnings are useful for library authors but noisy for CLI users.
+    warnings.filterwarnings(
+      "ignore",
+      message=r"^Interactions usage is experimental.*",
+      category=UserWarning,
+    )
+    warnings.filterwarnings(
+      "ignore",
+      message=r"^Async interactions client cannot use aiohttp.*",
+      category=UserWarning,
+    )
+    warnings.filterwarnings(
+      "ignore",
+      message=r"^Warning: there are non-text parts in the response: .*",
+      category=UserWarning,
+    )
+
+  # macOS privacy can block Desktop/Documents access for Terminal.app.
+  # Provide a clear error if the current directory is not accessible.
+  try:
+    Path.cwd().resolve()
+  except PermissionError:
+    raise SystemExit(
+      "PermissionError: terminal cannot access this folder. "
+      "On macOS: System Settings → Privacy & Security → Files and Folders, "
+      "enable Terminal for Desktop Folder (or grant Full Disk Access)."
+    )
+
   # Quick command bypass (no prompt parsing): list available Gemini models.
   if (
     len(sys.argv) > 1
@@ -84,6 +268,74 @@ def main() -> None:
         print(f"{name}\t{','.join(actions)}")
       else:
         print(name)
+    return
+
+  # Tool inventory / smoke test.
+  if len(sys.argv) > 1 and sys.argv[1] == "tools":
+    tools_parser = argparse.ArgumentParser(prog="gemcode tools")
+    tools_parser.add_argument(
+      "subcommand",
+      choices=("list", "smoke"),
+      help="Tool inventory operation",
+    )
+    tools_parser.add_argument(
+      "-C",
+      "--directory",
+      type=Path,
+      default=Path.cwd(),
+      help="Project root",
+    )
+    tools_parser.add_argument(
+      "--deep-research",
+      action="store_true",
+      help="Enable deep research built-in tools for inspection",
+    )
+    tools_parser.add_argument(
+      "--maps-grounding",
+      action="store_true",
+      help="Opt-in to Google Maps grounding during deep-research inspection",
+    )
+    tools_parser.add_argument(
+      "--embeddings",
+      action="store_true",
+      help="Enable embeddings semantic retrieval tool for inspection",
+    )
+    tools_parser.add_argument(
+      "--memory",
+      action="store_true",
+      help="Enable persistent memory ingestion tool preload for inspection",
+    )
+    args = tools_parser.parse_args(sys.argv[2:])
+
+    load_dotenv_optional()
+    cfg = GemCodeConfig(project_root=args.directory)
+    cfg.enable_deep_research = bool(args.deep_research)
+    cfg.enable_maps_grounding = bool(args.maps_grounding)
+    cfg.enable_embeddings = bool(args.embeddings)
+    cfg.enable_memory = bool(args.memory)
+
+    inspections = inspect_tools(cfg)
+    failures = smoke_tools(inspections)
+
+    if args.subcommand == "list":
+      for i in inspections:
+        decl = "decl_ok" if i.declaration_present else "no_decl"
+        if i.declaration_error:
+          decl = "decl_err"
+        print(f"{i.name}\t{i.category}\t{i.tool_type}\t{decl}")
+        if i.declaration_error:
+          print(f"  error: {i.declaration_error}")
+      return
+
+    # smoke
+    if failures:
+      for i in failures:
+        print(f"{i.name}\t{ i.category }\tdecl_err")
+        if i.declaration_error:
+          print(f"  error: {i.declaration_error}")
+      raise SystemExit(1)
+
+    print(f"smoke ok: {len(inspections)} tools validated")
     return
 
   # Live audio mode (Gemini Live API via ADK run_live()).
@@ -169,6 +421,128 @@ def main() -> None:
     print(f"\n[gemcode live-audio] session_id={session_id}", file=sys.stderr)
     return
 
+  # Kairos proactive scheduler daemon.
+  if len(sys.argv) > 1 and sys.argv[1] == "kairos":
+    kairos_parser = argparse.ArgumentParser(
+      prog="gemcode kairos",
+      description="Kairos-like proactive scheduler daemon (stdin -> queued jobs).",
+    )
+    kairos_parser.add_argument(
+      "-C",
+      "--directory",
+      type=Path,
+      default=Path.cwd(),
+      help="Project root",
+    )
+    kairos_parser.add_argument(
+      "--session",
+      default=None,
+      help="Session id for SQLite-backed history (optional; defaults to a new uuid).",
+    )
+    kairos_parser.add_argument(
+      "--concurrency",
+      type=int,
+      default=2,
+      help="Max number of concurrent queued jobs.",
+    )
+    kairos_parser.add_argument(
+      "--default-priority",
+      type=int,
+      default=0,
+      help="Priority used for stdin-enqueued jobs.",
+    )
+    kairos_parser.add_argument(
+      "--yes",
+      action="store_true",
+      help="Allow write_file / search_replace (disables interactive HITL prompts).",
+    )
+    kairos_parser.add_argument(
+      "--interactive-ask",
+      action="store_true",
+      help="Prompt in-run for mutating tool confirmations (HITL).",
+    )
+    kairos_parser.add_argument("--model", default=None, help="Override GEMCODE_MODEL")
+    kairos_parser.add_argument(
+      "--model-mode",
+      default=None,
+      help="Model mode: auto|fast|balanced|quality (overrides GEMCODE_MODEL_MODE).",
+    )
+    kairos_parser.add_argument(
+      "--deep-research",
+      action="store_true",
+      help="Enable deep research tools + routing.",
+    )
+    kairos_parser.add_argument(
+      "--maps-grounding",
+      action="store_true",
+      help="Opt-in to Google Maps grounding tool inside deep-research.",
+    )
+    kairos_parser.add_argument(
+      "--embeddings",
+      action="store_true",
+      help="Enable embeddings-based semantic retrieval.",
+    )
+    kairos_parser.add_argument(
+      "--capability-mode",
+      default=None,
+      help="Capability routing: auto|research|embeddings|computer|audio|all (enables tools and routes models).",
+    )
+    kairos_parser.add_argument(
+      "--tool-combination-mode",
+      default=None,
+      help="Gemini 3 tool context circulation: deep_research|always|never|auto",
+    )
+    kairos_parser.add_argument(
+      "--max-llm-calls",
+      type=int,
+      default=None,
+      metavar="N",
+      help="Cap model↔tool iterations for each job message (ADK RunConfig.max_llm_calls).",
+    )
+
+    args = kairos_parser.parse_args(sys.argv[2:])
+    load_dotenv_optional()
+
+    cfg = GemCodeConfig(project_root=args.directory)
+    if args.model:
+      cfg.model_overridden = True
+      cfg.model = args.model
+      cfg.model_family_mode = "primary"
+      if args.model_mode is None:
+        cfg.model_mode = "fast"
+
+    cfg.yes_to_all = bool(args.yes)
+    if args.interactive_ask:
+      cfg.interactive_permission_ask = True
+    else:
+      if "GEMCODE_INTERACTIVE_PERMISSION_ASK" not in os.environ:
+        cfg.interactive_permission_ask = bool(sys.stdin.isatty() and not cfg.yes_to_all)
+
+    cfg.enable_deep_research = bool(args.deep_research)
+    cfg.enable_maps_grounding = bool(args.maps_grounding)
+    cfg.enable_embeddings = bool(args.embeddings)
+
+    if args.capability_mode is not None:
+      cfg.capability_mode = args.capability_mode
+    if args.tool_combination_mode is not None:
+      cfg.tool_combination_mode = args.tool_combination_mode
+    if args.model_mode is not None:
+      cfg.model_mode = args.model_mode
+    if args.max_llm_calls is not None:
+      cfg.max_llm_calls = args.max_llm_calls
+
+    session_id = args.session or str(uuid.uuid4())
+    from gemcode.kairos_daemon import KairosDaemon
+
+    daemon = KairosDaemon(
+      cfg=cfg,
+      concurrency=args.concurrency,
+      default_priority=args.default_priority,
+    )
+    asyncio.run(daemon.run_forever(session_id=session_id))
+    print(f"\n[gemcode kairos] session_id={session_id}", file=sys.stderr)
+    return
+
   parser = argparse.ArgumentParser(prog="gemcode", description="Gemini + ADK coding agent")
   parser.add_argument(
     "prompt",
@@ -179,6 +553,11 @@ def main() -> None:
   parser.add_argument("-C", "--directory", type=Path, default=Path.cwd(), help="Project root")
   parser.add_argument("--session", default=None, help="Session id for SQLite-backed history")
   parser.add_argument("--yes", action="store_true", help="Allow write_file / search_replace")
+  parser.add_argument(
+    "--interactive-ask",
+    action="store_true",
+    help="Prompt in-run for mutating tool confirmations (HITL) instead of requiring --yes rerun.",
+  )
   parser.add_argument("--model", default=None, help="Override GEMCODE_MODEL")
   parser.add_argument(
       "--model-mode",
@@ -222,10 +601,7 @@ def main() -> None:
 
   load_dotenv_optional()
   prompt = args.prompt
-  if prompt is None:
-    prompt = sys.stdin.read()
-  if not prompt.strip():
-    parser.error("Empty prompt")
+  interactive_tty = prompt is None and sys.stdin.isatty()
 
   cfg = GemCodeConfig(project_root=args.directory)
   if args.model:
@@ -239,6 +615,12 @@ def main() -> None:
     if args.model_mode is None:
       cfg.model_mode = "fast"
   cfg.yes_to_all = args.yes
+  if args.interactive_ask:
+    cfg.interactive_permission_ask = True
+  else:
+    # If user didn't explicitly set env, default to HITL when we're in a TTY.
+    if "GEMCODE_INTERACTIVE_PERMISSION_ASK" not in os.environ:
+      cfg.interactive_permission_ask = bool(sys.stdin.isatty() and not cfg.yes_to_all)
   cfg.enable_deep_research = bool(args.deep_research)
   cfg.enable_maps_grounding = bool(args.maps_grounding)
   cfg.enable_embeddings = bool(args.embeddings)
@@ -252,6 +634,17 @@ def main() -> None:
     cfg.max_llm_calls = args.max_llm_calls
 
   session_id = args.session or str(uuid.uuid4())
+
+  if interactive_tty:
+    asyncio.run(_run_repl(cfg, session_id, use_mcp=args.mcp))
+    print(f"\n[gemcode] session_id={session_id}", file=sys.stderr)
+    return
+
+  if prompt is None:
+    prompt = sys.stdin.read()
+  if not prompt.strip():
+    parser.error("Empty prompt")
+
   prompt_text = prompt.strip()
   apply_capability_routing(cfg, prompt_text, context="prompt")
   cfg.model = pick_effective_model(cfg, prompt_text)
