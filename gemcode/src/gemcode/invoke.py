@@ -6,7 +6,9 @@ CLI and tests call `run_turn` with a Runner already bound to app + session servi
 
 from __future__ import annotations
 
+import os
 import sys
+from typing import Any
 from threading import Lock
 
 from google.adk.agents.run_config import RunConfig
@@ -15,6 +17,39 @@ from google.genai import types
 
 
 _HITL_PROMPT_LOCK = Lock()
+
+
+def _events_to_text(events: list[Any]) -> str:
+  """Best-effort extraction of assistant text from ADK events."""
+  parts: list[str] = []
+  for event in events:
+    try:
+      content = getattr(event, "content", None)
+      if not content or not getattr(content, "parts", None):
+        continue
+      author = getattr(event, "author", None)
+      if not author or author == "user":
+        continue
+      for part in getattr(content, "parts", []) or []:
+        t = getattr(part, "text", None)
+        if isinstance(t, str) and t:
+          parts.append(t)
+    except Exception:
+      continue
+  return "".join(parts)
+
+
+def _is_retryable_context_model_error(text: str) -> bool:
+  t = (text or "").lower()
+  # Key off GemCode's user hint added in `model_errors.py`.
+  if "request may be too large" in t:
+    return True
+  if "gemcode_max_context_chars" in t or "gemcode_tool_result_max_chars" in t:
+    return True
+  # Fallback heuristics (avoid generic "something broke").
+  if "context" in t and ("too large" in t or "token" in t or "length" in t):
+    return True
+  return False
 
 
 async def run_turn(
@@ -27,38 +62,9 @@ async def run_turn(
     cfg: "GemCodeConfig | None" = None,
 ) -> list:
   """Execute one user message; collect all Events (caller aggregates text)."""
-
-  collected: list = []
-
   run_config = (
     RunConfig(max_llm_calls=max_llm_calls) if max_llm_calls is not None else None
   )
-
-  # Apply token-budget reset only once per user turn, even if we must resume
-  # across multiple ADK tool-confirmation handoffs.
-  state_delta = None
-  if cfg is not None and cfg.token_budget:
-    from gemcode.config import token_budget_invocation_reset
-
-    state_delta = token_budget_invocation_reset()
-
-  # The first message is plain user text.
-  current_message = types.Content(role="user", parts=[types.Part(text=prompt)])
-
-  async def _await_runner_events(*, next_message: types.Content, do_reset: bool):
-    kwargs = dict(
-      user_id=user_id,
-      session_id=session_id,
-      new_message=next_message,
-    )
-    if run_config is not None:
-      kwargs["run_config"] = run_config
-    if do_reset and state_delta is not None:
-      kwargs["state_delta"] = state_delta
-    events: list = []
-    async for event in runner.run_async(**kwargs):
-      events.append(event)
-    return events
 
   REQUEST_CONFIRMATION_FC = "adk_request_confirmation"
 
@@ -99,53 +105,133 @@ async def run_turn(
           return False
         print("Please answer 'y' or 'n'.")
 
-  # Runner handoff loop: if tools request confirmations, we pause here to ask
-  # HITL, then send back function responses so ADK can re-execute the tools.
-  do_reset = True
-  while True:
-    events = await _await_runner_events(
-      next_message=current_message, do_reset=do_reset
-    )
-    collected.extend(events)
+  retry_enabled = os.environ.get("GEMCODE_ENABLE_MODEL_ERROR_RETRY", "1").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+  )
+  retry_max_attempts = int(
+    os.environ.get("GEMCODE_MODEL_ERROR_RETRY_MAX_ATTEMPTS", "2")
+  )
+  retry_shrink_factor = float(
+    os.environ.get("GEMCODE_MODEL_ERROR_RETRY_SHRINK_FACTOR", "0.6")
+  )
+  if retry_max_attempts < 2:
+    retry_enabled = False
 
-    confirmation_fcs = _get_confirmation_requests(events)
-    if not confirmation_fcs:
-      break
+  orig_ctx_chars: int | None = None
+  orig_tool_chars: int | None = None
 
-    # If interactive ask is disabled, auto-reject to avoid hanging on stdin.
-    interactive_enabled = bool(
-      getattr(cfg, "interactive_permission_ask", False)
-      and hasattr(sys.stdin, "isatty")
-      and sys.stdin.isatty()
-    )
+  try:
+    for attempt in range(retry_max_attempts):
+      collected: list = []
 
-    parts: list[types.Part] = []
-    for fc in confirmation_fcs:
-      tool_name, hint = _extract_hint_and_tool(fc)
-      if interactive_enabled:
-        suffix = f"\n  Hint: {hint}" if hint else ""
-        ok = _prompt_yes_no(
-          f"\n[gemcode HITL] Approve tool call '{tool_name}'? [y/N]{suffix}\n> "
-        )
-      else:
-        ok = False
-        print(
-          f"[gemcode HITL] Tool confirmation requested for '{tool_name}', but interactive-ask is disabled; auto-rejecting.",
-          file=sys.stderr,
-        )
+      # Apply token-budget reset only once per user turn, even if we must
+      # resume across multiple ADK tool-confirmation handoffs.
+      state_delta = None
+      if cfg is not None and cfg.token_budget:
+        from gemcode.config import token_budget_invocation_reset
 
-      parts.append(
-        types.Part(
-          function_response=types.FunctionResponse(
-            name=REQUEST_CONFIRMATION_FC,
-            id=getattr(fc, "id", None),
-            response={"confirmed": ok},
-          )
-        )
+        state_delta = token_budget_invocation_reset()
+
+      # The first message is plain user text.
+      current_message = types.Content(
+        role="user", parts=[types.Part(text=prompt)]
       )
 
-    current_message = types.Content(role="user", parts=parts)
-    # Subsequent resumes must not re-reset token budgets.
-    do_reset = False
+      async def _await_runner_events(
+        *, next_message: types.Content, do_reset: bool
+      ):
+        kwargs = dict(
+          user_id=user_id,
+          session_id=session_id,
+          new_message=next_message,
+        )
+        if run_config is not None:
+          kwargs["run_config"] = run_config
+        if do_reset and state_delta is not None:
+          kwargs["state_delta"] = state_delta
+        events: list = []
+        async for event in runner.run_async(**kwargs):
+          events.append(event)
+        return events
 
-  return collected
+      # Runner handoff loop: if tools request confirmations, we pause here to
+      # ask HITL, then send back function responses so ADK can re-execute the
+      # tools.
+      do_reset = True
+      while True:
+        events = await _await_runner_events(
+          next_message=current_message, do_reset=do_reset
+        )
+        collected.extend(events)
+
+        confirmation_fcs = _get_confirmation_requests(events)
+        if not confirmation_fcs:
+          break
+
+        # If interactive ask is disabled, auto-reject to avoid hanging on stdin.
+        interactive_enabled = bool(
+          getattr(cfg, "interactive_permission_ask", False)
+          and hasattr(sys.stdin, "isatty")
+          and sys.stdin.isatty()
+        )
+
+        parts: list[types.Part] = []
+        for fc in confirmation_fcs:
+          tool_name, hint = _extract_hint_and_tool(fc)
+          if interactive_enabled:
+            suffix = f"\n  Hint: {hint}" if hint else ""
+            ok = _prompt_yes_no(
+              f"\n[gemcode HITL] Approve tool call '{tool_name}'? [y/N]{suffix}\n> "
+            )
+          else:
+            ok = False
+            print(
+              f"[gemcode HITL] Tool confirmation requested for '{tool_name}', but interactive-ask is disabled; auto-rejecting.",
+              file=sys.stderr,
+            )
+
+          parts.append(
+            types.Part(
+              function_response=types.FunctionResponse(
+                name=REQUEST_CONFIRMATION_FC,
+                id=getattr(fc, "id", None),
+                response={"confirmed": ok},
+              )
+            )
+          )
+
+        current_message = types.Content(role="user", parts=parts)
+        # Subsequent resumes must not re-reset token budgets.
+        do_reset = False
+
+      # Retry decision: if we detect context/length failures, tighten budgets
+      # and re-run once.
+      if (
+        attempt == 0
+        and retry_enabled
+        and cfg is not None
+        and hasattr(cfg, "max_context_chars")
+        and hasattr(cfg, "tool_result_max_chars")
+        and attempt + 1 < retry_max_attempts
+      ):
+        assistant_text = _events_to_text(collected)
+        if _is_retryable_context_model_error(assistant_text):
+          orig_ctx_chars = cfg.max_context_chars
+          orig_tool_chars = cfg.tool_result_max_chars
+          cfg.max_context_chars = max(
+            50_000, int(orig_ctx_chars * retry_shrink_factor)
+          )
+          cfg.tool_result_max_chars = max(
+            1_000, int(orig_tool_chars * retry_shrink_factor)
+          )
+          continue
+
+      return collected
+  finally:
+    if cfg is not None and orig_ctx_chars is not None:
+      cfg.max_context_chars = orig_ctx_chars
+    if cfg is not None and orig_tool_chars is not None:
+      cfg.tool_result_max_chars = orig_tool_chars

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 from google.genai import types
 
 from gemcode.config import GemCodeConfig
+from gemcode.hitl_session import HITL_STICKY_SESSION_KEY
 from gemcode.permissions import make_before_tool_callback
 from gemcode.invoke import run_turn
 
@@ -32,6 +33,7 @@ def test_before_tool_requests_confirmation_for_mutation(tmp_path: Path) -> None:
 
   tool_context = MagicMock()
   tool_context.state = {}
+  tool_context.tool_confirmation = None
 
   out = cb(tool, {"path": "x", "content": "y"}, tool_context)
   assert out is not None
@@ -52,6 +54,7 @@ def test_before_tool_requests_confirmation_for_computer_use(tmp_path: Path) -> N
   tool = ComputerUseTool("click_at")
   tool_context = MagicMock()
   tool_context.state = {}
+  tool_context.tool_confirmation = None
 
   out = cb(tool, {"x": 1, "y": 2}, tool_context)
   assert out is not None
@@ -59,6 +62,24 @@ def test_before_tool_requests_confirmation_for_computer_use(tmp_path: Path) -> N
   tool_context.request_confirmation.assert_called_once()
   hint = tool_context.request_confirmation.call_args.kwargs.get("hint", "")
   assert "browser automation" in hint.lower()
+
+
+def test_hitl_sticky_skips_second_prompt(tmp_path: Path) -> None:
+  cfg = GemCodeConfig(project_root=tmp_path)
+  cfg.permission_mode = "default"
+  cfg.yes_to_all = False
+  cfg.interactive_permission_ask = True
+  cfg.interactive_hitl_sticky_session = True
+
+  cb = make_before_tool_callback(cfg)
+  tool = MagicMock()
+  tool.name = "write_file"
+  tool_context = MagicMock()
+  tool_context.state = {HITL_STICKY_SESSION_KEY: True}
+  tool_context.tool_confirmation = None
+
+  out = cb(tool, {"path": "x", "content": "y"}, tool_context)
+  assert out is None
 
 
 class _FakeRunner:

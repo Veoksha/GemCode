@@ -67,8 +67,10 @@ def build_prompt_suggestion(
 
   if r == "model_error":
     return (
-      "The model call failed. Try again, reduce prompt size, or switch to a "
-      "different model via `--model`."
+      "The model API returned an error (details appear above and in "
+      "`.gemcode/audit.log`). Retry, shorten the prompt or session history, "
+      "confirm `GOOGLE_API_KEY` and `GEMCODE_MODEL`, or set "
+      "`GEMCODE_VERBOSE_MODEL_ERRORS=1` for a full traceback."
     )
 
   # Generic fallback.

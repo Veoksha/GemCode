@@ -18,7 +18,7 @@ import os
 from typing import Iterable
 
 from gemcode.config import GemCodeConfig
-from gemcode.tool_registry import MUTATING_TOOLS, READ_ONLY_TOOLS, SHELL_TOOLS
+from gemcode.tool_registry import MUTATING_TOOLS, PLANNING_TOOLS, READ_ONLY_TOOLS, SHELL_TOOLS
 
 
 def _truthy_env(name: str, *, default: bool = False) -> bool:
@@ -49,16 +49,18 @@ def build_tool_manifest(cfg: GemCodeConfig) -> str | None:
   if not enabled:
     return None
 
-  max_chars = int(os.environ.get("GEMCODE_TOOL_SYSTEM_PROMPT_MAX_CHARS", "2400"))
+  max_chars = int(os.environ.get("GEMCODE_TOOL_SYSTEM_PROMPT_MAX_CHARS", "3200"))
 
   permission_mode = getattr(cfg, "permission_mode", "default")
   yes_to_all = bool(getattr(cfg, "yes_to_all", False))
   interactive_ask_on = bool(getattr(cfg, "interactive_permission_ask", False))
+  sticky_hitl = bool(getattr(cfg, "interactive_hitl_sticky_session", True))
 
   # Core custom tools.
   read_only = sorted(READ_ONLY_TOOLS)
   mutating = sorted(MUTATING_TOOLS)
   shell = sorted(SHELL_TOOLS)
+  planning = sorted(PLANNING_TOOLS)
 
   # Deep research built-ins are not always safe to combine; we only describe
   # what's actually enabled by config.
@@ -82,24 +84,43 @@ def build_tool_manifest(cfg: GemCodeConfig) -> str | None:
     "When enabled, built-in tool results may appear in context for subsequent function tool calls."
   )
 
+  mutating_policy_extra = ""
+  if interactive_ask_on:
+    mutating_policy_extra = (
+      " If user_in_run_hitl_prompt_enabled is true, the session will show an inline approval prompt—"
+      "do **not** tell the user to re-run with `--yes`; wait for approval and proceed."
+    )
+  else:
+    mutating_policy_extra = (
+      " If neither --yes nor inline HITL is available, ask the user to re-run with `--yes` when mutations are required."
+    )
+
   manifest = f"""## Tool system (GemCode)
+
+Model behavior:
+- Issue **multiple tool calls in one assistant step** when calls are independent (e.g. several `read_file`/`glob_files`/`grep_content` in parallel). Use a single tool call when the next action depends on the previous result.
+- **Reason end-to-end:** you decide which tools to call and in what order—the user expects autonomous execution within policy, not a questionnaire.
 
 Permission policy:
 - permission_mode={permission_mode}
 - user_confirmation_provided(--yes)={yes_to_all}
 - user_in_run_hitl_prompt_enabled={interactive_ask_on}
+- session_sticky_hitl={sticky_hitl}: when true, after the user approves **one** tool in this session, further mutating/shell tools may run without re-prompting (set GEMCODE_HITL_STICKY_SESSION=0 to prompt every time).
 
 You may call tools as follows:
-- Read-only tools: {_fmt_list(read_only)}
-- Mutating tools (WRITE/EDIT): {_fmt_list(mutating)}.
-  Only call if user_confirmation_provided(--yes) is true OR user_in_run_hitl_prompt_enabled is true.
-  If neither is true, you must ask the user to re-run with --yes.
+- Session planning: {_fmt_list(planning)}. In-memory task list for this session (no disk writes). Use for non-trivial multi-step work; set merge=true to upsert by id.
+- Read-only tools: {_fmt_list(read_only)}.
+  Use these proactively to locate files and code before asking the user for paths.
+- Mutating tools (WRITE/EDIT/DELETE): {_fmt_list(mutating)}.
+  Only call if user_confirmation_provided(--yes) is true OR user_in_run_hitl_prompt_enabled is true.{mutating_policy_extra}
 - Shell tool (run_command): {_fmt_list(shell)}.
-  Only use commands from GEMCODE_ALLOW_COMMANDS. Allowed={allow_cmds_str or "<none>"}.
+  Prefer allowlisted commands (GEMCODE_ALLOW_COMMANDS). Allowed={allow_cmds_str or "<none>"}.
+  If the user approves a run_command in the session prompt, that specific invocation may run even when the executable is not on the default list.
   Only call if user_confirmation_provided(--yes) is true OR user_in_run_hitl_prompt_enabled is true.
   Notes:
   - Prefer `python -m pip ...` (or `python3 -m pip ...`) so installs stay in the active virtualenv.
   - Do not assume sudo/system package manager access.
+  - `run_command` supports `cwd_subdir` (relative path under the project) instead of `cd`/`bash`; use `extra_env` (e.g. CI=1) for non-interactive installers; use `background=true` for long-running dev servers.
 
 Optional capability tools:
 - Deep research built-ins are {'ON' if deep_research_on else 'OFF'}.

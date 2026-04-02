@@ -26,17 +26,21 @@ MUTATING_TOOLS: frozenset[str] = frozenset(
   {
     "write_file",
     "search_replace",
+    "delete_file",
   }
 )
 
 # Subprocess (allowlist enforced inside tool)
 SHELL_TOOLS: frozenset[str] = frozenset({"run_command"})
 
+# Session planning only (no disk / shell; no extra permission)
+PLANNING_TOOLS: frozenset[str] = frozenset({"todo_write"})
+
 ToolConcurrency = Literal["parallel_safe", "serial_mutating", "shell"]
 
 
 def concurrency_class(tool_name: str) -> ToolConcurrency:
-  if tool_name in READ_ONLY_TOOLS:
+  if tool_name in READ_ONLY_TOOLS or tool_name in PLANNING_TOOLS:
     return "parallel_safe"
   if tool_name in MUTATING_TOOLS:
     return "serial_mutating"

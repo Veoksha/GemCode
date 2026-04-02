@@ -1,4 +1,9 @@
-"""Optional sliding-window trim before each model call (use with care)."""
+"""Optional sliding-window trim before each model call (use with care).
+
+Runs after `context_budget` soft char shrink when enabled. Sliding-window
+dropping of whole `Content` rows can break tool-call pairing; prefer
+GEMCODE_MAX_CONTEXT_CHARS + GEMCODE_TOOL_RESULT_MAX_CHARS first.
+"""
 
 from __future__ import annotations
 

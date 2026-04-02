@@ -36,7 +36,7 @@ def make_before_model_limits_callback(cfg: GemCodeConfig):
               parts=[
                   types.Part(
                       text=(
-                          f"GemCode: session token ceiling ({cfg.max_session_tokens}) reached "
+                          f"Session token ceiling ({cfg.max_session_tokens}) reached "
                           "(see GEMCODE_MAX_SESSION_TOKENS). Start a new session or raise the limit."
                       )
                   )
@@ -70,10 +70,10 @@ def make_before_model_token_budget_callback(cfg: GemCodeConfig):
         role="model",
         parts=[
           types.Part(
-            text=(
-              f"GemCode: token budget ({cfg.token_budget}) exhausted for this turn. "
-              "Start a new request to continue."
-            )
+              text=(
+                  f"Token budget ({cfg.token_budget}) exhausted for this turn. "
+                  "Start a new request to continue."
+              )
           )
         ],
       ),

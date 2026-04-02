@@ -4,19 +4,21 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import os
 import sys
 import uuid
 import warnings
 from pathlib import Path
 
-from gemcode.config import GemCodeConfig, load_dotenv_optional
+from gemcode.config import GemCodeConfig, load_cli_environment
 from gemcode.tools_inspector import inspect_tools, smoke_tools
 from gemcode.invoke import run_turn
 from gemcode.model_routing import pick_effective_model
 from gemcode.capability_routing import apply_capability_routing
 from gemcode.session_runtime import create_runner
 from gemcode.trust import is_trusted_root, trust_root
+from gemcode.repl_slash import process_repl_slash
 
 
 def _events_to_text(events) -> str:
@@ -32,21 +34,27 @@ def _events_to_text(events) -> str:
 
 def _maybe_prompt_trust(cfg: GemCodeConfig) -> None:
   """
-  Claude Code-style folder trust prompt.
+  Claude Code–style workspace trust prompt.
 
-  On first run in a new project root, ask the user to trust the folder.
-  If not trusted, we exit early so tools/filesystem/shell access never happens.
+  On first use in a project root, ask the user to trust the folder so file,
+  shell, and git tools can run. If not trusted, we exit before any tool runs.
   """
   # Non-interactive sessions can't answer prompts.
   if not (hasattr(sys.stdin, "isatty") and sys.stdin.isatty()):
     return
   if os.environ.get("GEMCODE_TRUST_PROMPT", "1").lower() not in ("1", "true", "yes", "on"):
     return
-  root = cfg.project_root
+  root = cfg.project_root.resolve()
   if is_trusted_root(root):
     return
   try:
-    print(f"Trust this folder for GemCode access?\n  {root}\n[y/N] ", file=sys.stderr, end="")
+    print(
+        "GemCode needs full access to this workspace folder (files, shell, git):\n"
+        f"  {root}\n\n"
+        "Trust this folder? [y/N] ",
+        file=sys.stderr,
+        end="",
+    )
     ans = input().strip().lower()
   except EOFError:
     raise SystemExit("Folder is not trusted; aborting.")
@@ -56,11 +64,64 @@ def _maybe_prompt_trust(cfg: GemCodeConfig) -> None:
   raise SystemExit("Folder is not trusted; aborting.")
 
 
+def _maybe_prompt_google_api_key() -> None:
+  """
+  One-time interactive prompt for ``GOOGLE_API_KEY`` (like ``claude login`` / first-run).
+
+  Skipped when the key is already set, stdin is not a TTY, or
+  ``GEMCODE_NO_LOGIN_PROMPT=1``.
+  """
+  if os.environ.get("GOOGLE_API_KEY"):
+    return
+  if os.environ.get("GEMCODE_NO_LOGIN_PROMPT", "").lower() in ("1", "true", "yes", "on"):
+    return
+  if not (hasattr(sys.stdin, "isatty") and sys.stdin.isatty()):
+    return
+  if os.environ.get("GEMCODE_INTERACTIVE_LOGIN", "1").lower() not in (
+    "1",
+    "true",
+    "yes",
+    "on",
+  ):
+    return
+  try:
+    print(
+        "\nGemCode needs a Google Gemini API key (saved once under ~/.gemcode/).\n"
+        "Create one at https://aistudio.google.com/app/apikey\n"
+        "Paste your key and press Enter (input is hidden).\n",
+        file=sys.stderr,
+    )
+    key = getpass.getpass("API key: ").strip()
+  except EOFError:
+    raise SystemExit("No API key provided; aborting.")
+  if not key:
+    raise SystemExit("No API key provided; aborting.")
+  from gemcode.credentials import save_google_api_key_to_user_store
+
+  save_google_api_key_to_user_store(key)
+  os.environ["GOOGLE_API_KEY"] = key
+  print(
+      "API key saved. Change it anytime with: gemcode login\n",
+      file=sys.stderr,
+  )
+
+
+def require_google_api_key() -> None:
+  if os.environ.get("GOOGLE_API_KEY"):
+    return
+  raise SystemExit(
+      "GOOGLE_API_KEY is not set. Run: gemcode login\n"
+      "Or export GOOGLE_API_KEY or add it to a .env file in this directory."
+  )
+
+
 async def _run_prompt(
   cfg: GemCodeConfig, prompt: str, session_id: str, *, use_mcp: bool
 ) -> str:
-  load_dotenv_optional()
+  load_cli_environment()
   _maybe_prompt_trust(cfg)
+  _maybe_prompt_google_api_key()
+  require_google_api_key()
   extra: list = []
   if use_mcp:
     from gemcode.mcp_loader import load_mcp_toolsets
@@ -88,8 +149,10 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
   """
   Interactive REPL mode (Claude Code-like): keep the session open for multiple turns.
   """
-  load_dotenv_optional()
+  load_cli_environment()
   _maybe_prompt_trust(cfg)
+  _maybe_prompt_google_api_key()
+  require_google_api_key()
   extra: list = []
   if use_mcp:
     from gemcode.mcp_loader import load_mcp_toolsets
@@ -148,11 +211,21 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
           if style in ("scrollback", "claude", "claude-like"):
             from gemcode.tui.scrollback import run_gemcode_scrollback_tui
 
-            await run_gemcode_scrollback_tui(cfg=cfg, runner=runner, session_id=session_id)
+            await run_gemcode_scrollback_tui(
+                cfg=cfg,
+                runner=runner,
+                session_id=session_id,
+                extra_tools=extra or None,
+            )
           else:
             from gemcode.tui.app import run_gemcode_tui
 
-            await run_gemcode_tui(cfg=cfg, runner=runner, session_id=session_id)
+            await run_gemcode_tui(
+                cfg=cfg,
+                runner=runner,
+                session_id=session_id,
+                extra_tools=extra or None,
+            )
           return
         except Exception as e:
           # Dependency missing or terminal doesn't support full-screen.
@@ -178,6 +251,22 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
         continue
       if prompt_text in (":q", "quit", "exit", "/exit"):
         break
+
+      slash = await process_repl_slash(
+          cfg=cfg,
+          runner=runner,
+          session_id=session_id,
+          prompt_text=prompt_text,
+          extra_tools=extra or None,
+      )
+      if slash is not None:
+        if slash.exit_repl:
+          break
+        if slash.new_session_id is not None:
+          session_id = slash.new_session_id
+        if slash.skip_model_turn:
+          continue
+        prompt_text = slash.model_prompt or prompt_text
 
       apply_capability_routing(cfg, prompt_text, context="prompt")
       cfg.model = pick_effective_model(cfg, prompt_text)
@@ -227,6 +316,11 @@ def main() -> None:
       message=r"^Warning: there are non-text parts in the response: .*",
       category=UserWarning,
     )
+    warnings.filterwarnings(
+      "ignore",
+      message=r"^\[EXPERIMENTAL\] feature FeatureName\.TOOL_CONFIRMATION.*",
+      category=UserWarning,
+    )
 
   # macOS privacy can block Desktop/Documents access for Terminal.app.
   # Provide a clear error if the current directory is not accessible.
@@ -239,17 +333,40 @@ def main() -> None:
       "enable Terminal for Desktop Folder (or grant Full Disk Access)."
     )
 
+  # Persist or rotate API key (Claude Code–style `claude login`).
+  if len(sys.argv) > 1 and sys.argv[1] == "login":
+    load_cli_environment()
+    if not (hasattr(sys.stdin, "isatty") and sys.stdin.isatty()):
+      raise SystemExit("gemcode login requires an interactive terminal.")
+    from gemcode.credentials import credentials_path, save_google_api_key_to_user_store
+
+    print(
+        "GemCode login — Google Gemini API key\n"
+        "Create one at https://aistudio.google.com/app/apikey\n",
+        file=sys.stderr,
+    )
+    try:
+      key = getpass.getpass("API key: ").strip()
+    except EOFError:
+      raise SystemExit("Aborted.")
+    if not key:
+      raise SystemExit("Empty key; aborting.")
+    save_google_api_key_to_user_store(key)
+    os.environ["GOOGLE_API_KEY"] = key
+    print(f"Saved to {credentials_path()}", file=sys.stderr)
+    return
+
   # Quick command bypass (no prompt parsing): list available Gemini models.
   if (
     len(sys.argv) > 1
     and sys.argv[1] in ("models", "list-models", "list_models")
   ):
-    load_dotenv_optional()
+    load_cli_environment()
+    _maybe_prompt_google_api_key()
+    require_google_api_key()
     from google.genai import Client
 
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-      raise SystemExit("GOOGLE_API_KEY is not set. Copy .env.example -> .env and retry.")
+    api_key = os.environ["GOOGLE_API_KEY"]
 
     client = Client(api_key=api_key)
     models = client.models.list()
@@ -307,7 +424,7 @@ def main() -> None:
     )
     args = tools_parser.parse_args(sys.argv[2:])
 
-    load_dotenv_optional()
+    load_cli_environment()
     cfg = GemCodeConfig(project_root=args.directory)
     cfg.enable_deep_research = bool(args.deep_research)
     cfg.enable_maps_grounding = bool(args.maps_grounding)
@@ -395,7 +512,7 @@ def main() -> None:
     )
 
     args = audio_parser.parse_args(sys.argv[2:])
-    load_dotenv_optional()
+    load_cli_environment()
 
     cfg = GemCodeConfig(project_root=args.directory)
     cfg.yes_to_all = args.yes
@@ -405,6 +522,10 @@ def main() -> None:
       cfg.model = args.model
     else:
       cfg.model = cfg.model_audio_live
+
+    _maybe_prompt_trust(cfg)
+    _maybe_prompt_google_api_key()
+    require_google_api_key()
 
     session_id = args.session or str(uuid.uuid4())
     from gemcode.live_audio_engine import run_live_audio
@@ -501,7 +622,7 @@ def main() -> None:
     )
 
     args = kairos_parser.parse_args(sys.argv[2:])
-    load_dotenv_optional()
+    load_cli_environment()
 
     cfg = GemCodeConfig(project_root=args.directory)
     if args.model:
@@ -530,6 +651,10 @@ def main() -> None:
       cfg.model_mode = args.model_mode
     if args.max_llm_calls is not None:
       cfg.max_llm_calls = args.max_llm_calls
+
+    _maybe_prompt_trust(cfg)
+    _maybe_prompt_google_api_key()
+    require_google_api_key()
 
     session_id = args.session or str(uuid.uuid4())
     from gemcode.kairos_daemon import KairosDaemon
@@ -599,7 +724,7 @@ def main() -> None:
   )
   args = parser.parse_args()
 
-  load_dotenv_optional()
+  load_cli_environment()
   prompt = args.prompt
   interactive_tty = prompt is None and sys.stdin.isatty()
 

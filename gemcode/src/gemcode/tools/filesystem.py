@@ -70,4 +70,17 @@ def make_filesystem_tools(cfg: GemCodeConfig):
         break
     return {"pattern": pattern, "matches": matches}
 
-  return read_file, list_directory, glob_files
+  def delete_file(path: str) -> dict:
+    """Delete a file relative to the project root (not directories)."""
+    if not trusted:
+      return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
+    try:
+      p = resolve_under_root(root, path)
+    except PathEscapeError as e:
+      return {"error": str(e)}
+    if not p.is_file():
+      return {"error": f"Not a file: {path}"}
+    p.unlink()
+    return {"path": path, "deleted": True}
+
+  return read_file, list_directory, glob_files, delete_file

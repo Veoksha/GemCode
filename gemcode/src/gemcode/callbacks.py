@@ -11,15 +11,21 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from google.adk.tools.base_tool import BaseTool
 
 from gemcode.audit import append_audit
 from gemcode.config import GemCodeConfig
+from gemcode.context_budget import truncate_tool_result_dict
+from gemcode.context_warning import calculate_context_warning_state, worst_alert_level
 from gemcode.limits import SESSION_TOTAL_TOKENS_KEY
 from gemcode.query.token_budget import BudgetTracker, check_token_budget, create_budget_tracker
+from gemcode.hitl_session import HITL_STICKY_SESSION_KEY
+from gemcode.model_errors import format_model_error_for_user
 from gemcode.tool_registry import MUTATING_TOOLS, SHELL_TOOLS
+from gemcode.tools.shell_gate import arm_confirmed_shell_basename
 
 _STATE_FAILURE_KEY = "gemcode:consecutive_tool_failures"
 TERMINAL_REASON_KEY = "gemcode:terminal_reason"
@@ -33,6 +39,10 @@ _BT_CC = "gemcode:bt_cc"
 _BT_LD = "gemcode:bt_ld"
 _BT_LG = "gemcode:bt_lg"
 _BT_T0 = "gemcode:bt_t0"
+_CTX_WARN_LEVEL_NOTIFIED = "gemcode:ctx_warn_level_notified"
+_LAST_PROMPT_TOKENS = "gemcode:last_prompt_tokens"
+_LAST_CONTEXT_PCT = "gemcode:last_context_percent_left"
+_LAST_CONTEXT_LEVEL = "gemcode:last_context_alert_level"
 
 def _truthy_env(name: str, *, default: bool = False) -> bool:
   v = os.environ.get(name)
@@ -57,6 +67,12 @@ def _max_consecutive_failures() -> int:
   return int(os.environ.get("GEMCODE_MAX_CONSECUTIVE_TOOL_FAILURES", "8"))
 
 
+def _arm_shell_from_args(args: dict[str, Any]) -> None:
+  cmd = args.get("command")
+  if isinstance(cmd, str) and cmd.strip():
+    arm_confirmed_shell_basename(Path(cmd.strip()).name)
+
+
 def _is_computer_use_tool(tool: BaseTool) -> bool:
   """
   Detect ADK ComputerUseTool instances without enumerating every method name.
@@ -75,6 +91,25 @@ def _is_computer_use_tool(tool: BaseTool) -> bool:
 
 def make_before_tool_callback(cfg: GemCodeConfig):
   """Permission gate + circuit breaker (open after too many tool errors in a row)."""
+
+  def _hitl_sticky_enabled(tool_context) -> bool:
+    try:
+      return bool(
+          getattr(cfg, "interactive_hitl_sticky_session", False)
+          and tool_context is not None
+          and tool_context.state.get(HITL_STICKY_SESSION_KEY)
+      )
+    except Exception:
+      return False
+
+  def _hitl_mark_session_approved(tool_context) -> None:
+    if not getattr(cfg, "interactive_hitl_sticky_session", False):
+      return
+    try:
+      if tool_context is not None:
+        tool_context.state[HITL_STICKY_SESSION_KEY] = True
+    except Exception:
+      pass
 
   def _tool_confirmation_state(tool_context) -> bool | None:
     """
@@ -145,13 +180,17 @@ def make_before_tool_callback(cfg: GemCodeConfig):
         # In-run HITL: request ADK tool confirmation and pause execution until
         # the user approves in the current terminal session.
         if getattr(cfg, "interactive_permission_ask", False):
+          # After one approval this ADK session, optional skip (see GEMCODE_HITL_STICKY_SESSION).
+          if _hitl_sticky_enabled(tool_context):
+            return None
           tc_state = _tool_confirmation_state(tool_context)
           if tc_state is True:
+            _hitl_mark_session_approved(tool_context)
             return None
           if tc_state is False:
             return {
-              "error": "This tool call was rejected.",
-              "error_kind": _ERROR_KIND_PERMISSION_DENIED,
+                "error": "This tool call was rejected.",
+                "error_kind": _ERROR_KIND_PERMISSION_DENIED,
             }
           if tool_context is not None and hasattr(
               tool_context, "request_confirmation"
@@ -162,7 +201,7 @@ def make_before_tool_callback(cfg: GemCodeConfig):
               )
             else:
               tool_context.request_confirmation(
-                  hint="Approve to apply the requested file mutation (write_file/search_replace)."
+                  hint=f"Approve to apply the requested mutation ({name})."
               )
             return {
               "error": "This tool call requires confirmation.",
@@ -192,8 +231,12 @@ def make_before_tool_callback(cfg: GemCodeConfig):
         }
       if not cfg.yes_to_all:
         if getattr(cfg, "interactive_permission_ask", False):
+          if _hitl_sticky_enabled(tool_context):
+            return None
           tc_state = _tool_confirmation_state(tool_context)
           if tc_state is True:
+            _hitl_mark_session_approved(tool_context)
+            _arm_shell_from_args(args)
             return None
           if tc_state is False:
             return {
@@ -229,13 +272,21 @@ def make_after_tool_callback(cfg: GemCodeConfig):
     tool_context,
     tool_response: dict,
   ) -> dict | None:
+    truncated = False
+    if isinstance(tool_response, dict) and getattr(cfg, "tool_result_max_chars", 0) > 0:
+      new_d, did = truncate_tool_result_dict(
+          tool_response, int(cfg.tool_result_max_chars)
+      )
+      if did:
+        tool_response = new_d
+        truncated = True
     name = getattr(tool, "name", None) or ""
     if tool_context is None:
-      return None
+      return tool_response if truncated else None
     try:
       st = tool_context.state
     except Exception:
-      return None
+      return tool_response if truncated else None
     err = isinstance(tool_response, dict) and tool_response.get("error")
     err_kind = (
       isinstance(tool_response, dict) and tool_response.get("error_kind")
@@ -292,7 +343,7 @@ def make_after_tool_callback(cfg: GemCodeConfig):
       try:
         # Full-screen TUIs get corrupted by stray stderr prints.
         if _truthy_env("GEMCODE_TUI_ACTIVE", default=False):
-          return None
+          return tool_response if truncated else None
         ok = bool(summary.get("ok"))
         prefix = "[tool ok]" if ok else "[tool err]"
         details = ""
@@ -305,6 +356,8 @@ def make_after_tool_callback(cfg: GemCodeConfig):
         print(f"{prefix} {name}{details}", file=sys.stderr)
       except Exception:
         pass
+    if truncated:
+      return tool_response
     return None
 
   return after_tool
@@ -353,6 +406,54 @@ def make_after_model_callback(cfg: GemCodeConfig):
             d[attr] = v
     if d:
       append_audit(cfg.project_root, {"phase": "model_usage", **d})
+
+    pt = d.get("prompt_token_count")
+    if isinstance(pt, int) and pt >= 0:
+      try:
+        model_id = getattr(cfg, "model", "") or ""
+        cw = calculate_context_warning_state(
+            prompt_token_count=pt, model=model_id, cfg=cfg
+        )
+        level = worst_alert_level(cw)
+        st[_LAST_PROMPT_TOKENS] = pt
+        st[_LAST_CONTEXT_PCT] = cw.get("percent_left")
+        st[_LAST_CONTEXT_LEVEL] = level
+        append_audit(
+            cfg.project_root,
+            {
+                "phase": "context_warning",
+                "prompt_token_count": pt,
+                "percent_left": cw.get("percent_left"),
+                "level": level,
+                "is_above_warning_threshold": cw.get("is_above_warning_threshold"),
+                "is_above_error_threshold": cw.get("is_above_error_threshold"),
+                "is_above_auto_compact_threshold": cw.get(
+                    "is_above_auto_compact_threshold"
+                ),
+                "is_at_blocking_limit": cw.get("is_at_blocking_limit"),
+            },
+        )
+        prev = int(st.get(_CTX_WARN_LEVEL_NOTIFIED, 0) or 0)
+        if level < prev:
+          st[_CTX_WARN_LEVEL_NOTIFIED] = level
+          prev = level
+        if (
+            level > prev
+            and not _truthy_env("GEMCODE_TUI_ACTIVE", default=False)
+            and os.environ.get("GEMCODE_CONTEXT_WARNINGS", "1").lower()
+            not in ("0", "false", "no", "off")
+        ):
+          labels = ("ok", "warning", "error", "blocking")
+          label = labels[min(level, 3)]
+          msg = (
+              f"[gemcode context] ~{cw.get('percent_left')}% context left "
+              f"(prompt_tokens≈{pt}; {label}). "
+              "Use /compact or start a new session if you hit limits."
+          )
+          print(msg, file=sys.stderr)
+          st[_CTX_WARN_LEVEL_NOTIFIED] = level
+      except Exception:
+        pass
 
     total_this = d.get("total_token_count")
     if isinstance(total_this, int) and total_this >= 0:
@@ -447,11 +548,17 @@ def make_on_model_error_callback(cfg: GemCodeConfig):
     append_audit(
         cfg.project_root,
         {
-          "phase": "model_exception",
-          "error": f"{type(error).__name__}: {error}",
+            "phase": "model_exception",
+            "error": f"{type(error).__name__}: {error}",
         },
     )
-    # Best-effort fallback content; do not attempt full Claude recovery loop.
+    if _truthy_env("GEMCODE_VERBOSE_MODEL_ERRORS", default=False):
+      import traceback
+
+      traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
+
+    user_text = format_model_error_for_user(error)
+    # Scrollback/TUI already prints "GemCode:" before assistant text — avoid "GemCode: GemCode:".
     from google.adk.models.llm_response import LlmResponse
     from google.genai import types
 
@@ -461,8 +568,8 @@ def make_on_model_error_callback(cfg: GemCodeConfig):
             parts=[
               types.Part(
                   text=(
-                      "GemCode: model call failed. "
-                      "Re-run the request or reduce prompt size."
+                      f"{user_text} "
+                      "You can re-run, shorten the message, or start a fresh session."
                   )
               )
             ],

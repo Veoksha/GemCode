@@ -10,6 +10,7 @@ from google.genai import types
 
 from gemcode.capability_routing import apply_capability_routing
 from gemcode.model_routing import pick_effective_model
+from gemcode.repl_slash import process_repl_slash
 
 
 @dataclass(frozen=True)
@@ -122,7 +123,9 @@ def _dashboard(cfg) -> str:
   return "\n".join(lines)
 
 
-async def run_gemcode_scrollback_tui(*, cfg, runner, session_id: str) -> None:
+async def run_gemcode_scrollback_tui(
+    *, cfg, runner, session_id: str, extra_tools=None
+) -> None:
   """
   Claude-like terminal UI: NO internal scrolling, just terminal scrollback.
 
@@ -219,6 +222,8 @@ async def run_gemcode_scrollback_tui(*, cfg, runner, session_id: str) -> None:
     else None
   )
 
+  current_session_id = session_id
+
   while True:
     try:
       prompt = input(f"{ansi.bold}❯{ansi.reset} ").strip()
@@ -229,6 +234,22 @@ async def run_gemcode_scrollback_tui(*, cfg, runner, session_id: str) -> None:
       continue
     if prompt in (":q", "quit", "exit", "/exit"):
       return
+
+    slash = await process_repl_slash(
+        cfg=cfg,
+        runner=runner,
+        session_id=current_session_id,
+        prompt_text=prompt,
+        extra_tools=extra_tools,
+    )
+    if slash is not None:
+      if slash.exit_repl:
+        return
+      if slash.new_session_id is not None:
+        current_session_id = slash.new_session_id
+      if slash.skip_model_turn:
+        continue
+      prompt = slash.model_prompt or prompt
 
     apply_capability_routing(cfg, prompt, context="prompt")
     cfg.model = pick_effective_model(cfg, prompt)
@@ -242,7 +263,9 @@ async def run_gemcode_scrollback_tui(*, cfg, runner, session_id: str) -> None:
 
     while True:
       events: list = []
-      kwargs = dict(user_id="local", session_id=session_id, new_message=current_message)
+      kwargs = dict(
+          user_id="local", session_id=current_session_id, new_message=current_message
+      )
       if run_config is not None:
         kwargs["run_config"] = run_config
       # (We don't handle token budget reset here; full-screen TUI does.)

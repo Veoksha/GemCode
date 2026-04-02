@@ -29,6 +29,18 @@ def _opt_int(name: str) -> int | None:
   return int(str(v).strip())
 
 
+def _max_context_chars_from_env() -> int:
+  """Unset → 400k chars; 0 disables context shrink; invalid values fall back to default."""
+  raw = os.environ.get("GEMCODE_MAX_CONTEXT_CHARS")
+  if raw is None or not str(raw).strip():
+    return 400_000
+  try:
+    n = int(str(raw).strip())
+  except ValueError:
+    return 400_000
+  return max(0, n)
+
+
 def _truthy_env(name: str, *, default: bool = False) -> bool:
   v = os.environ.get(name)
   if v is None:
@@ -101,10 +113,29 @@ class GemCodeConfig:
       "GEMCODE_INTERACTIVE_PERMISSION_ASK", default=False
     )
   )
+  # After the user approves one HITL prompt, skip further prompts until a new session.
+  # (ADK otherwise asks once per tool call.) Set GEMCODE_HITL_STICKY_SESSION=0 to disable.
+  interactive_hitl_sticky_session: bool = field(
+    default_factory=lambda: _truthy_env(
+      "GEMCODE_HITL_STICKY_SESSION", default=True
+    )
+  )
   max_content_items: int = field(
     default_factory=lambda: int(os.environ.get("GEMCODE_MAX_CONTENT_ITEMS", "40"))
   )
-  # ADK RunConfig.max_llm_calls (model↔tool iterations per user message); None = SDK default (500).
+  # Cap long string fields in tool results before they enter session history.
+  tool_result_max_chars: int = field(
+    default_factory=lambda: max(
+        1000,
+        int(os.environ.get("GEMCODE_TOOL_RESULT_MAX_CHARS", "12000")),
+    )
+  )
+  # Trim oldest text in llm_request.contents when over budget (see context_budget.py).
+  context_shrink_enabled: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_CONTEXT_SHRINK", default=True)
+  )
+  max_context_chars: int = field(default_factory=_max_context_chars_from_env)
+  # ADK RunConfig.max_llm_calls. Unset env → __post_init__ defaults to 256 per user message.
   max_llm_calls: int | None = field(default_factory=lambda: _opt_positive_int("GEMCODE_MAX_LLM_CALLS"))
   # Hard stop before next LLM call when cumulative usage_metadata totals exceed this.
   max_session_tokens: int | None = field(
@@ -215,6 +246,12 @@ class GemCodeConfig:
 
   def __post_init__(self) -> None:
     self.project_root = self.project_root.resolve()
+    # Default agentic depth when env omits GEMCODE_MAX_LLM_CALLS (was: None → SDK default).
+    if self.max_llm_calls is None and (
+        os.environ.get("GEMCODE_MAX_LLM_CALLS") is None
+        or not str(os.environ.get("GEMCODE_MAX_LLM_CALLS", "")).strip()
+    ):
+      self.max_llm_calls = 256
     if self.allow_commands is None:
       env = os.environ.get("GEMCODE_ALLOW_COMMANDS")
       if env:
@@ -245,3 +282,16 @@ def load_dotenv_optional() -> None:
     load_dotenv()
   except ImportError:
     pass
+
+
+def load_cli_environment() -> None:
+  """
+  Load local ``.env`` then apply persisted user API key (if env still unset).
+
+  Precedence: explicit ``GOOGLE_API_KEY`` in the environment, then ``.env``,
+  then ``~/.gemcode/credentials.json`` (see ``gemcode.credentials``).
+  """
+  load_dotenv_optional()
+  from gemcode.credentials import apply_saved_google_api_key_to_environ
+
+  apply_saved_google_api_key_to_environ()

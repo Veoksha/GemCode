@@ -9,9 +9,12 @@ from datetime import datetime
 
 from gemcode.capability_routing import apply_capability_routing
 from gemcode.model_routing import pick_effective_model
+from gemcode.repl_slash import process_repl_slash
 
 
-async def run_gemcode_tui(*, cfg, runner, session_id: str) -> None:
+async def run_gemcode_tui(
+    *, cfg, runner, session_id: str, extra_tools=None
+) -> None:
   """
   Minimal full-screen TUI using Prompt Toolkit:
   - Header: status + key hints
@@ -19,7 +22,12 @@ async def run_gemcode_tui(*, cfg, runner, session_id: str) -> None:
   - Footer: fixed multi-line input
 
   This intentionally focuses on Claude-like *interaction ergonomics* first.
+
+  ``extra_tools`` matches the runner (e.g. MCP toolsets when ``--mcp``) so
+  ``/tools`` lists the same inventory as the agent.
   """
+  session_state = {"id": session_id}
+
   from prompt_toolkit.application import Application
   from prompt_toolkit.key_binding import KeyBindings
   from prompt_toolkit.layout import Dimension as D
@@ -473,6 +481,38 @@ async def run_gemcode_tui(*, cfg, runner, session_id: str) -> None:
       show_home["value"] = False
     append(f"\nYou: {prompt}\n")
 
+    def slash_print(*args: object, **kwargs: object) -> None:
+      sep = str(kwargs.get("sep", " "))
+      end = str(kwargs.get("end", "\n"))
+      text = sep.join(str(a) for a in args) + end
+      output.buffer.insert_text(text)
+      output.buffer.cursor_position = len(output.text)
+      try:
+        app.invalidate()
+      except Exception:
+        pass
+
+    slash = await process_repl_slash(
+        cfg=cfg,
+        runner=runner,
+        session_id=session_state["id"],
+        prompt_text=prompt,
+        print_fn=slash_print,
+        extra_tools=extra_tools,
+    )
+    if slash is not None:
+      if slash.exit_repl:
+        try:
+          app.exit()
+        except Exception:
+          pass
+        return
+      if slash.new_session_id is not None:
+        session_state["id"] = slash.new_session_id
+      if slash.skip_model_turn:
+        return
+      prompt = slash.model_prompt or prompt
+
     apply_capability_routing(cfg, prompt, context="prompt")
     cfg.model = pick_effective_model(cfg, prompt)
 
@@ -557,7 +597,11 @@ async def run_gemcode_tui(*, cfg, runner, session_id: str) -> None:
         # Buffer assistant text for this pass. If a confirmation is requested,
         # we discard buffered text to avoid the noisy "rerun with --yes" spiel.
         buffered: list[str] = []
-        kwargs = dict(user_id="local", session_id=session_id, new_message=current_message)
+        kwargs = dict(
+            user_id="local",
+            session_id=session_state["id"],
+            new_message=current_message,
+        )
         if run_config is not None:
           kwargs["run_config"] = run_config
         if do_reset and state_delta is not None:
