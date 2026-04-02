@@ -303,7 +303,7 @@ async def run_gemcode_tui(
 
     tips = [
       "Tips for getting started",
-      "Run /init to create a .gemcode config",
+      "First run: trust folder, API key, then .gemcode/",
       "Note: Use perm=ask to approve tools",
     ]
     activity = ["Recent activity", "No recent activity"]

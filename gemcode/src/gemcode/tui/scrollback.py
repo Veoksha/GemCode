@@ -104,7 +104,7 @@ def _dashboard(cfg) -> str:
   ]
   right = [
     "Tips for getting started",
-    "Run /init to create a .gemcode file",
+    "First run creates .gemcode/ (trust + API key)",
     "",
     "Recent activity",
     "No recent activity",

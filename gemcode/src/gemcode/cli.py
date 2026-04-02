@@ -49,6 +49,7 @@ def _maybe_prompt_trust(cfg: GemCodeConfig) -> None:
     return
   try:
     print(
+        "\n── GemCode setup (1/3) · Workspace permission ──\n"
         "GemCode needs full access to this workspace folder (files, shell, git):\n"
         f"  {root}\n\n"
         "Trust this folder? [y/N] ",
@@ -86,7 +87,8 @@ def _maybe_prompt_google_api_key() -> None:
     return
   try:
     print(
-        "\nGemCode needs a Google Gemini API key (saved once under ~/.gemcode/).\n"
+        "\n── GemCode setup (2/3) · API key ──\n"
+        "GemCode needs a Google Gemini API key (saved once under ~/.gemcode/).\n"
         "Create one at https://aistudio.google.com/app/apikey\n"
         "Paste your key and press Enter (input is hidden).\n",
         file=sys.stderr,
@@ -115,6 +117,32 @@ def require_google_api_key() -> None:
   )
 
 
+def _initialize_gemcode_project(cfg: GemCodeConfig) -> None:
+  """
+  Create ``<project>/.gemcode/`` and print a short banner the first time it appears.
+
+  Runs after workspace trust + API key are satisfied so a bare ``gemcode`` REPL
+  feels like a guided first-run (Claude Code–style).
+  """
+  root = cfg.project_root.resolve()
+  gem_dir = root / ".gemcode"
+  already_there = gem_dir.is_dir()
+  try:
+    gem_dir.mkdir(parents=True, exist_ok=True)
+  except OSError as e:
+    print(f"[gemcode] warning: could not create {gem_dir}: {e}", file=sys.stderr)
+    return
+  if not already_there:
+    print(
+        "\n── GemCode · Project folder ready ──\n"
+        f"  Workspace: {root}\n"
+        f"  Config & session data: {gem_dir}/\n"
+        "  Optional: add GEMINI.md in the repo root for project context.\n"
+        "── Ready. ──\n",
+        file=sys.stderr,
+    )
+
+
 async def _run_prompt(
   cfg: GemCodeConfig, prompt: str, session_id: str, *, use_mcp: bool
 ) -> str:
@@ -122,6 +150,7 @@ async def _run_prompt(
   _maybe_prompt_trust(cfg)
   _maybe_prompt_google_api_key()
   require_google_api_key()
+  _initialize_gemcode_project(cfg)
   extra: list = []
   if use_mcp:
     from gemcode.mcp_loader import load_mcp_toolsets
@@ -153,6 +182,7 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
   _maybe_prompt_trust(cfg)
   _maybe_prompt_google_api_key()
   require_google_api_key()
+  _initialize_gemcode_project(cfg)
   extra: list = []
   if use_mcp:
     from gemcode.mcp_loader import load_mcp_toolsets
