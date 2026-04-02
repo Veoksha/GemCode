@@ -71,7 +71,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 def _get_embedding_model() -> str:
-  return os.environ.get("GEMCODE_EMBEDDINGS_MODEL", "text-embedding-004")
+  return os.environ.get("GEMCODE_EMBEDDINGS_MODEL", "models/gemini-embedding-2-preview")
 
 
 def _get_embedding_api_key() -> str | None:

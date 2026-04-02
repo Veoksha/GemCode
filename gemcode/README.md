@@ -121,7 +121,8 @@ GemCode injects Gemini built-in tools:
 
 - `google_search`
 - `url_context`
-- `google_maps_grounding`
+- `google_maps_grounding` (optional; only injected when explicitly enabled via
+  `--maps-grounding` or `GEMCODE_ENABLE_MAPS_GROUNDING=1`)
 
 On Gemini **3.x** models, GemCode can additionally enable Gemini’s built-in
 tool context circulation so built-in results (Search/URL/Maps) can be

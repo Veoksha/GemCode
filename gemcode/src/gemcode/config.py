@@ -123,7 +123,16 @@ class GemCodeConfig:
 
   # Embeddings model id used by embeddings-powered tools/memory (if enabled).
   embeddings_model: str = field(
-    default_factory=lambda: os.environ.get("GEMCODE_EMBEDDINGS_MODEL", "text-embedding-004")
+    default_factory=lambda: os.environ.get(
+      "GEMCODE_EMBEDDINGS_MODEL", "models/gemini-embedding-2-preview"
+    )
+  )
+
+  # Deep research: Google Maps grounding is optional because it can be
+  # incompatible with other built-in tools (e.g., google_search) in the same
+  # request depending on the model/tooling layer.
+  enable_maps_grounding: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_ENABLE_MAPS_GROUNDING", default=False)
   )
 
   # Computer use (ADK ComputerUseToolset) enable/disable; default is off for safety.

@@ -87,7 +87,7 @@ async def semantic_search_files(
     return {"error": "Invalid path_glob"}
 
   embedding_model = embedding_model or os.environ.get(
-    "GEMCODE_EMBEDDINGS_MODEL", "text-embedding-004"
+    "GEMCODE_EMBEDDINGS_MODEL", "models/gemini-embedding-2-preview"
   )
 
   # Collect candidate chunks.
@@ -174,13 +174,15 @@ def build_extra_tools(cfg: GemCodeConfig) -> list[Any]:
 
   if getattr(cfg, "enable_deep_research", False):
     from google.adk.tools import google_search, url_context
-    # Google Maps grounding provides location-aware context and pairs well
-    # with search + URL context for travel/local planning.
-    from google.adk.tools.google_maps_grounding_tool import google_maps_grounding
-
     extra.append(google_search)
     extra.append(url_context)
-    extra.append(google_maps_grounding)
+    # Google Maps grounding can be incompatible with other built-in tools
+    # (e.g., google_search) depending on the request/model tooling layer.
+    # Make it opt-in so deep-research stays reliable by default.
+    if getattr(cfg, "enable_maps_grounding", False):
+      from google.adk.tools.google_maps_grounding_tool import google_maps_grounding
+
+      extra.append(google_maps_grounding)
 
   if getattr(cfg, "enable_embeddings", False):
     # Provide a closure so the embedding tool can resolve project_root.

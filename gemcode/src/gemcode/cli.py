@@ -191,6 +191,11 @@ def main() -> None:
     help="Enable deep research tools and route to the deep-research model",
   )
   parser.add_argument(
+    "--maps-grounding",
+    action="store_true",
+    help="Opt-in to Google Maps grounding tool inside deep-research (may be incompatible with other built-in tools depending on model/tooling).",
+  )
+  parser.add_argument(
     "--embeddings",
     action="store_true",
     help="Enable embeddings-based semantic retrieval (and embedding memory if enabled)",
@@ -235,6 +240,7 @@ def main() -> None:
       cfg.model_mode = "fast"
   cfg.yes_to_all = args.yes
   cfg.enable_deep_research = bool(args.deep_research)
+  cfg.enable_maps_grounding = bool(args.maps_grounding)
   cfg.enable_embeddings = bool(args.embeddings)
   if args.capability_mode is not None:
     cfg.capability_mode = args.capability_mode

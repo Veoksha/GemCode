@@ -29,7 +29,9 @@ Code trees) that combines:
 
 4. **Deep research (built-in Gemini tools)**
    - Injects Gemini built-in tools:
-     - `google_search`, `url_context`, `google_maps_grounding`
+     - `google_search`, `url_context`
+     - `google_maps_grounding` (optional; injected only when you opt-in via
+       `--maps-grounding` / `GEMCODE_ENABLE_MAPS_GROUNDING=1`)
    - On Gemini 3.x, GemCode can enable built-in tool context circulation so
      built-in results can be combined with your custom tools.
 
