@@ -13,6 +13,8 @@ permissions:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    # Must match the "Environment name" on PyPI's trusted publisher (e.g. pypi).
+    environment: pypi
     steps:
       - name: Checkout
         uses: actions/checkout@v4
