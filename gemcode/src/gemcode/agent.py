@@ -65,7 +65,7 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
   model = (getattr(cfg, "model", None) or "").strip() or "(default)"
   return f"""## Runtime facts (authoritative for this session)
 - **Project root** — every filesystem tool path is relative to: `{root}`
-- **Model id in use:** `{model}`. Changing it requires restarting GemCode with `--model <id>` or env `GEMCODE_MODEL`, or using `/model` in the REPL for routing info.
+- **Model id in use:** `{model}`. In this TUI/REPL you can override it for subsequent turns with `/model use <id>` (use `/model list` to browse IDs). For a full restart you can still use `--model <id>` or env `GEMCODE_MODEL`.
 - **UI banner** phrases such as "GemCode Pro" are **terminal marketing**, not a separate API tier or model you enable from chat.
 - **Env toggles** (`GEMCODE_ENABLE_COMPUTER_USE`, `GEMCODE_MODEL`, etc.) affect only the **OS process** that launched `gemcode`. Pasting `VAR=1` in chat does **not** reconfigure a running session—tell the user to export in their shell, use project `.env`, or restart the CLI.
 - **Working in subfolders** — use tools: e.g. `list_directory("Desktop")`, `glob_files("**/query.ts")`, `read_file("testing/ai-edtech-app/src/app/page.tsx")`, or `run_command` with `cwd_subdir`. Never claim the sandbox cannot reach a subpath unless a tool returned an explicit error."""

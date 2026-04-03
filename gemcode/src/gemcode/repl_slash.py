@@ -104,6 +104,39 @@ async def process_repl_slash(
       out()
       return ReplSlashResult(skip_model_turn=True)
 
+    if sub in ("list", "ls", "show"):
+      # Best-effort list: query Gemini via the same API used by GemCode.
+      show_all = "--show-all" in parts or "--show-all" in args
+      try:
+        from gemcode.config import load_cli_environment
+
+        load_cli_environment()
+      except Exception:
+        pass
+      from gemcode.cli import require_google_api_key
+
+      require_google_api_key()
+      from google.genai import Client
+
+      client = Client(api_key=os.environ["GOOGLE_API_KEY"])
+      models = client.models.list()
+      out("Available models:")
+      for m in models:
+        name = getattr(m, "name", None)
+        actions = getattr(m, "supported_actions", None)
+        if not name:
+          continue
+        if not show_all and actions and isinstance(actions, list):
+          # Keep only models that support generateContent-style generation.
+          if "generateContent" not in actions:
+            continue
+        if actions and isinstance(actions, list):
+          out(f"  {name}\t{','.join(actions)}")
+        else:
+          out(f"  {name}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
     # Fallback: show current routing info.
     out("\n".join(format_model_lines(cfg)))
     out("Tip: /model use <model-id> to override for this session.")

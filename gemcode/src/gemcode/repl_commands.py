@@ -175,6 +175,7 @@ def slash_help_lines() -> list[str]:
       "  /doctor               Environment sanity check",
       "  /model                Show model routing info",
       "  /model use <id>       Override model for this REPL session",
+      "  /model list            List available Gemini model IDs",
       "  /permissions          Show permission / HITL settings",
       "  /memory               Show persistent memory settings",
       "  /hooks                Show post-turn hook configuration",
