@@ -665,6 +665,11 @@ async def run_gemcode_tui(
         # into a separate buffer.
         buffered_thought: list[str] = []
         buffered_final: list[str] = []
+        # Show Claude-like "thinking" section immediately.
+        # We fill the thought content at the end of the pass (and can omit
+        # identical-thought/final cases), but the label itself should appear
+        # right away so there's a visible loading cue.
+        append_inline("⎿ GemCode (thinking): ")
         kwargs = dict(
             user_id="local",
             session_id=session_state["id"],
@@ -716,14 +721,15 @@ async def run_gemcode_tui(
             # If Gemini returns the same content for both "thought" and
             # final text, don't repeat it (Claude typically doesn't).
             if buffered_final and _normalize_ws(thought_text) == _normalize_ws(final_text):
-              append_inline("⎿ GemCode (thinking): ")
               await typewrite("(omitted: identical to final response)")
               append("")
             else:
-              append_inline("⎿ GemCode (thinking): ")
               await typewrite(thought_text)
               # Ensure visual separation before the final response section.
               append("")
+          else:
+            await typewrite("(no thinking output)")
+            append("")
           if buffered_final:
             append_inline("⎿ GemCode: ")
             await typewrite("".join(buffered_final))
@@ -731,6 +737,8 @@ async def run_gemcode_tui(
 
         interactive_enabled = bool(getattr(cfg, "interactive_permission_ask", False))
         parts: list[types.Part] = []
+        await typewrite("(thinking paused — tool confirmation requested)")
+        append("")  # newline after paused thinking label
         for fc in confirmation_fcs:
           tool_name, hint = _extract_tool_and_hint(fc)
           if interactive_enabled:
