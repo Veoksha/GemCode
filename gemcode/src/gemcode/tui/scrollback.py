@@ -117,25 +117,28 @@ class _Ansi:
 
   @property
   def blue(self) -> str:
-    # ANSI 256-color bright-ish blue.
-    return self.esc("38;5;75")
+    # Sunset orange/warm color instead of blue
+    return self.esc("38;5;215")
 
   @property
   def blue2(self) -> str:
-    # Slightly deeper blue for secondary accents.
-    return self.esc("38;5;33")
+    # Deeper warm color
+    return self.esc("38;5;209")
 
   @property
   def blue_ok(self) -> str:
-    return self.esc("38;5;81")
+    # Warm green for success
+    return self.esc("38;5;150")
 
   @property
   def blue_warn(self) -> str:
-    return self.esc("38;5;39")
+    # Warm amber for warnings
+    return self.esc("38;5;221")
 
   @property
   def blue_tool(self) -> str:
-    return self.esc("38;5;69")
+    # Warm tool color
+    return self.esc("38;5;180")
 
 
 def _term_width(default: int = 100) -> int:
@@ -176,16 +179,18 @@ def _dashboard(cfg) -> str:
     "",
     f"Welcome back {user}!",
     "",
-    "   ▐▛███▜▌",
-    "  ▝▜█████▛▘",
-    "    ▘▘ ▝▝",
+    "   ▄▄▄▄▄▄▄",
+    "  ▐█████████▌",
+    "  ▐█████████▌",
+    "   ▀▀▀▀▀▀▀",
     "",
-    f"{model or 'GemCode'} · Local session",
+    f"{model or 'Gemini 2.0 Flash'} · Local session",
     root,
   ]
   right = [
     "Tips for getting started",
     "First run creates .gemcode/ (trust + API key)",
+    "Use /help to see available commands",
     "",
     "Recent activity",
     "No recent activity",
@@ -202,7 +207,7 @@ def _dashboard(cfg) -> str:
     lines.append("│" + pad(f" {nt}", w - 2) + "│")
   lines.append(box_bot)
   lines.append("")
-  lines.append("  ↑ GemCode Pro now supports larger contexts · faster streaming")
+  lines.append("  ↑ GemCode now supports larger contexts · faster streaming · better tools")
   lines.append("")
   return "\n".join(lines)
 
@@ -247,6 +252,7 @@ async def run_gemcode_scrollback_tui(
     print(dash)
 
   print(f"{ansi.dim}  ? for shortcuts{ansi.reset}")
+  print(f"{ansi.dim}  (Tip: set GEMCODE_TUI_STYLE=full for spinner/status bar){ansi.reset}")
   print("")
 
   char_delay_ms = int(os.environ.get("GEMCODE_TUI_CHAR_DELAY_MS", "0") or "0")

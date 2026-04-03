@@ -77,6 +77,12 @@ async def run_gemcode_tui(
 
   interrupted = {"flag": False}
 
+  # Import spinner utilities
+  from gemcode.tui.spinner import SpinnerState, format_spinner_line, format_idle_status
+  
+  # Initialize spinner state
+  spinner_state = SpinnerState()
+  
   def append(text: str) -> None:
     output.buffer.insert_text(text)
     if not text.endswith("\n"):
@@ -124,25 +130,36 @@ async def run_gemcode_tui(
 
   def header_text():
     model = getattr(cfg, "model", "") or ""
+    # Clean up model display
+    if "gemini-" in model:
+      model_display = model.replace("gemini-", "Gemini ").replace("-", " ").title()
+    else:
+      model_display = model or "Gemini 2.0 Flash"
+    
     mode = (
-      "yes"
+      "auto"
       if getattr(cfg, "yes_to_all", False)
       else "ask"
       if getattr(cfg, "interactive_permission_ask", False)
-      else "ro"
+      else "read-only"
     )
     root = str(getattr(cfg, "project_root", "") or "")
+    # Shorten root path if too long
+    if len(root) > 40:
+      root = "..." + root[-37:]
+    
     now = datetime.now().strftime("%a %b %d %H:%M")
     # Shift+Enter isn't reliably distinguishable across terminals, so we
     # provide a portable newline binding (Ctrl+J).
     tips = "Enter=send | Ctrl+J=newline | Esc=interrupt | Ctrl+D=exit"
     return [
-      ("class:brand", " GemCode "),
-      ("", f"  model={model or '<auto>'}  perm={mode}  root={root}  {now}\n"),
+      ("class:brand", " ◆ GemCode "),
+      ("", f"  {model_display}  ·  perm={mode}  ·  {now}\n"),
+      ("class:muted", f" {root}\n"),
       ("class:muted", f" {tips}"),
     ]
 
-  header = Window(height=2, content=FormattedTextControl(header_text), dont_extend_height=True)
+  header = Window(height=3, content=FormattedTextControl(header_text), dont_extend_height=True)
 
   _git_cache = {"t": 0.0, "branch": ""}
 
@@ -218,55 +235,62 @@ async def run_gemcode_tui(
       tool = str(pending_confirm.get("tool") or "tool")
       return [
         ("class:muted", " "),
-        ("class:pill", f"Permission: {tool}"),
+        ("class:pill", f"⚠ Permission: {tool}"),
         ("class:muted", "  "),
         ("class:accent", "y=approve"),
         ("class:muted", "  "),
         ("class:accent", "n=deny"),
         ("class:muted", "  "),
-        ("class:muted", "(Esc cancels)"),
+        ("class:muted", "(Esc to cancel)"),
       ]
     if assistant_busy.get("value"):
+      # Calculate elapsed time
+      elapsed_s = max(0, int(time.time() - float(thinking_start_ts.get("value", 0.0) or 0.0)))
+      
       if not show_thinking.get("value") and thinking_active.get("value"):
-        elapsed_s = max(1, int(time.time() - float(thinking_start_ts.get("value", 0.0) or 0.0)))
+        # Thinking but hidden - show duration and hint
         return [
           ("class:muted", " "),
-          ("class:pill", f"Thought for {elapsed_s}s (ctrl+o to show thinking)"),
+          ("class:pill", f"💭 Thinking for {elapsed_s}s"),
           ("class:muted", "  "),
-          ("class:muted", "Tip: Esc=interrupt"),
+          ("class:accent", "Ctrl+O to show"),
+          ("class:muted", "  ·  "),
+          ("class:muted", "Esc=interrupt"),
         ]
-      frames = ["|", "/", "-", "\\"]
-      verbs = ["Thinking", "Analyzing", "Planning", "Writing", "Checking", "Reviewing"]
-      i = int(spinner_idx.get("value", 0) or 0)
-      fr = frames[i % len(frames)]
-      verb = verbs[i % len(verbs)]
+      
+      # Active spinner - use OpenClaude-style Braille frames
+      frame = spinner_state.get_frame()
+      verb = spinner_state.verb
       return [
         ("class:muted", " "),
-        ("class:pill", f"{verb} {fr}"),
-        ("class:muted", "  "),
-        ("class:muted", "Tip: Esc=interrupt"),
+        ("class:accent", f"{frame}"),
+        ("class:muted", f" {verb}…"),
+        ("class:muted", "  ·  "),
+        ("class:muted", "Esc=interrupt"),
       ]
+    
+    # Idle status - use OpenClaude format
+    git_br = _git_branch()
     return [
       ("class:muted", " "),
-      ("class:pill", f"🌿 {_git_branch()}" if _git_branch() else "📁 no-git"),
-      ("class:muted", "  "),
-      ("class:muted", "Tip: Ctrl+J=newline  Esc=interrupt  Ctrl+D=exit"),
+      ("class:pill", f"🌿 {git_br}" if git_br else "📁 workspace"),
+      ("class:muted", "  ·  "),
+      ("class:muted", "Ready  ·  Ctrl+K=home  ·  Ctrl+O=thinking"),
     ]
 
   status.content = FormattedTextControl(_status_text)
   _set_input_prompt()
 
   async def _spin_status() -> None:
-    frames = ["|", "/", "-", "\\"]
-    i = 0
+    """Animate spinner matching OpenClaude's exact behavior."""
     while assistant_busy.get("value"):
-      spinner_idx["value"] = i
-      i += 1
+      spinner_state.advance()
+      spinner_idx["value"] = spinner_state.frame_index
       try:
         app.invalidate()
       except Exception:
         pass
-      await asyncio.sleep(0.12)
+      await asyncio.sleep(0.12)  # 120ms like OpenClaude
 
   input_help = Window(
     height=1,
@@ -295,8 +319,11 @@ async def run_gemcode_tui(
   def _model_display() -> str:
     m = getattr(cfg, "model", "") or ""
     if not m:
-      return "GemCode"
-    return m.replace("gemini-", "Gemini ").replace("-", ".")
+      return "Gemini 2.0 Flash"
+    # Clean up model name for display
+    if "gemini-" in m:
+      return m.replace("gemini-", "Gemini ").replace("-", " ").title()
+    return m
 
   def _render_home_text():
     # Recompute with current terminal width for a "dashboard" feel.
@@ -328,10 +355,10 @@ async def run_gemcode_tui(
 
     # Tiny "gem" ASCII mark (kept simple for terminal portability).
     art = [
-      "   ▄▄▄▄   ",
-      "  ▐█  █▌  ",
-      "  ▐█  █▌  ",
-      "   ▀▀▀▀   ",
+      "   ▄▄▄▄▄▄▄   ",
+      "  ▐█████████▌ ",
+      "  ▐█████████▌ ",
+      "   ▀▀▀▀▀▀▀   ",
     ]
     art_w = max(len(x) for x in art)
 
@@ -350,8 +377,9 @@ async def run_gemcode_tui(
 
     tips = [
       "Tips for getting started",
-      "First run: trust folder, API key, then .gemcode/",
-      "Note: Use perm=ask to approve tools",
+      "Use /help to see all commands",
+      "Ctrl+O toggles thinking display",
+      "Ctrl+K toggles this home screen",
     ]
     activity = ["Recent activity", "No recent activity"]
 
@@ -375,9 +403,9 @@ async def run_gemcode_tui(
       lines.append("│ " + l + " │ " + r + " │")
     lines.append("│" + (" " * (width - 2)) + "│")
     lines.append("└" + ("─" * (width - 2)) + "┘")
-    lines.append("↑ GemCode Pro now supports larger contexts · faster streaming")
+    lines.append("↑ GemCode now supports larger contexts · faster streaming · better tools")
     lines.append("")
-    lines.append("  ? for shortcuts".ljust(max(0, width - 12)) + "Ctrl+O home")
+    lines.append("  ? for shortcuts".ljust(max(0, width - 12)) + "Ctrl+K home")
 
     # Prevent overflow: clamp to available rows (leave space for header/input/status).
     max_lines = max(6, min(len(lines), max(6, rows - 7)))
@@ -630,6 +658,17 @@ async def run_gemcode_tui(
       app.invalidate()
     except Exception:
       pass
+    # Make the start of a turn visually obvious in the transcript, like
+    # OpenClaude's "thinking" row next to the spinner. We still keep the
+    # *content* of the thought hidden until Ctrl+O is pressed; this is just
+    # a dim/italic label so the user always sees that the model is busy.
+    append("\033[2m\033[3m⎿ ∴ Thinking…\033[0m")
+    
+    # Mark thinking start for spinner (OpenClaude-style)
+    spinner_state.start_thinking()
+    thinking_active["value"] = True
+    thinking_start_ts["value"] = time.time()
+    
     spinner_task = asyncio.create_task(_spin_status())
 
     try:
@@ -874,6 +913,8 @@ async def run_gemcode_tui(
       append(f"GemCode: error: {e}\n")
     finally:
       assistant_busy["value"] = False
+      thinking_active["value"] = False
+      spinner_state.stop_thinking()  # Mark thinking end (OpenClaude-style)
       try:
         spinner_task.cancel()
       except Exception:
@@ -903,12 +944,12 @@ async def run_gemcode_tui(
 
   style = Style.from_dict(
     {
-      "brand": "bold #60a5fa",
-      "accent": "bold #3b82f6",
-      "muted": "#6b7280",
-      "sep": "#1f2937",
-      "pill": "bold #93c5fd",
-      "inputframe": "bg:#071426 #e5e7eb",
+      "brand": "bold #f0945c",  # Sunset orange
+      "accent": "bold #f09464",  # Warm accent
+      "muted": "#786452",  # Warm gray
+      "sep": "#64503d",  # Dark border
+      "pill": "bold #d97757",  # Warm pill
+      "inputframe": "bg:#1a0f0a #e5d5c5",  # Warm dark bg with cream text
     }
   )
 

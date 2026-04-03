@@ -183,6 +183,10 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
   _maybe_prompt_google_api_key()
   require_google_api_key()
   _initialize_gemcode_project(cfg)
+  
+  # Show beautiful startup screen before TUI loads
+  from gemcode.tui.startup_screen import print_startup_screen
+  print_startup_screen()
   extra: list = []
   if use_mcp:
     from gemcode.mcp_loader import load_mcp_toolsets
@@ -237,7 +241,9 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
         )
       else:
         try:
-          style = os.environ.get("GEMCODE_TUI_STYLE", "scrollback").strip().lower()
+          # Default to the full-screen TUI (OpenClaude-like). Scrollback is still
+          # available for terminals that can't handle alternate screen UIs.
+          style = os.environ.get("GEMCODE_TUI_STYLE", "full").strip().lower()
           if style in ("scrollback", "claude", "claude-like"):
             from gemcode.tui.scrollback import run_gemcode_scrollback_tui
 
