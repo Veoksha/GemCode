@@ -180,6 +180,12 @@ async def run_gemcode_tui(
   # Non-modal permission prompt state. Modal dialogs can corrupt a full-screen TUI.
   pending_confirm: dict[str, object] = {"future": None, "tool": "", "hint": ""}
   assistant_busy: dict[str, bool] = {"value": False}
+  # Claude-style: hide thinking by default, reveal via Ctrl+O.
+  show_thinking: dict[str, bool] = {"value": False}
+  thinking_active: dict[str, bool] = {"value": False}
+  thinking_start_ts: dict[str, float] = {"value": 0.0}
+  pending_thinking_text: dict[str, str | None] = {"value": None}
+  pending_thinking_insert_pos: dict[str, int | None] = {"value": None}
   spinner_idx: dict[str, int] = {"value": 0}
 
   def _set_input_prompt() -> None:
@@ -203,7 +209,7 @@ async def run_gemcode_tui(
       ]
     return [
       ("class:muted", " "),
-      ("class:muted", "Type your message below. Enter=send · Ctrl+J=newline · Ctrl+O=home"),
+      ("class:muted", "Type your message below. Enter=send · Ctrl+J=newline · Ctrl+O=show thinking"),
     ]
 
   def _status_text():
@@ -221,11 +227,22 @@ async def run_gemcode_tui(
         ("class:muted", "(Esc cancels)"),
       ]
     if assistant_busy.get("value"):
+      if not show_thinking.get("value") and thinking_active.get("value"):
+        elapsed_s = max(1, int(time.time() - float(thinking_start_ts.get("value", 0.0) or 0.0)))
+        return [
+          ("class:muted", " "),
+          ("class:pill", f"Thought for {elapsed_s}s (ctrl+o to show thinking)"),
+          ("class:muted", "  "),
+          ("class:muted", "Tip: Esc=interrupt"),
+        ]
       frames = ["|", "/", "-", "\\"]
-      fr = frames[spinner_idx.get("value", 0) % len(frames)]
+      verbs = ["Thinking", "Analyzing", "Planning", "Writing", "Checking", "Reviewing"]
+      i = int(spinner_idx.get("value", 0) or 0)
+      fr = frames[i % len(frames)]
+      verb = verbs[i % len(verbs)]
       return [
         ("class:muted", " "),
-        ("class:pill", f"thinking {fr}"),
+        ("class:pill", f"{verb} {fr}"),
         ("class:muted", "  "),
         ("class:muted", "Tip: Esc=interrupt"),
       ]
@@ -243,7 +260,7 @@ async def run_gemcode_tui(
     frames = ["|", "/", "-", "\\"]
     i = 0
     while assistant_busy.get("value"):
-      spinner_idx["value"] = i % len(frames)
+      spinner_idx["value"] = i
       i += 1
       try:
         app.invalidate()
@@ -413,8 +430,46 @@ async def run_gemcode_tui(
 
   # Note: do NOT bind y/n globally. Permission answers are typed into the
   # input field (perm>) and submitted with Enter, Claude-style.
+  async def _flush_pending_thinking() -> None:
+    # Insert hidden thinking back into the transcript (before the already-rendered final),
+    # so ctrl+o behaves like Claude's "expand" (best-effort).
+    if not show_thinking.get("value"):
+      return
+    t = pending_thinking_text.get("value")
+    pos = pending_thinking_insert_pos.get("value")
+    if not t or pos is None:
+      return
+    try:
+      output.buffer.cursor_position = int(pos)
+      output.buffer.insert_text(t)
+      output.buffer.insert_text("\n\n")
+      output.buffer.cursor_position = len(output.text)
+      pending_thinking_text["value"] = None
+      pending_thinking_insert_pos["value"] = None
+      try:
+        app.invalidate()
+      except Exception:
+        pass
+    except Exception:
+      return
+
   @kb.add("c-o")
+  def _toggle_thinking(event) -> None:
+    show_thinking["value"] = not show_thinking.get("value")
+    try:
+      event.app.invalidate()
+    except Exception:
+      pass
+    # If we just turned thinking on, flush the most recent pending thinking.
+    if show_thinking.get("value") and pending_thinking_text.get("value"):
+      try:
+        event.app.create_background_task(_flush_pending_thinking())
+      except Exception:
+        pass
+
+  @kb.add("c-k")
   def _toggle_home(event) -> None:
+    # Repurposed Ctrl+O for thinking reveal; Ctrl+K keeps the home dashboard toggle.
     show_home["value"] = not show_home["value"]
     try:
       event.app.invalidate()
@@ -570,6 +625,11 @@ async def run_gemcode_tui(
     cfg.model = pick_effective_model(cfg, prompt)
 
     assistant_busy["value"] = True
+    spinner_idx["value"] = 0
+    try:
+      app.invalidate()
+    except Exception:
+      pass
     spinner_task = asyncio.create_task(_spin_status())
 
     try:
@@ -665,11 +725,12 @@ async def run_gemcode_tui(
         # into a separate buffer.
         buffered_thought: list[str] = []
         buffered_final: list[str] = []
-        # Show Claude-like "thinking" section immediately.
-        # We fill the thought content at the end of the pass (and can omit
-        # identical-thought/final cases), but the label itself should appear
-        # right away so there's a visible loading cue.
-        append_inline("⎿ GemCode (thinking): ")
+        # Claude-like thinking header is implicit in the spinner; we only
+        # print the full thinking block when the user asks for it via Ctrl+O.
+        thinking_active["value"] = True
+        thinking_start_ts["value"] = time.time()
+        pending_thinking_text["value"] = None
+        pending_thinking_insert_pos["value"] = None
         kwargs = dict(
             user_id="local",
             session_id=session_state["id"],
@@ -714,22 +775,26 @@ async def run_gemcode_tui(
         confirmation_fcs = _get_confirmation_fcs(events)
         if not confirmation_fcs:
           # Now that we know no confirmation is needed, render buffered
-          # thinking + final response separately.
+          # thinking + final response. By default we keep thinking hidden
+          # (Claude-style); Ctrl+O can later expand it from the buffer.
           thought_text = "".join(buffered_thought)
           final_text = "".join(buffered_final)
           if buffered_thought:
             # If Gemini returns the same content for both "thought" and
             # final text, don't repeat it (Claude typically doesn't).
             if buffered_final and _normalize_ws(thought_text) == _normalize_ws(final_text):
-              await typewrite("(omitted: identical to final response)")
-              append("")
+              pending_thinking_text["value"] = "(omitted: identical to final response)"
             else:
-              await typewrite(thought_text)
-              # Ensure visual separation before the final response section.
-              append("")
-          else:
-            await typewrite("(no thinking output)")
-            append("")
+              pending_thinking_text["value"] = thought_text
+            # If the user already asked to see thinking, insert it now;
+            # otherwise remember the insertion point so Ctrl+O can expand.
+            if show_thinking.get("value"):
+              insert_pos = len(output.text)
+              pending_thinking_insert_pos["value"] = insert_pos
+              await _flush_pending_thinking()
+            else:
+              pending_thinking_insert_pos["value"] = len(output.text)
+          thinking_active["value"] = False
           if buffered_final:
             append_inline("⎿ GemCode: ")
             await typewrite("".join(buffered_final))

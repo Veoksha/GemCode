@@ -417,14 +417,27 @@ async def run_gemcode_scrollback_tui(
         final_text = "".join(buffered_final)
         if buffered_thought:
           if buffered_final and _normalize_ws(thought_text) == _normalize_ws(final_text):
-            print(f"  ⎿  {ansi.dim}{ansi.bold}GemCode{ansi.reset} (thinking): {ansi.reset}(omitted: identical to final response)")
+            print(
+              f"  ⎿  {ansi.dim}{ansi.bold}\u2234 Thinking{ansi.reset}: "
+              f"{ansi.reset}(omitted: identical to final response)"
+            )
             print("")
           else:
-            sys.stdout.write(f"  ⎿  {ansi.dim}{ansi.bold}GemCode{ansi.reset} (thinking): ")
+            sys.stdout.write(
+              f"  ⎿  {ansi.dim}{ansi.bold}\u2234 Thinking{ansi.reset}: "
+            )
             sys.stdout.flush()
             await typewrite(thought_text)
             sys.stdout.write("\n")
             sys.stdout.flush()
+        else:
+          # Keep thinking visible even if the model produced no separate
+          # "thought" channel output.
+          print(
+            f"  ⎿  {ansi.dim}{ansi.bold}\u2234 Thinking{ansi.reset}: "
+            "(no thinking output)"
+          )
+          print("")
 
         if buffered_final:
           sys.stdout.write(f"  ⎿  {ansi.bold}GemCode{ansi.reset}: ")
