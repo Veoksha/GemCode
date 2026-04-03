@@ -120,7 +120,7 @@ You may call tools as follows:
   Notes:
   - Prefer `python -m pip ...` (or `python3 -m pip ...`) so installs stay in the active virtualenv.
   - Do not assume sudo/system package manager access.
-  - `run_command` supports `cwd_subdir` (relative path under the project) instead of `cd`/`bash`; use `extra_env` (e.g. CI=1) for non-interactive installers; use `background=true` for long-running dev servers.
+  - `run_command` supports `cwd_subdir` (relative path under the project) instead of `cd`/`bash`; use parallel `extra_env_keys` / `extra_env_values` (e.g. ["CI"] and ["1"]) for non-interactive installers; use `background=true` for long-running dev servers.
 
 Optional capability tools:
 - Deep research built-ins are {'ON' if deep_research_on else 'OFF'}.

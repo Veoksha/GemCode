@@ -7,7 +7,6 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
 
 from google.adk.tools.tool_context import ToolContext
 
@@ -18,12 +17,12 @@ from gemcode.tools.shell_gate import consume_confirmed_shell_if_matches
 from gemcode.trust import is_trusted_root
 
 
-def _merge_child_env(extra: dict[str, Any] | None) -> dict[str, str]:
-  """Merge a small set of env vars into os.environ for the child (e.g. CI=1)."""
+def _merge_child_env(keys: list[str], values: list[str]) -> dict[str, str]:
+  """Merge parallel key/value lists into os.environ (Gemini API rejects dict-typed tool params)."""
   out = {**os.environ}
-  if not extra:
+  if not keys and not values:
     return out
-  for k, v in extra.items():
+  for k, v in zip(keys, values):
     if not isinstance(k, str) or not isinstance(v, str):
       continue
     if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", k):
@@ -45,7 +44,8 @@ def make_run_command(cfg: GemCodeConfig):
     tool_context: ToolContext | None = None,
     cwd_subdir: str = ".",
     background: bool = False,
-    extra_env: dict[str, str] | None = None,
+    extra_env_keys: list[str] | None = None,
+    extra_env_values: list[str] | None = None,
   ) -> dict:
     """
     Run an allowlisted executable with arguments.
@@ -57,8 +57,9 @@ def make_run_command(cfg: GemCodeConfig):
     For long-running servers (e.g. `npm run dev`), set `background=True` to start
     a detached process and return its PID (non-interactive; no TTY for the child).
 
-    Optional `extra_env` merges env vars for the child (e.g. {"CI": "1"} for
-    non-interactive scaffolding tools).
+    Optional `extra_env_keys` / `extra_env_values` are parallel lists (same length)
+    merged into the child environment (e.g. keys ["CI"], values ["1"] for
+    non-interactive scaffolding tools). Omit both to use the default environment.
     """
     if not trusted:
       return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
@@ -111,7 +112,17 @@ def make_run_command(cfg: GemCodeConfig):
           )
       }
 
-    child_env = _merge_child_env(extra_env)
+    ek = list(extra_env_keys or [])
+    ev = list(extra_env_values or [])
+    if len(ek) != len(ev):
+      return {
+          "error": (
+              "extra_env_keys and extra_env_values must be parallel lists of the same length "
+              "(one value per key)."
+          ),
+      }
+
+    child_env = _merge_child_env(ek, ev)
 
     if background:
       try:

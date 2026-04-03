@@ -118,6 +118,24 @@ def test_run_command_background_returns_pid(tmp_path: Path, monkeypatch) -> None
   assert isinstance(out.get("pid"), int)
 
 
+def test_run_command_extra_env_merges(tmp_path: Path, monkeypatch) -> None:
+  monkeypatch.setenv("GEMCODE_HOME", str(tmp_path / ".gemstate"))
+  trust_root(tmp_path, trusted=True)
+  cfg = GemCodeConfig(project_root=tmp_path)
+  run_command = make_run_command(cfg)
+  ctx = MagicMock()
+  ctx.state = {HITL_STICKY_SESSION_KEY: True}
+  out = run_command(
+      "python3",
+      ["-c", "import os; print(os.environ.get('GEMCODE_TEST_EXTRA', ''))"],
+      extra_env_keys=["GEMCODE_TEST_EXTRA"],
+      extra_env_values=["ok"],
+      tool_context=ctx,
+  )
+  assert out.get("exit_code") == 0
+  assert "ok" in (out.get("stdout") or "")
+
+
 def test_delete_file(tmp_path: Path, monkeypatch) -> None:
   monkeypatch.setenv("GEMCODE_HOME", str(tmp_path / ".gemstate"))
   trust_root(tmp_path, trusted=True)

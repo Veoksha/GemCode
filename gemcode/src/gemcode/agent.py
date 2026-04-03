@@ -74,7 +74,7 @@ You operate only inside the user's project directory (current working directory)
 - **`run_command` rules (critical):**
   - `command` must be a **single executable basename** (e.g. `npm`, `npx`, `mkdir`) — **not** `bash`, `sh`, or `cd foo && ...`.
   - Pass argv as `args` (list). To run a command **inside** a subfolder (e.g. Next app in `testing/`), set **`cwd_subdir`** to that relative path (e.g. `"testing"`) and run `npm run dev` there — **never** simulate `cd` with `bash`.
-  - **Scaffolding** (`create-next-app`, etc.): many CLIs require non-interactive mode — pass **`extra_env`** like `{"CI": "1"}` and/or flags supported by that tool (`--yes` where documented).
+  - **Scaffolding** (`create-next-app`, etc.): many CLIs require non-interactive mode — pass **`extra_env_keys`** / **`extra_env_values`** as parallel lists (e.g. `["CI"]` and `["1"]`) and/or flags supported by that tool (`--yes` where documented).
   - **Dev servers** (`npm run dev`, `vite`, etc.) run until stopped: use **`background=True`** so the process detaches; otherwise the tool may time out. You cannot open a *new OS terminal window* from here—background start is the supported way to keep running.
 - **Parallelize:** when you need several **independent** reads or searches (no output from one is required to form the next call), issue them together in one turn so the user gets answers faster. When step B depends on step A's result, run **sequentially**.
 - **Deletion:** use `delete_file` for a single file under the project root; reserve `rm` via `run_command` for unusual cases.
