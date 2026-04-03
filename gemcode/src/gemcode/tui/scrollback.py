@@ -327,6 +327,9 @@ async def run_gemcode_scrollback_tui(
     if prompt in (":q", "quit", "exit", "/exit"):
       return
 
+    old_model = getattr(cfg, "model", "")
+    old_model_overridden = bool(getattr(cfg, "model_overridden", False))
+
     slash = await process_repl_slash(
         cfg=cfg,
         runner=runner,
@@ -340,6 +343,22 @@ async def run_gemcode_scrollback_tui(
       if slash.new_session_id is not None:
         current_session_id = slash.new_session_id
       if slash.skip_model_turn:
+        # Runner binds the model at creation time (LlmAgent(model=...)),
+        # so rebuild it when the user overrides the model mid-session.
+        new_model = getattr(cfg, "model", "")
+        new_model_overridden = bool(getattr(cfg, "model_overridden", False))
+        if new_model != old_model or new_model_overridden != old_model_overridden:
+          try:
+            close_fn = getattr(runner, "close", None)
+            if close_fn:
+              maybe = close_fn()
+              if asyncio.iscoroutine(maybe):
+                await maybe
+          except Exception:
+            pass
+          from gemcode.session_runtime import create_runner
+
+          runner = create_runner(cfg, extra_tools=extra_tools)
         continue
       prompt = slash.model_prompt or prompt
 
