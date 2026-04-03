@@ -81,7 +81,32 @@ async def process_repl_slash(
     return ReplSlashResult(skip_model_turn=True)
 
   if name in ("model", "models"):
+    args = (sc.args or "").strip()
+    if not args:
+      out("\n".join(format_model_lines(cfg)))
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    parts = args.split()
+    sub = parts[0].lower()
+    if sub in ("use", "set") and len(parts) >= 2:
+      new_model = " ".join(parts[1:]).strip()
+      if not new_model:
+        out("Usage: /model use <model-id>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      # Persist override for this session; pick_effective_model() respects this.
+      cfg.model = new_model
+      setattr(cfg, "model_overridden", True)
+      out(f"model: {cfg.model}")
+      out("model_overridden: True")
+      out("Note: this applies to subsequent turns in this REPL session.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    # Fallback: show current routing info.
     out("\n".join(format_model_lines(cfg)))
+    out("Tip: /model use <model-id> to override for this session.")
     out()
     return ReplSlashResult(skip_model_turn=True)
 

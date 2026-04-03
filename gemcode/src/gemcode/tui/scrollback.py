@@ -346,16 +346,18 @@ async def run_gemcode_scrollback_tui(
     apply_capability_routing(cfg, prompt, context="prompt")
     cfg.model = pick_effective_model(cfg, prompt)
 
-    # Start streaming assistant output.
-    sys.stdout.write(f"  ⎿  {ansi.bold}GemCode{ansi.reset}: ")
-    sys.stdout.flush()
-
     current_message = types.Content(role="user", parts=[types.Part(text=prompt)])
     do_reset = True
+    def _normalize_ws(s: str) -> str:
+      # Gemini can sometimes return identical content for both "thinking" and
+      # final text; normalize whitespace to detect exact duplicates.
+      return " ".join((s or "").split()).strip().lower()
 
     while True:
       events: list = []
       assistant_wrote_text = False
+      buffered_thought: list[str] = []
+      buffered_final: list[str] = []
       kwargs = dict(
           user_id="local", session_id=current_session_id, new_message=current_message
       )
@@ -373,9 +375,13 @@ async def run_gemcode_scrollback_tui(
             continue
           for part in ev.content.parts:
             delta = getattr(part, "text", None)
-            if delta:
-              assistant_wrote_text = True
-              await typewrite(delta)
+            if not delta:
+              continue
+            assistant_wrote_text = True
+            if getattr(part, "thought", None):
+              buffered_thought.append(delta)
+            else:
+              buffered_final.append(delta)
         except Exception:
           continue
 
@@ -387,6 +393,24 @@ async def run_gemcode_scrollback_tui(
 
       confirmation_fcs = _get_confirmation_fcs(events)
       if not confirmation_fcs:
+        # Render buffered thinking and final response separately.
+        thought_text = "".join(buffered_thought)
+        final_text = "".join(buffered_final)
+        if buffered_thought:
+          if buffered_final and _normalize_ws(thought_text) == _normalize_ws(final_text):
+            print(f"  ⎿  {ansi.dim}{ansi.bold}GemCode{ansi.reset} (thinking): {ansi.reset}(omitted: identical to final response)")
+            print("")
+          else:
+            sys.stdout.write(f"  ⎿  {ansi.dim}{ansi.bold}GemCode{ansi.reset} (thinking): ")
+            sys.stdout.flush()
+            await typewrite(thought_text)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+
+        if buffered_final:
+          sys.stdout.write(f"  ⎿  {ansi.bold}GemCode{ansi.reset}: ")
+          sys.stdout.flush()
+          await typewrite(final_text)
         break
 
       interactive_enabled = bool(getattr(cfg, "interactive_permission_ask", False))
@@ -414,9 +438,6 @@ async def run_gemcode_scrollback_tui(
             f"  ⎿  Allow? ({ansi.blue_ok}y{ansi.reset}/{ansi.dim}N{ansi.reset}) "
           ).strip().lower()
           ok = ans in ("y", "yes")
-          # Resume the assistant indent after permission prompt.
-          sys.stdout.write(f"  ⎿  {ansi.bold}GemCode{ansi.reset}: ")
-          sys.stdout.flush()
 
         parts.append(
           types.Part(

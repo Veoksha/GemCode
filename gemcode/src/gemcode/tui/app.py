@@ -179,6 +179,8 @@ async def run_gemcode_tui(
 
   # Non-modal permission prompt state. Modal dialogs can corrupt a full-screen TUI.
   pending_confirm: dict[str, object] = {"future": None, "tool": "", "hint": ""}
+  assistant_busy: dict[str, bool] = {"value": False}
+  spinner_idx: dict[str, int] = {"value": 0}
 
   def _set_input_prompt() -> None:
     if pending_confirm.get("future") is not None:
@@ -218,6 +220,15 @@ async def run_gemcode_tui(
         ("class:muted", "  "),
         ("class:muted", "(Esc cancels)"),
       ]
+    if assistant_busy.get("value"):
+      frames = ["|", "/", "-", "\\"]
+      fr = frames[spinner_idx.get("value", 0) % len(frames)]
+      return [
+        ("class:muted", " "),
+        ("class:pill", f"thinking {fr}"),
+        ("class:muted", "  "),
+        ("class:muted", "Tip: Esc=interrupt"),
+      ]
     return [
       ("class:muted", " "),
       ("class:pill", f"🌿 {_git_branch()}" if _git_branch() else "📁 no-git"),
@@ -227,6 +238,18 @@ async def run_gemcode_tui(
 
   status.content = FormattedTextControl(_status_text)
   _set_input_prompt()
+
+  async def _spin_status() -> None:
+    frames = ["|", "/", "-", "\\"]
+    i = 0
+    while assistant_busy.get("value"):
+      spinner_idx["value"] = i % len(frames)
+      i += 1
+      try:
+        app.invalidate()
+      except Exception:
+        pass
+      await asyncio.sleep(0.12)
 
   input_help = Window(
     height=1,
@@ -523,6 +546,9 @@ async def run_gemcode_tui(
     apply_capability_routing(cfg, prompt, context="prompt")
     cfg.model = pick_effective_model(cfg, prompt)
 
+    assistant_busy["value"] = True
+    spinner_task = asyncio.create_task(_spin_status())
+
     try:
       REQUEST_CONFIRMATION_FC = "adk_request_confirmation"
       # Terminal width for stable box rendering.
@@ -602,12 +628,20 @@ async def run_gemcode_tui(
 
       assistant_started = False
 
+      def _normalize_ws(s: str) -> str:
+        # For Gemini, "thinking" and final text can sometimes be identical.
+        # Normalize whitespace so we can detect exact duplicates robustly.
+        return " ".join((s or "").split()).strip().lower()
+
       while True:
         # Stream events from ADK runner.
         events: list = []
-        # Buffer assistant text for this pass. If a confirmation is requested,
-        # we discard buffered text to avoid the noisy "rerun with --yes" spiel.
-        buffered: list[str] = []
+        # Buffer assistant text for this pass.
+        # Claude differentiates "thinking" from the final response, and we
+        # also do that here by routing streamed parts with `part.thought=True`
+        # into a separate buffer.
+        buffered_thought: list[str] = []
+        buffered_final: list[str] = []
         kwargs = dict(
             user_id="local",
             session_id=session_state["id"],
@@ -637,7 +671,10 @@ async def run_gemcode_tui(
               if not delta:
                 continue
               assistant_started = True
-              buffered.append(delta)
+              if getattr(part, "thought", None):
+                buffered_thought.append(delta)
+              else:
+                buffered_final.append(delta)
           except Exception:
             continue
 
@@ -648,10 +685,25 @@ async def run_gemcode_tui(
         # Handle in-TUI tool confirmations (HITL) Claude-style.
         confirmation_fcs = _get_confirmation_fcs(events)
         if not confirmation_fcs:
-          # Now that we know no confirmation is needed, render buffered text.
-          if buffered:
+          # Now that we know no confirmation is needed, render buffered
+          # thinking + final response separately.
+          thought_text = "".join(buffered_thought)
+          final_text = "".join(buffered_final)
+          if buffered_thought:
+            # If Gemini returns the same content for both "thought" and
+            # final text, don't repeat it (Claude typically doesn't).
+            if buffered_final and _normalize_ws(thought_text) == _normalize_ws(final_text):
+              append_inline("⎿ GemCode (thinking): ")
+              await typewrite("(omitted: identical to final response)")
+              append("")
+            else:
+              append_inline("⎿ GemCode (thinking): ")
+              await typewrite(thought_text)
+              # Ensure visual separation before the final response section.
+              append("")
+          if buffered_final:
             append_inline("⎿ GemCode: ")
-            await typewrite("".join(buffered))
+            await typewrite("".join(buffered_final))
           break
 
         interactive_enabled = bool(getattr(cfg, "interactive_permission_ask", False))
@@ -724,6 +776,12 @@ async def run_gemcode_tui(
         append("\033[2m" + ("─" * max(40, min(cw - 2, 200))) + "\033[0m")
     except Exception as e:
       append(f"GemCode: error: {e}\n")
+    finally:
+      assistant_busy["value"] = False
+      try:
+        spinner_task.cancel()
+      except Exception:
+        pass
 
   @kb.add("enter")
   def _enter(event) -> None:

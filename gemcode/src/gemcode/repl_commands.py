@@ -174,6 +174,7 @@ def slash_help_lines() -> list[str]:
       "  /tools                List tool inventory for this config",
       "  /doctor               Environment sanity check",
       "  /model                Show model routing info",
+      "  /model use <id>       Override model for this REPL session",
       "  /permissions          Show permission / HITL settings",
       "  /memory               Show persistent memory settings",
       "  /hooks                Show post-turn hook configuration",
