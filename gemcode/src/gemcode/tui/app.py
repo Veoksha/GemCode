@@ -8,8 +8,11 @@ import warnings
 from datetime import datetime
 
 from gemcode.capability_routing import apply_capability_routing
+from gemcode.config import load_cli_environment
 from gemcode.model_routing import pick_effective_model
 from gemcode.repl_slash import process_repl_slash
+from gemcode.tui.scrollback import format_tool_call_extras
+from gemcode.version import get_version
 
 
 async def run_gemcode_tui(
@@ -26,6 +29,7 @@ async def run_gemcode_tui(
   ``extra_tools`` matches the runner (e.g. MCP toolsets when ``--mcp``) so
   ``/tools`` lists the same inventory as the agent.
   """
+  load_cli_environment()
   session_state = {"id": session_id}
 
   from prompt_toolkit.application import Application
@@ -65,7 +69,7 @@ async def run_gemcode_tui(
     height=D(weight=1),
   )
   input_box = TextArea(
-    prompt="> ",
+    prompt="❯ ",
     multiline=True,
     wrap_lines=True,
     height=D(min=3, max=6, preferred=3),
@@ -178,9 +182,9 @@ async def run_gemcode_tui(
 
   def _set_input_prompt() -> None:
     if pending_confirm.get("future") is not None:
-      input_box.prompt = "perm> "
+      input_box.prompt = "⎿ perm "
     else:
-      input_box.prompt = "> "
+      input_box.prompt = "❯ "
 
   def _input_help_text():
     if pending_confirm.get("future") is not None:
@@ -272,7 +276,10 @@ async def run_gemcode_tui(
         return s[: max(0, w - 1)] + "…"
       return s + (" " * (w - len(s)))
 
-    mid_title = "│" + pad(f" GemCode  v{os.environ.get('GEMCODE_VERSION', '0.1.0')}", width - 2) + "│"
+    mid_title = "│" + pad(
+        f" GemCode  v{os.environ.get('GEMCODE_VERSION', get_version())}",
+        width - 2,
+    ) + "│"
 
     welcome = f"Welcome back {_uname()}!"
     bot = [
@@ -571,7 +578,11 @@ async def run_gemcode_tui(
           name = getattr(fc, "name", "") or ""
           if name == REQUEST_CONFIRMATION_FC:
             continue
-          _box("tool", [name])
+          extra = format_tool_call_extras(fc)
+          if extra:
+            _box("tool", [name, extra])
+          else:
+            _box("tool", [name])
 
       # Token-budget reset matches invoke.run_turn behavior.
       state_delta = None
@@ -639,7 +650,7 @@ async def run_gemcode_tui(
         if not confirmation_fcs:
           # Now that we know no confirmation is needed, render buffered text.
           if buffered:
-            append_inline("GemCode: ")
+            append_inline("⎿ GemCode: ")
             await typewrite("".join(buffered))
           break
 
@@ -690,6 +701,27 @@ async def run_gemcode_tui(
       if not assistant_started:
         append_inline("(no text output)")
       append("")  # newline after assistant turn
+      if os.environ.get("GEMCODE_TUI_TURN_FOOTER", "1").lower() in (
+          "1",
+          "true",
+          "yes",
+          "on",
+      ):
+        sid = session_state["id"]
+        sid_short = sid[:8] if len(sid) >= 8 else sid
+        model = getattr(cfg, "model", "") or ""
+        append(f"\033[2m · {model} · session {sid_short}\033[0m")
+      if os.environ.get("GEMCODE_TUI_TURN_RULE", "1").lower() in (
+          "1",
+          "true",
+          "yes",
+          "on",
+      ):
+        try:
+          cw = app.output.get_size().columns
+        except Exception:
+          cw = 80
+        append("\033[2m" + ("─" * max(40, min(cw - 2, 200))) + "\033[0m")
     except Exception as e:
       append(f"GemCode: error: {e}\n")
 

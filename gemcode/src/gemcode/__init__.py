@@ -1,3 +1,5 @@
 """GemCode: Gemini + ADK coding agent."""
 
-__version__ = "0.1.0"
+from gemcode.version import get_version
+
+__version__ = get_version()

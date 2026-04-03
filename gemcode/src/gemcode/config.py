@@ -295,3 +295,9 @@ def load_cli_environment() -> None:
   from gemcode.credentials import apply_saved_google_api_key_to_environ
 
   apply_saved_google_api_key_to_environ()
+
+  from gemcode.logging_config import apply_gemcode_logging_filters
+  from gemcode.version import get_version
+
+  os.environ.setdefault("GEMCODE_VERSION", get_version())
+  apply_gemcode_logging_filters()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -9,8 +10,88 @@ from google.adk.agents.run_config import RunConfig
 from google.genai import types
 
 from gemcode.capability_routing import apply_capability_routing
+from gemcode.config import load_cli_environment
 from gemcode.model_routing import pick_effective_model
 from gemcode.repl_slash import process_repl_slash
+from gemcode.version import get_version
+from gemcode.workspace_hints import narrow_workspace_tip
+
+_ADK_REQUEST_CONFIRMATION = "adk_request_confirmation"
+
+
+def format_tool_call_extras(fc) -> str:
+  """
+  One-line summary of tool arguments for Claude-style ``[tool] name …`` lines.
+
+  Parses ``FunctionCall.args`` / nested ``originalFunctionCall.args`` when present.
+  """
+  try:
+    raw = getattr(fc, "args", None)
+    if raw is None:
+      return ""
+    if isinstance(raw, str):
+      try:
+        raw = json.loads(raw)
+      except Exception:
+        return ""
+    if not isinstance(raw, dict):
+      return ""
+    inner: dict = {}
+    orig = raw.get("originalFunctionCall")
+    if isinstance(orig, dict):
+      a = orig.get("args")
+      if isinstance(a, dict):
+        inner = a
+      elif isinstance(a, str):
+        try:
+          inner = json.loads(a) if a.strip() else {}
+        except Exception:
+          inner = {}
+    if not inner:
+      inner = {
+          k: v
+          for k, v in raw.items()
+          if k not in ("originalFunctionCall", "toolConfirmation")
+      }
+    if not isinstance(inner, dict) or not inner:
+      return ""
+    for key in (
+        "path",
+        "glob_pattern",
+        "pattern",
+        "command",
+        "query",
+        "url",
+        "file_path",
+        "target_file",
+    ):
+      if key in inner and inner[key] not in (None, ""):
+        v = str(inner[key])
+        if len(v) > 80:
+          v = v[:77] + "..."
+        return f"{key}={v}"
+    parts: list[str] = []
+    for k, v in list(inner.items())[:4]:
+      if k in ("originalFunctionCall",):
+        continue
+      sv = str(v)
+      if len(sv) > 40:
+        sv = sv[:37] + "..."
+      parts.append(f"{k}={sv}")
+    return " ".join(parts) if parts else ""
+  except Exception:
+    return ""
+
+
+def _events_had_non_confirmation_tools(events: list) -> bool:
+  for ev in events:
+    try:
+      for fc in ev.get_function_calls() or []:
+        if getattr(fc, "name", "") != _ADK_REQUEST_CONFIRMATION:
+          return True
+    except Exception:
+      continue
+  return False
 
 
 @dataclass(frozen=True)
@@ -72,7 +153,7 @@ def _hr(ch: str = "─") -> str:
 
 def _dashboard(cfg) -> str:
   w = _term_width()
-  title = f" GemCode v{os.environ.get('GEMCODE_VERSION', '0.1.0')} "
+  title = f" GemCode v{os.environ.get('GEMCODE_VERSION', get_version())} "
   left_w = (w - 4) * 2 // 3
   right_w = (w - 4) - left_w
 
@@ -116,6 +197,9 @@ def _dashboard(cfg) -> str:
     lines.append(
       "│ " + pad(left[i], left_w) + " │ " + pad(right[i], right_w) + " │"
     )
+  nt = narrow_workspace_tip(getattr(cfg, "project_root"))
+  if nt:
+    lines.append("│" + pad(f" {nt}", w - 2) + "│")
   lines.append(box_bot)
   lines.append("")
   lines.append("  ↑ GemCode Pro now supports larger contexts · faster streaming")
@@ -134,6 +218,7 @@ async def run_gemcode_scrollback_tui(
   - Tool calls are shown as a short "internal state" block.
   - Permission prompts are inline: type y/n at the prompt.
   """
+  load_cli_environment()
   os.environ["GEMCODE_TUI_ACTIVE"] = "1"
 
   ansi = _Ansi(
@@ -179,14 +264,14 @@ async def run_gemcode_scrollback_tui(
       sys.stdout.flush()
       await asyncio.sleep(char_delay_ms / 1000.0)
 
-  REQUEST_CONFIRMATION_FC = "adk_request_confirmation"
+  REQUEST_CONFIRMATION_FC = _ADK_REQUEST_CONFIRMATION
 
   def _get_confirmation_fcs(events: list) -> list[types.FunctionCall]:
     out: list[types.FunctionCall] = []
     for ev in events:
       try:
         for fc in ev.get_function_calls() or []:
-          if getattr(fc, "name", None) == REQUEST_CONFIRMATION_FC:
+          if getattr(fc, "name", None) == _ADK_REQUEST_CONFIRMATION:
             out.append(fc)
       except Exception:
         continue
@@ -212,9 +297,16 @@ async def run_gemcode_scrollback_tui(
       fcs = []
     for fc in fcs:
       name = getattr(fc, "name", "") or ""
-      if name == REQUEST_CONFIRMATION_FC:
+      if name == _ADK_REQUEST_CONFIRMATION:
         continue
-      print(f"  ⎿  {ansi.blue_tool}[tool]{ansi.reset} {ansi.bold}{name}{ansi.reset}")
+      extra = format_tool_call_extras(fc)
+      if extra:
+        print(
+            f"  ⎿  {ansi.blue_tool}[tool]{ansi.reset} {ansi.bold}{name}{ansi.reset} "
+            f"{ansi.dim}{extra}{ansi.reset}"
+        )
+      else:
+        print(f"  ⎿  {ansi.blue_tool}[tool]{ansi.reset} {ansi.bold}{name}{ansi.reset}")
 
   run_config = (
     RunConfig(max_llm_calls=cfg.max_llm_calls)
@@ -263,6 +355,7 @@ async def run_gemcode_scrollback_tui(
 
     while True:
       events: list = []
+      assistant_wrote_text = False
       kwargs = dict(
           user_id="local", session_id=current_session_id, new_message=current_message
       )
@@ -281,9 +374,16 @@ async def run_gemcode_scrollback_tui(
           for part in ev.content.parts:
             delta = getattr(part, "text", None)
             if delta:
+              assistant_wrote_text = True
               await typewrite(delta)
         except Exception:
           continue
+
+      if not assistant_wrote_text and _events_had_non_confirmation_tools(events):
+        await typewrite(
+            f"{ansi.dim}(Tools ran without a text reply in this step; "
+            f"the run may continue in the background. Ask a follow-up if you need more.){ansi.reset}"
+        )
 
       confirmation_fcs = _get_confirmation_fcs(events)
       if not confirmation_fcs:
@@ -331,5 +431,25 @@ async def run_gemcode_scrollback_tui(
       do_reset = False
 
     print("")
+    if os.environ.get("GEMCODE_TUI_TURN_FOOTER", "1").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+      sid = (
+          current_session_id[:8]
+          if len(current_session_id) >= 8
+          else current_session_id
+      )
+      model = getattr(cfg, "model", "") or ""
+      print(f"{ansi.dim}  · {model} · session {sid}{ansi.reset}")
+    if os.environ.get("GEMCODE_TUI_TURN_RULE", "1").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+      print(f"{ansi.dim}{_hr(ch='─')}{ansi.reset}")
     print("")
 

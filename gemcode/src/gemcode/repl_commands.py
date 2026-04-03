@@ -14,6 +14,7 @@ from typing import Any, Iterable
 
 from gemcode.config import GemCodeConfig
 from gemcode.trust import is_trusted_root
+from gemcode.version import get_version
 
 
 def _is_executable(p: Path) -> bool:
@@ -52,7 +53,9 @@ def format_doctor_lines(cfg: GemCodeConfig) -> list[str]:
   except Exception as e:
     lines.append(f"  project_root: ERROR {e}")
   lines.append(f"  folder_trusted: {is_trusted_root(cfg.project_root)}")
-  lines.append(f"  GEMCODE_VERSION: {os.environ.get('GEMCODE_VERSION', '(unset)')}")
+  lines.append(
+      f"  gemcode_version: {os.environ.get('GEMCODE_VERSION', get_version())}"
+  )
   return lines
 
 
@@ -157,6 +160,7 @@ def format_tools_lines(
 def slash_help_lines() -> list[str]:
   return [
       "Slash commands:",
+      "  (CLI) gemcode -C DIR  Use a project folder as root (recommended vs. ~ )",
       "  (CLI) gemcode login   Save or change API key (~/.gemcode/credentials.json)",
       "  /help                 Show this help",
       "  /status               Show current session/model info",
