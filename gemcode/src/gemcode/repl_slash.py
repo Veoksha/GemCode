@@ -190,7 +190,10 @@ async def process_repl_slash(
     out(f"  deep_research:  {'on  ✓' if cfg.enable_deep_research else 'off'}")
     out(f"  embeddings:     {'on  ✓' if cfg.enable_embeddings else 'off'}")
     out(f"  memory:         {'on  ✓' if cfg.enable_memory else 'off'}")
-    out(f"  computer_use:   {'on  ✓' if cfg.enable_computer_use else 'off'}")
+    _bc = getattr(cfg, "_browser_computer", None)
+    _bl = _bc is not None and getattr(_bc, "_page", None) is not None
+    out(f"  computer_use:   {'on  ✓' if cfg.enable_computer_use else 'off'}"
+        + (f"  [browser {'live' if _bl else 'ready/idle'}]" if cfg.enable_computer_use else ""))
     out(f"  maps_grounding: {'on  ✓' if cfg.enable_maps_grounding else 'off'}")
     out(f"  auto_routing:   {cfg.capability_mode}")
     out()
@@ -314,6 +317,86 @@ async def process_repl_slash(
 
   if name in ("exit", "quit"):
     return ReplSlashResult(exit_repl=True)
+
+  # ── /computer ────────────────────────────────────────────────────────────
+  if name in ("computer", "browser"):
+    args_s = (sc.args or "").strip().lower()
+    enabled = bool(cfg.enable_computer_use)
+    if not args_s or args_s in ("status", "show"):
+      out(f"computer_use: {'on  ✓' if enabled else 'off'}")
+      if enabled:
+        bc = getattr(cfg, "_browser_computer", None)
+        headless_env = os.environ.get("GEMCODE_COMPUTER_HEADLESS", "1").lower()
+        headless = headless_env in ("1", "true", "yes", "on")
+        out(f"  headless: {headless}")
+        w = int(os.environ.get("GEMCODE_BROWSER_WIDTH", "1280"))
+        h = int(os.environ.get("GEMCODE_BROWSER_HEIGHT", "720"))
+        out(f"  viewport: {w}×{h}")
+        out(f"  browser_initialized: {bc is not None and bc._page is not None}")
+        if bc is not None and bc._page is not None:
+          try:
+            import asyncio
+            url = asyncio.get_event_loop().run_until_complete(bc.get_current_url()) if not asyncio.get_event_loop().is_running() else "(running)"
+          except Exception:
+            url = "(check with /computer url)"
+          out(f"  model_computer_use: {cfg.model_computer_use}")
+        out()
+        out("Available slash commands:")
+        out("  /computer url     — show current browser URL")
+        out("  /computer off     — disable computer use")
+        out("  /computer show    — show browser window (GEMCODE_COMPUTER_HEADLESS=0 required at startup)")
+      else:
+        out()
+        out("Enable browser automation:")
+        out("  /computer on      — enable (rebuilds runner with Playwright Chromium)")
+        out("  GEMCODE_COMPUTER_HEADLESS=0  — show browser window (set before start)")
+        out()
+        out("Requirements: pip install playwright && playwright install chromium")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if args_s == "on":
+      cfg.enable_computer_use = True
+      out("computer_use: on — Playwright Chromium browser automation enabled")
+      out("  Runner will rebuild on the next turn to inject browser tools.")
+      out()
+      out("Browser tools available to the agent:")
+      out("  navigate, click_at, type_text_at, scroll_at, key_combination,")
+      out("  browser_screenshot, browser_get_text, browser_find_element, ...")
+      out()
+      out("Tip: set GEMCODE_COMPUTER_HEADLESS=0 to see the browser window.")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+    if args_s == "off":
+      cfg.enable_computer_use = False
+      out("computer_use: off")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+    if args_s == "url":
+      bc = getattr(cfg, "_browser_computer", None)
+      if bc is None or bc._page is None:
+        out("Browser not initialized yet. Send a message to the agent to start it.")
+      else:
+        try:
+          import asyncio
+          if asyncio.get_event_loop().is_running():
+            out("(run '/computer' to check browser status — URL read not available while async loop is running)")
+          else:
+            url = asyncio.get_event_loop().run_until_complete(bc.get_current_url())
+            title = asyncio.get_event_loop().run_until_complete(bc.get_page_title())
+            out(f"url:   {url}")
+            out(f"title: {title}")
+        except Exception as e:
+          out(f"Error reading URL: {e}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    out(f"Unknown /computer subcommand: '{args_s}'")
+    out("Usage: /computer [on|off|url|status]")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
 
   # ── /research ────────────────────────────────────────────────────────────
   if name == "research":
@@ -473,6 +556,12 @@ async def process_repl_slash(
     if args_s == "embeddings":
       cfg.enable_embeddings = True
       out("enable_embeddings: on (runner rebuilding…)")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    if args_s in ("computer", "browser"):
+      cfg.enable_computer_use = True
+      out("enable_computer_use: on (runner rebuilding…)")
+      out("Tip: set GEMCODE_COMPUTER_HEADLESS=0 before starting gemcode to see the browser window.")
       out()
       return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
     if args_s == "all":

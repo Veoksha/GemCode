@@ -50,6 +50,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("compact",     "Summarise conversation history to reclaim context space"),
     ("research",    "Toggle Google Search + URL Context  ·  /research on|off"),
     ("embeddings",  "Toggle semantic file search via Embeddings API  ·  /embeddings on|off"),
+    ("computer",    "Browser automation (Playwright Chromium)  ·  /computer on|off|url"),
     ("caps",        "View/toggle all capabilities  ·  /caps  ·  /caps all  ·  /caps reset"),
     ("memory",      "Toggle persistent memory  ·  /memory on|off"),
     ("budget",      "Set per-turn token budget  ·  /budget <N>  ·  /budget off"),

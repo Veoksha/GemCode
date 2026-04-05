@@ -40,16 +40,31 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
     merged_extra_tools = modality_tools or None
 
   # Computer-use: ADK ComputerUseToolset backed by our Playwright BrowserComputer.
+  # Also inject standalone browser inspection tools (screenshot, get_text, etc.)
+  # so the agent can read page state without performing side-effecting actions.
   if getattr(cfg, "enable_computer_use", False):
     headless_env = os.environ.get("GEMCODE_COMPUTER_HEADLESS", "1").lower()
     headless = headless_env in ("1", "true", "yes", "on")
+    viewport_w = int(os.environ.get("GEMCODE_BROWSER_WIDTH", "1280"))
+    viewport_h = int(os.environ.get("GEMCODE_BROWSER_HEIGHT", "720"))
     from gemcode.computer_use.browser_computer import BrowserComputer
     from google.adk.tools.computer_use.computer_use_toolset import ComputerUseToolset
 
-    computer = BrowserComputer(headless=headless)
+    computer = BrowserComputer(
+      headless=headless,
+      viewport_size=(viewport_w, viewport_h),
+    )
     computer_toolset = ComputerUseToolset(computer=computer)
     merged_extra_tools = list(merged_extra_tools or [])
     merged_extra_tools.append(computer_toolset)
+
+    # Standalone read-only browser tools (browser_screenshot, browser_get_text, etc.)
+    from gemcode.tools.browser import build_browser_inspection_tools
+    browser_tools = build_browser_inspection_tools(cfg, computer)
+    merged_extra_tools.extend(browser_tools)
+
+    # Store reference on cfg so slash commands / TUI can check browser state.
+    cfg._browser_computer = computer  # type: ignore[attr-defined]
 
   agent = build_root_agent(cfg, extra_tools=merged_extra_tools)
   db = session_db_path(cfg)
