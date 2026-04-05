@@ -183,10 +183,7 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
   _maybe_prompt_google_api_key()
   require_google_api_key()
   _initialize_gemcode_project(cfg)
-  
-  # Show beautiful startup screen before TUI loads
-  from gemcode.tui.startup_screen import print_startup_screen
-  print_startup_screen()
+
   extra: list = []
   if use_mcp:
     from gemcode.mcp_loader import load_mcp_toolsets
