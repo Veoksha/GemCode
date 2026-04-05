@@ -140,6 +140,43 @@ class _Ansi:
     return self.esc("38;5;69")
 
 
+async def _read_permission_char(loop) -> bool:
+  """
+  Read a single character from stdin without requiring Enter.
+
+  Uses cbreak mode (Unix) so the user just presses 'y' — no Enter needed.
+  This sidesteps the prompt_toolkit raw-mode conflict entirely: after
+  prompt_async() returns, the terminal may still behave as if Enter sends
+  \\r instead of \\n, causing input()/readline() to block forever.
+  cbreak mode + read(1) works regardless of the terminal's current line-
+  discipline state.
+
+  Falls back to readline() on Windows or non-TTY (CI, piped input).
+  """
+  # ── Unix / macOS: cbreak + read(1) ───────────────────────────────────────
+  try:
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+      tty.setcbreak(fd)          # single-char, no echo, signals still work
+      ch = await loop.run_in_executor(None, lambda: sys.stdin.read(1))
+    finally:
+      termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return ch.lower() == "y"
+  except Exception:
+    pass
+
+  # ── Fallback: readline in thread (Windows, non-TTY, termios error) ───────
+  try:
+    raw = await loop.run_in_executor(None, sys.stdin.readline)
+    return (raw or "").replace("\r", "").replace("\n", "").strip().lower() in ("y", "yes")
+  except EOFError:
+    return False
+
+
 def _term_width(default: int = 100) -> int:
   try:
     import shutil
@@ -581,27 +618,29 @@ async def run_gemcode_scrollback_tui(
               f"for {ansi.bold}{tool_name}{ansi.reset}."
             )
           sys.stdout.flush()
-          # Use run_in_executor so input() runs in a thread — this avoids
-          # blocking the asyncio event loop and prevents the terminal-state
-          # conflict that occurs when prompt_toolkit's raw-mode setup causes
-          # synchronous input() to not recognise \r as end-of-line.
+          # The core issue: prompt_toolkit puts the terminal in raw mode
+          # while reading user input. After prompt_async() returns, the
+          # terminal may still be in (or close to) raw mode. In raw mode
+          # pressing Enter sends \r instead of \n. Both input() and
+          # readline() wait for \n — so they block forever.
+          #
+          # Fix: read a SINGLE CHARACTER using cbreak mode (no Enter needed).
+          #   - tty.setcbreak() disables line-buffering + echo but keeps
+          #     signal keys (Ctrl+C etc.) working.
+          #   - read(1) returns immediately after any key is pressed.
+          #   - The user only needs to press "y" — no Enter required.
+          #   - On Windows (no termios) we fall back to readline().
           prompt_str = (
               f"  ⎿  Allow? "
-              f"[{ansi.blue_ok}y{ansi.reset} = yes"
-              f"  /{ansi.dim}Enter = no{ansi.reset}] "
+              f"[{ansi.blue_ok}y{ansi.reset} = yes  "
+              f"{ansi.dim}any other key = no{ansi.reset}]  "
           )
-          try:
-            # run_in_executor runs input() in a thread so the asyncio event
-            # loop stays alive (spinner can update, timeouts can fire).
-            # get_running_loop() is the correct call inside an async function.
-            _loop = asyncio.get_running_loop()
-            raw = await _loop.run_in_executor(None, input, prompt_str)
-            # Strip \r and \n — handles raw-mode terminals where pressing
-            # Enter sends \r (shown as ^M) instead of \n.
-            ans = (raw or "").replace("\r", "").replace("\n", "").strip().lower()
-          except EOFError:
-            ans = ""
-          ok = ans in ("y", "yes")
+          sys.stdout.write(prompt_str)
+          sys.stdout.flush()
+          ok = await _read_permission_char(asyncio.get_running_loop())
+          # Echo the answer and move to next line
+          sys.stdout.write(("y" if ok else "n") + "\n")
+          sys.stdout.flush()
 
         # Explicit visual feedback — user knows their answer was received.
         if ok:
