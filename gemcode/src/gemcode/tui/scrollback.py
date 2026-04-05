@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from google.adk.agents.run_config import RunConfig
 from google.genai import types
 from rich.console import Console
+from rich.markdown import Markdown as _RichMarkdown
+from rich.padding import Padding as _RichPadding
 
 from gemcode.capability_routing import apply_capability_routing
 from gemcode.config import load_cli_environment
@@ -492,28 +494,33 @@ async def run_gemcode_scrollback_tui(
 
       confirmation_fcs = _get_confirmation_fcs(events)
       if not confirmation_fcs:
-        # Render buffered thinking and final response separately.
-        thought_text = "".join(buffered_thought)
-        final_text = "".join(buffered_final)
-        if buffered_thought:
-          if buffered_final and _normalize_ws(thought_text) == _normalize_ws(final_text):
-            print(
-              f"  ⎿  {ansi.dim}{ansi.bold}\u2234 Thinking{ansi.reset}: "
-              f"{ansi.reset}(omitted: identical to final response)"
-            )
-            print("")
-          else:
-            sys.stdout.write(
-              f"  ⎿  {ansi.dim}{ansi.bold}\u2234 Thinking{ansi.reset}: "
-            )
-            sys.stdout.flush()
-            await typewrite(thought_text)
-            sys.stdout.write("\n")
-            sys.stdout.flush()
-        if buffered_final:
-          sys.stdout.write(f"  ⎿  {ansi.bold}GemCode{ansi.reset}: ")
-          sys.stdout.flush()
-          await typewrite(final_text)
+        thought_text = "".join(buffered_thought).strip()
+        final_text   = "".join(buffered_final).strip()
+
+        # ── Thinking indicator (collapsed, never full dump) ───────────────
+        # Show only a brief one-line excerpt so the user knows thinking
+        # happened without drowning in the raw internal monologue.
+        if thought_text and not (
+            buffered_final and _normalize_ws(thought_text) == _normalize_ws(final_text)
+        ):
+          excerpt = thought_text.replace("\n", " ").strip()
+          if len(excerpt) > 100:
+            excerpt = excerpt[:97] + "\u2026"
+          print(
+              f"  \u23bf  {ansi.dim}\u2234 Thinking{ansi.reset}"
+              f"{ansi.dim}  {excerpt}{ansi.reset}"
+          )
+          print("")
+
+        # ── Response — rendered as Rich Markdown ──────────────────────────
+        # Pipes the text through Rich's Markdown renderer so **bold**,
+        # *italic*, `code`, bullet lists and fenced code blocks all display
+        # correctly instead of showing raw asterisks and backticks.
+        if final_text:
+          print(f"  \u23bf  {ansi.bold}GemCode{ansi.reset}:")
+          console.print(
+              _RichPadding(_RichMarkdown(final_text), (0, 0, 0, 4)),
+          )
         break
 
       interactive_enabled = bool(getattr(cfg, "interactive_permission_ask", False))
