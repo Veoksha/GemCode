@@ -236,7 +236,76 @@ async def run_gemcode_scrollback_tui(
       pass
     return tool_name, hint
 
+  # ── Live status indicator ─────────────────────────────────────────────────
+  # spinner_active[0] = True while "⟳ Working..." is on the current line.
+  # _clear_spinner() uses \r + ANSI erase to overwrite it before real output.
+  spinner_active = [False]
+
+  def _clear_spinner() -> None:
+    if spinner_active[0]:
+      sys.stdout.write("\r\033[K")
+      sys.stdout.flush()
+      spinner_active[0] = False
+
+  def _fmt_tool_result(resp: object) -> str:
+    """One-line summary of a tool execution result."""
+    try:
+      d = resp if isinstance(resp, dict) else {}
+      # ADK may wrap the return value; try both the raw dict and a nested "result" key.
+      inner = d.get("result", d)
+      if not isinstance(inner, dict):
+        inner = d
+      err = inner.get("error") or d.get("error")
+      if err:
+        return f"\u2717 {str(err)[:80]}"
+      exit_code = inner.get("exit_code")
+      if exit_code is not None:
+        icon = "\u2713" if exit_code == 0 else f"\u2717 exit {exit_code}"
+        out = str(inner.get("stdout", "") or "").strip()
+        first = out.split("\n")[0][:80] if out else ""
+        if not first:
+          first = str(inner.get("stderr", "") or "").strip().split("\n")[0][:80]
+        return f"{icon}  {first}" if first else icon
+      if inner.get("content") is not None:
+        lines = str(inner["content"]).count("\n") + 1
+        return f"\u2713 {lines} lines"
+      if inner.get("files") is not None:
+        return f"\u2713 {len(inner['files'])} files"
+      if inner.get("matches") is not None:
+        return f"\u2713 {len(inner['matches'])} matches"
+      if inner.get("ok") or d.get("ok"):
+        return "\u2713"
+      return ""
+    except Exception:
+      return ""
+
+  def _render_tool_results(ev) -> None:
+    """Print a brief one-line summary when a tool finishes executing."""
+    try:
+      frs: list = []
+      try:
+        frs = ev.get_function_responses() or []
+      except Exception:
+        pass
+      if not frs and ev.content and ev.content.parts:
+        for part in ev.content.parts:
+          fr = getattr(part, "function_response", None)
+          if fr is not None:
+            frs.append(fr)
+      for fr in frs:
+        name = getattr(fr, "name", "") or ""
+        if name == _ADK_REQUEST_CONFIRMATION:
+          continue
+        _clear_spinner()
+        resp = getattr(fr, "response", {}) or {}
+        summary = _fmt_tool_result(resp)
+        if summary:
+          print(f"  ⎿    {ansi.dim}\u21b3 {summary}{ansi.reset}")
+    except Exception:
+      pass
+
   def _render_tool_calls(ev) -> None:
+    _clear_spinner()
     try:
       fcs = ev.get_function_calls() or []
     except Exception:
@@ -331,9 +400,18 @@ async def run_gemcode_scrollback_tui(
         kwargs["run_config"] = run_config
       # (We don't handle token budget reset here; full-screen TUI does.)
 
+      # Show a live "Working…" indicator so the user never wonders if the
+      # agent froze.  _clear_spinner() overwrites it with \r+ANSI-erase
+      # before the first real output (tool call, tool result, or response).
+      if ansi.enabled:
+        spinner_active[0] = True
+        sys.stdout.write(f"  {ansi.dim}\u27f3  Working\u2026{ansi.reset}")
+        sys.stdout.flush()
+
       async for ev in runner.run_async(**kwargs):
         events.append(ev)
         _render_tool_calls(ev)
+        _render_tool_results(ev)
         try:
           if not ev.content or not ev.content.parts:
             continue
@@ -350,6 +428,8 @@ async def run_gemcode_scrollback_tui(
               buffered_final.append(delta)
         except Exception:
           continue
+
+      _clear_spinner()  # ensure "Working…" is gone before any response line
 
       if not assistant_wrote_text and _events_had_non_confirmation_tools(events):
         await typewrite(
@@ -377,15 +457,6 @@ async def run_gemcode_scrollback_tui(
             await typewrite(thought_text)
             sys.stdout.write("\n")
             sys.stdout.flush()
-        else:
-          # Keep thinking visible even if the model produced no separate
-          # "thought" channel output.
-          print(
-            f"  ⎿  {ansi.dim}{ansi.bold}\u2234 Thinking{ansi.reset}: "
-            "(no thinking output)"
-          )
-          print("")
-
         if buffered_final:
           sys.stdout.write(f"  ⎿  {ansi.bold}GemCode{ansi.reset}: ")
           sys.stdout.flush()
