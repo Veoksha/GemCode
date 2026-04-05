@@ -181,29 +181,73 @@ async def process_repl_slash(
     return ReplSlashResult(skip_model_turn=True)
 
   if name == "status":
-    out(f"model: {cfg.model}")
-    out(f"project_root: {cfg.project_root}")
-    out(f"session_id: {session_id}")
-    out(f"permission_mode: {cfg.permission_mode}")
-    out(f"yes_to_all: {cfg.yes_to_all}")
+    out(f"model:          {cfg.model}")
+    out(f"model_mode:     {cfg.model_mode}")
+    out(f"session_id:     {session_id}")
+    out(f"project_root:   {cfg.project_root}")
+    out()
+    out("Capabilities:")
+    out(f"  deep_research:  {'on  ✓' if cfg.enable_deep_research else 'off'}")
+    out(f"  embeddings:     {'on  ✓' if cfg.enable_embeddings else 'off'}")
+    out(f"  memory:         {'on  ✓' if cfg.enable_memory else 'off'}")
+    out(f"  computer_use:   {'on  ✓' if cfg.enable_computer_use else 'off'}")
+    out(f"  maps_grounding: {'on  ✓' if cfg.enable_maps_grounding else 'off'}")
+    out(f"  auto_routing:   {cfg.capability_mode}")
+    out()
+    out("Thinking:")
+    out(f"  disabled:        {cfg.disable_thinking}")
+    if cfg.thinking_level:
+      out(f"  level:           {cfg.thinking_level}")
+    if cfg.thinking_budget is not None:
+      out(f"  budget:          {cfg.thinking_budget:,} tokens")
+    out(f"  display:         {'verbose (full)' if cfg.show_full_thinking else 'brief (collapsed)'}")
+    out()
+    out("Permissions / limits:")
+    out(f"  permission_mode: {cfg.permission_mode}")
+    out(f"  yes_to_all:      {cfg.yes_to_all}")
+    out(f"  max_llm_calls:   {cfg.max_llm_calls or '(SDK default)'}")
+    out(f"  token_budget:    {f'{cfg.token_budget:,}' if cfg.token_budget else '(none)'}")
     out()
     return ReplSlashResult(skip_model_turn=True)
 
   if name == "config":
-    out("Key settings (env vars):")
-    out(f"  GEMCODE_MODEL={os.environ.get('GEMCODE_MODEL', cfg.model)}")
-    out(
-        f"  GEMCODE_TOOL_RESULT_MAX_CHARS={os.environ.get('GEMCODE_TOOL_RESULT_MAX_CHARS', '12000')}"
-    )
-    out(f"  GEMCODE_MAX_CONTEXT_CHARS={os.environ.get('GEMCODE_MAX_CONTEXT_CHARS', '400000')}")
-    out(f"  GEMCODE_CONTEXT_SHRINK={os.environ.get('GEMCODE_CONTEXT_SHRINK', '1')}")
-    out(f"  GEMCODE_AUTOCOMPACT={os.environ.get('GEMCODE_AUTOCOMPACT', '1')}")
-    out(
-        f"  GEMCODE_AUTOCOMPACT_KEEP_CONTENT_ITEMS={os.environ.get('GEMCODE_AUTOCOMPACT_KEEP_CONTENT_ITEMS', '18')}"
-    )
-    out(
-        f"  GEMCODE_AUTOCOMPACT_BUFFER_CHARS={os.environ.get('GEMCODE_AUTOCOMPACT_BUFFER_CHARS', '60000')}"
-    )
+    out("Active configuration:")
+    out()
+    out("  Model:")
+    out(f"    model:             {cfg.model}")
+    out(f"    model_mode:        {cfg.model_mode}  (fast|balanced|quality|auto — /mode)")
+    out(f"    model_family_mode: {cfg.model_family_mode}")
+    out(f"    model_overridden:  {cfg.model_overridden}")
+    out(f"    model_deep_research: {cfg.model_deep_research}")
+    out()
+    out("  Capabilities  (/research, /embeddings, /caps, /memory):")
+    out(f"    enable_deep_research:  {cfg.enable_deep_research}")
+    out(f"    enable_embeddings:     {cfg.enable_embeddings}")
+    out(f"    enable_memory:         {cfg.enable_memory}")
+    out(f"    enable_computer_use:   {cfg.enable_computer_use}")
+    out(f"    enable_maps_grounding: {cfg.enable_maps_grounding}")
+    out(f"    capability_mode:       {cfg.capability_mode}  (auto-routing)")
+    out(f"    tool_combination_mode: {cfg.tool_combination_mode}")
+    out()
+    out("  Context / limits  (/limits, /budget):")
+    out(f"    max_llm_calls:         {cfg.max_llm_calls or '(SDK default)'}")
+    out(f"    max_context_chars:     {cfg.max_context_chars:,}")
+    out(f"    tool_result_max_chars: {cfg.tool_result_max_chars:,}")
+    out(f"    max_content_items:     {cfg.max_content_items}")
+    out(f"    context_shrink:        {cfg.context_shrink_enabled}")
+    out(f"    token_budget:          {f'{cfg.token_budget:,}' if cfg.token_budget else '(none)'}")
+    out(f"    max_session_tokens:    {f'{cfg.max_session_tokens:,}' if cfg.max_session_tokens else '(none)'}")
+    out()
+    out("  Thinking  (/thinking):")
+    out(f"    disable_thinking:      {cfg.disable_thinking}")
+    out(f"    thinking_level:        {cfg.thinking_level or '(auto)'}")
+    out(f"    thinking_budget:       {cfg.thinking_budget if cfg.thinking_budget is not None else '(auto)'}")
+    out(f"    show_full_thinking:    {cfg.show_full_thinking}")
+    out()
+    out("  Autocompact:")
+    out(f"    GEMCODE_AUTOCOMPACT:               {os.environ.get('GEMCODE_AUTOCOMPACT', '1')}")
+    out(f"    GEMCODE_AUTOCOMPACT_BUFFER_CHARS:  {os.environ.get('GEMCODE_AUTOCOMPACT_BUFFER_CHARS', '60000')}")
+    out(f"    GEMCODE_AUTOCOMPACT_KEEP_CONTENT_ITEMS: {os.environ.get('GEMCODE_AUTOCOMPACT_KEEP_CONTENT_ITEMS', '18')}")
     out()
     return ReplSlashResult(skip_model_turn=True)
 
@@ -271,6 +315,203 @@ async def process_repl_slash(
   if name in ("exit", "quit"):
     return ReplSlashResult(exit_repl=True)
 
+  # ── /research ────────────────────────────────────────────────────────────
+  if name == "research":
+    args_s = (sc.args or "").strip().lower()
+    if not args_s or args_s in ("status", "show"):
+      status = "on  ✓" if cfg.enable_deep_research else "off"
+      out(f"deep_research: {status}")
+      if cfg.enable_deep_research:
+        out(f"  model_deep_research:  {cfg.model_deep_research}")
+        out(f"  enable_maps_grounding:{cfg.enable_maps_grounding}")
+        out("  tools: google_search, url_context")
+      out()
+      out("Commands: /research on  ·  /research off")
+      out("When on: Google Search + URL Context are injected as tools.")
+      out("         Model switches to the deep-research routing model.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if args_s == "on":
+      cfg.enable_deep_research = True
+      out("research: on — Google Search + URL Context enabled")
+      out("  Runner will rebuild on next turn to inject the new tools.")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    if args_s == "off":
+      cfg.enable_deep_research = False
+      out("research: off")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    out(f"Unknown /research subcommand: '{args_s}'")
+    out("Usage: /research [on|off]")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /embeddings ──────────────────────────────────────────────────────────
+  if name in ("embeddings", "embed"):
+    args_s = (sc.args or "").strip().lower()
+    if not args_s or args_s in ("status", "show"):
+      status = "on  ✓" if cfg.enable_embeddings else "off"
+      out(f"embeddings: {status}")
+      if cfg.enable_embeddings:
+        out(f"  embeddings_model: {cfg.embeddings_model}")
+        out("  tools: semantic_search_files")
+      out()
+      out("Commands: /embeddings on  ·  /embeddings off")
+      out("When on: semantic (meaning-based) file search via Google Embeddings API.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if args_s == "on":
+      cfg.enable_embeddings = True
+      out("embeddings: on — semantic_search_files tool injected")
+      out("  Runner will rebuild on next turn.")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    if args_s == "off":
+      cfg.enable_embeddings = False
+      out("embeddings: off")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    out(f"Unknown /embeddings subcommand: '{args_s}'")
+    out("Usage: /embeddings [on|off]")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /mode ─────────────────────────────────────────────────────────────────
+  if name == "mode":
+    args_s = (sc.args or "").strip().lower()
+    valid_modes = ("fast", "balanced", "quality", "auto")
+    if not args_s:
+      out(f"model_mode: {cfg.model_mode}")
+      out()
+      out("  fast     — use the fastest model for edits and tool-heavy tasks")
+      out("  balanced — moderate speed/quality (default)")
+      out("  quality  — highest-quality model for architecture and complex reasoning")
+      out("  auto     — GemCode picks based on prompt complexity each turn")
+      out()
+      out("Usage: /mode <fast|balanced|quality|auto>")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if args_s in valid_modes:
+      cfg.model_mode = args_s
+      # Clear model_overridden so the new mode takes effect through routing
+      if not getattr(cfg, "_model_explicitly_set", False):
+        cfg.model_overridden = False
+      out(f"model_mode: {args_s}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    out(f"Unknown mode '{args_s}'. Choose from: {', '.join(valid_modes)}")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /budget ───────────────────────────────────────────────────────────────
+  if name in ("budget", "token-budget"):
+    args_s = (sc.args or "").strip().lower()
+    if not args_s:
+      tb = cfg.token_budget
+      out(f"token_budget: {f'{tb:,} tokens/turn' if tb is not None else '(none — unlimited)'}")
+      out()
+      out("Usage: /budget <N>   Set per-turn token budget (e.g. /budget 50000)")
+      out("       /budget off   Remove budget limit")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if args_s == "off":
+      cfg.token_budget = None
+      out("token_budget: (none — unlimited)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    try:
+      n = int(args_s)
+      if n <= 0:
+        out("Token budget must be a positive integer (or 'off').")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      cfg.token_budget = n
+      out(f"token_budget: {n:,} tokens per turn")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    except ValueError:
+      out(f"Invalid budget '{args_s}' — use a number or 'off'.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+  # ── /caps ─────────────────────────────────────────────────────────────────
+  if name in ("caps", "capabilities", "capability"):
+    args_s = (sc.args or "").strip().lower()
+    valid_caps = ("auto", "research", "embeddings", "computer", "all", "none", "reset")
+    out("Active capabilities:")
+    out(f"  deep_research:  {'on' if cfg.enable_deep_research else 'off'}")
+    out(f"  embeddings:     {'on' if cfg.enable_embeddings else 'off'}")
+    out(f"  memory:         {'on' if cfg.enable_memory else 'off'}")
+    out(f"  computer_use:   {'on' if cfg.enable_computer_use else 'off'}")
+    out(f"  maps_grounding: {'on' if cfg.enable_maps_grounding else 'off'}")
+    out(f"  capability_mode (auto-routing): {cfg.capability_mode}")
+    out()
+    if not args_s:
+      out("Commands:")
+      out("  /caps none      — turn all off, capability_mode=auto")
+      out("  /caps research  — enable_deep_research on")
+      out("  /caps embeddings — enable_embeddings on")
+      out("  /caps all       — all modalities on")
+      out("  /caps reset     — reset to startup defaults (all off, auto mode)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if args_s in ("none", "reset"):
+      cfg.enable_deep_research = False
+      cfg.enable_embeddings = False
+      cfg.enable_computer_use = False
+      cfg.enable_maps_grounding = False
+      cfg.capability_mode = "auto"
+      out("capabilities: reset to defaults (all off, auto mode)")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    if args_s == "research":
+      cfg.enable_deep_research = True
+      out("enable_deep_research: on (runner rebuilding…)")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    if args_s == "embeddings":
+      cfg.enable_embeddings = True
+      out("enable_embeddings: on (runner rebuilding…)")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    if args_s == "all":
+      cfg.enable_deep_research = True
+      cfg.enable_embeddings = True
+      cfg.enable_computer_use = True
+      out("capabilities: all on (runner rebuilding…)")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    out(f"Unknown /caps value '{args_s}'. Choose from: {', '.join(valid_caps)}")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /limits ───────────────────────────────────────────────────────────────
+  if name == "limits":
+    args_s = (sc.args or "").strip()
+    out("Current limits:")
+    out(f"  max_llm_calls:         {cfg.max_llm_calls or '(SDK default)'}")
+    out(f"  max_context_chars:     {cfg.max_context_chars:,}")
+    out(f"  tool_result_max_chars: {cfg.tool_result_max_chars:,}")
+    out(f"  max_content_items:     {cfg.max_content_items}")
+    out(f"  context_shrink:        {cfg.context_shrink_enabled}")
+    out(f"  token_budget:          {f'{cfg.token_budget:,}' if cfg.token_budget else '(none)'}")
+    out(f"  max_session_tokens:    {f'{cfg.max_session_tokens:,}' if cfg.max_session_tokens else '(none)'}")
+    out()
+    if args_s:
+      parts = args_s.split()
+      if parts[0] == "calls" and len(parts) >= 2:
+        try:
+          n = int(parts[1])
+          if n > 0:
+            cfg.max_llm_calls = n
+            out(f"max_llm_calls: {n}")
+            out()
+        except ValueError:
+          out(f"Invalid value '{parts[1]}'")
+          out()
+    return ReplSlashResult(skip_model_turn=True)
+
   if name == "thinking":
     model_id = getattr(cfg, "model", "") or ""
     is_25 = "2.5" in model_id
@@ -278,10 +519,10 @@ async def process_repl_slash(
 
     if not args:
       # Show current thinking config.
-      disable  = bool(getattr(cfg, "disable_thinking", False))
-      level    = getattr(cfg, "thinking_level", None)
-      budget   = getattr(cfg, "thinking_budget", None)
-      verbose  = bool(getattr(cfg, "show_full_thinking", False))
+      disable  = bool(cfg.disable_thinking)
+      level    = cfg.thinking_level
+      budget   = cfg.thinking_budget
+      verbose  = bool(cfg.show_full_thinking)
       out("Thinking config:")
       out(f"  model:            {model_id or '(default)'}")
       out(f"  disable_thinking: {disable}")
@@ -310,13 +551,13 @@ async def process_repl_slash(
     sub = parts[0].lower()
 
     if sub in ("verbose", "full"):
-      setattr(cfg, "show_full_thinking", True)
+      cfg.show_full_thinking = True
       out("thinking display: verbose — full thinking shown each turn")
       out()
       return ReplSlashResult(skip_model_turn=True)
 
     if sub in ("brief", "short", "collapsed"):
-      setattr(cfg, "show_full_thinking", False)
+      cfg.show_full_thinking = False
       out("thinking display: brief — collapsed one-line excerpt (default)")
       out()
       return ReplSlashResult(skip_model_turn=True)

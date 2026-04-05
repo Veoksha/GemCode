@@ -244,6 +244,13 @@ class GemCodeConfig:
     default_factory=lambda: _opt_int("GEMCODE_THINKING_BUDGET")
   )
 
+  # Controls how the TUI renders model thinking: True = full Rich Markdown,
+  # False = collapsed one-line excerpt (default, like OpenClaude).
+  # Toggled at runtime via /thinking verbose|brief.
+  show_full_thinking: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_SHOW_FULL_THINKING", default=False)
+  )
+
   def __post_init__(self) -> None:
     self.project_root = self.project_root.resolve()
     # Default agentic depth when env omits GEMCODE_MAX_LLM_CALLS (was: None → SDK default).

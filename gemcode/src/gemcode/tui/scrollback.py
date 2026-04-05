@@ -436,8 +436,35 @@ async def run_gemcode_scrollback_tui(
         continue
       prompt = slash.model_prompt or prompt
 
+    # Snapshot pre-turn capability state so we can detect routing-triggered changes.
+    _pre_dr  = cfg.enable_deep_research
+    _pre_emb = cfg.enable_embeddings
+    _pre_cu  = cfg.enable_computer_use
+    _pre_model = cfg.model
+
     apply_capability_routing(cfg, prompt, context="prompt")
     cfg.model = pick_effective_model(cfg, prompt)
+
+    # Capabilities and model are baked into the Runner at construction time.
+    # If routing changed any of them we must rebuild the runner so the new
+    # tools/model are actually used for this turn.
+    _routing_changed = (
+        cfg.enable_deep_research != _pre_dr
+        or cfg.enable_embeddings  != _pre_emb
+        or cfg.enable_computer_use != _pre_cu
+        or cfg.model != _pre_model
+    )
+    if _routing_changed:
+        try:
+            close_fn = getattr(runner, "close", None)
+            if close_fn:
+                maybe = close_fn()
+                if asyncio.iscoroutine(maybe):
+                    await maybe
+        except Exception:
+            pass
+        from gemcode.session_runtime import create_runner as _create_runner_rt
+        runner = _create_runner_rt(cfg, extra_tools=extra_tools)
 
     current_message = types.Content(role="user", parts=[types.Part(text=prompt)])
     do_reset = True
@@ -501,7 +528,7 @@ async def run_gemcode_scrollback_tui(
         if thought_text and not (
             buffered_final and _normalize_ws(thought_text) == _normalize_ws(final_text)
         ):
-          show_full = bool(getattr(cfg, "show_full_thinking", False))
+          show_full = bool(cfg.show_full_thinking)
           if show_full:
             # Verbose mode: full thinking rendered as Markdown, like transcript mode.
             print(f"  \u23bf  {ansi.dim}\u2234 Thinking{ansi.reset}")
