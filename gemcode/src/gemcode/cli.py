@@ -225,11 +225,10 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
       except EOFError:
         pass
 
-    # Optional TUI. Claude-like default is "scrollback" (no internal scrolling).
+    # Optional terminal UI: single scrollback-style REPL (terminal history, no alt-screen app).
     tui_enabled = os.environ.get("GEMCODE_TUI", "1").lower() in ("1", "true", "yes", "on")
     if tui_enabled:
       term = (os.environ.get("TERM") or "").strip().lower()
-      # Guardrails: Prompt Toolkit needs a real interactive terminal.
       if not sys.stdin.isatty() or not sys.stdout.isatty() or term in ("", "dumb", "unknown"):
         print(
           f"[tui] disabled (stdin/stdout isatty={sys.stdin.isatty()}/{sys.stdout.isatty()}, TERM={term or '<unset>'}); using plain REPL",
@@ -237,33 +236,19 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
         )
       else:
         try:
-          style = os.environ.get("GEMCODE_TUI_STYLE", "scrollback").strip().lower()
-          if style in ("scrollback", "claude", "claude-like"):
-            from gemcode.tui.scrollback import run_gemcode_scrollback_tui
+          from gemcode.tui.scrollback import run_gemcode_scrollback_tui
 
-            await run_gemcode_scrollback_tui(
-                cfg=cfg,
-                runner=runner,
-                session_id=session_id,
-                extra_tools=extra or None,
-            )
-          else:
-            from gemcode.tui.app import run_gemcode_tui
-
-            await run_gemcode_tui(
-                cfg=cfg,
-                runner=runner,
-                session_id=session_id,
-                extra_tools=extra or None,
-            )
+          await run_gemcode_scrollback_tui(
+              cfg=cfg,
+              runner=runner,
+              session_id=session_id,
+              extra_tools=extra or None,
+          )
           return
         except Exception as e:
-          # Dependency missing or terminal doesn't support full-screen.
-          # Print one line so users know how to fix it.
           print(
-            f"[tui] failed to start: {type(e).__name__}: {e} (falling back to plain REPL). "
-            "Install extras with: pip install 'gemcode[tui]'",
-            file=sys.stderr,
+              f"[tui] failed to start: {type(e).__name__}: {e} (falling back to plain REPL).",
+              file=sys.stderr,
           )
 
     print(

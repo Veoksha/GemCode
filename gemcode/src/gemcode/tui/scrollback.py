@@ -8,13 +8,13 @@ from dataclasses import dataclass
 
 from google.adk.agents.run_config import RunConfig
 from google.genai import types
+from rich.console import Console
 
 from gemcode.capability_routing import apply_capability_routing
 from gemcode.config import load_cli_environment
 from gemcode.model_routing import pick_effective_model
 from gemcode.repl_slash import process_repl_slash
-from gemcode.version import get_version
-from gemcode.workspace_hints import narrow_workspace_tip
+from gemcode.tui.welcome_rich import print_shortcuts_hint, print_welcome_dashboard
 
 _ADK_REQUEST_CONFIRMATION = "adk_request_confirmation"
 
@@ -151,62 +151,6 @@ def _hr(ch: str = "─") -> str:
   return ch * _term_width()
 
 
-def _dashboard(cfg) -> str:
-  w = _term_width()
-  title = f" GemCode v{os.environ.get('GEMCODE_VERSION', get_version())} "
-  left_w = (w - 4) * 2 // 3
-  right_w = (w - 4) - left_w
-
-  def pad(s: str, ww: int) -> str:
-    s = s.replace("\n", " ")
-    if len(s) > ww:
-      return s[: ww - 1] + "…"
-    return s + (" " * (ww - len(s)))
-
-  user = (os.environ.get("USER") or os.environ.get("LOGNAME") or "there").strip()
-  model = getattr(cfg, "model", "") or ""
-  root = str(getattr(cfg, "project_root", "") or "")
-
-  box_top = "╭" + ("─" * (w - 2)) + "╮"
-  box_bot = "╰" + ("─" * (w - 2)) + "╯"
-  lines: list[str] = [box_top]
-  lines.append("│" + pad(title, w - 2) + "│")
-  lines.append("│" + (" " * (w - 2)) + "│")
-  left = [
-    "",
-    f"Welcome back {user}!",
-    "",
-    "   ▐▛███▜▌",
-    "  ▝▜█████▛▘",
-    "    ▘▘ ▝▝",
-    "",
-    f"{model or 'GemCode'} · Local session",
-    root,
-  ]
-  right = [
-    "Tips for getting started",
-    "First run creates .gemcode/ (trust + API key)",
-    "",
-    "Recent activity",
-    "No recent activity",
-  ]
-  h = max(len(left), len(right))
-  left += [""] * (h - len(left))
-  right += [""] * (h - len(right))
-  for i in range(h):
-    lines.append(
-      "│ " + pad(left[i], left_w) + " │ " + pad(right[i], right_w) + " │"
-    )
-  nt = narrow_workspace_tip(getattr(cfg, "project_root"))
-  if nt:
-    lines.append("│" + pad(f" {nt}", w - 2) + "│")
-  lines.append(box_bot)
-  lines.append("")
-  lines.append("  ↑ GemCode Pro now supports larger contexts · faster streaming")
-  lines.append("")
-  return "\n".join(lines)
-
-
 async def run_gemcode_scrollback_tui(
     *, cfg, runner, session_id: str, extra_tools=None
 ) -> None:
@@ -229,24 +173,15 @@ async def run_gemcode_scrollback_tui(
     )
   )
 
+  console = Console(
+      width=_term_width(),
+      force_terminal=bool(sys.stdout.isatty()),
+      no_color=not ansi.enabled,
+      highlight=False,
+  )
   if os.environ.get("GEMCODE_TUI_SHOW_DASHBOARD", "1").lower() in ("1", "true", "yes", "on"):
-    dash = _dashboard(cfg)
-    if ansi.enabled:
-      # Color title + the ASCII mark.
-      lines = dash.splitlines()
-      if len(lines) >= 2:
-        lines[1] = (
-          lines[1]
-          .replace("GemCode", f"{ansi.blue}{ansi.bold}GemCode{ansi.reset}")
-          .replace("v", f"{ansi.dim}v{ansi.reset}")
-        )
-      for i, ln in enumerate(lines):
-        if "▐▛███▜▌" in ln or "▝▜█████▛▘" in ln or "▘▘ ▝▝" in ln:
-          lines[i] = f"{ansi.blue2}{ln}{ansi.reset}"
-      dash = "\n".join(lines)
-    print(dash)
-
-  print(f"{ansi.dim}  ? for shortcuts{ansi.reset}")
+    print_welcome_dashboard(cfg, console=console)
+  print_shortcuts_hint(console=console)
   print("")
 
   char_delay_ms = int(os.environ.get("GEMCODE_TUI_CHAR_DELAY_MS", "0") or "0")
