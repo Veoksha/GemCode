@@ -278,12 +278,14 @@ async def process_repl_slash(
 
     if not args:
       # Show current thinking config.
-      disable = bool(getattr(cfg, "disable_thinking", False))
-      level   = getattr(cfg, "thinking_level", None)
-      budget  = getattr(cfg, "thinking_budget", None)
+      disable  = bool(getattr(cfg, "disable_thinking", False))
+      level    = getattr(cfg, "thinking_level", None)
+      budget   = getattr(cfg, "thinking_budget", None)
+      verbose  = bool(getattr(cfg, "show_full_thinking", False))
       out("Thinking config:")
       out(f"  model:            {model_id or '(default)'}")
       out(f"  disable_thinking: {disable}")
+      out(f"  display_mode:     {'verbose (full)' if verbose else 'brief (collapsed)'}")
       if is_25:
         out(f"  thinking_budget:  {budget if budget is not None else '(auto / dynamic)'}")
         out()
@@ -298,11 +300,26 @@ async def process_repl_slash(
         out("  /thinking off                         — use minimal thinking")
         out("  /thinking on                          — re-enable auto level")
         out("  /thinking level <minimal|low|medium|high>")
+      out("Display commands (all models):")
+      out("  /thinking verbose  — show full thinking text each turn")
+      out("  /thinking brief    — show collapsed one-line excerpt (default)")
       out()
       return ReplSlashResult(skip_model_turn=True)
 
     parts = args.split()
     sub = parts[0].lower()
+
+    if sub in ("verbose", "full"):
+      setattr(cfg, "show_full_thinking", True)
+      out("thinking display: verbose — full thinking shown each turn")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub in ("brief", "short", "collapsed"):
+      setattr(cfg, "show_full_thinking", False)
+      out("thinking display: brief — collapsed one-line excerpt (default)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
 
     if sub == "off":
       setattr(cfg, "disable_thinking", True)

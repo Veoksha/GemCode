@@ -41,19 +41,20 @@ except ImportError:
 # ---------------------------------------------------------------------------
 SLASH_COMMANDS: list[tuple[str, str]] = [
     ("help",        "List all available commands"),
-    ("clear",       "Start a fresh session — clears conversation history"),
+    ("clear",       "Start a fresh session (clears history)  ·  alias: /session new"),
     ("model",       "View or switch model  ·  /model use <id>  ·  /model list"),
+    ("thinking",    "Thinking config  ·  /thinking verbose  ·  /thinking brief  ·  /thinking budget <N>"),
     ("status",      "Show session ID, model, and current settings"),
     ("context",     "Show context window usage and token counts"),
-    ("tools",       "List all tools and their permission categories"),
     ("compact",     "Summarise conversation history to reclaim context space"),
+    ("tools",       "List all tools and their permission categories"),
     ("config",      "Show active configuration and environment variables"),
     ("permissions", "Show current permission mode (default / strict / yes)"),
-    ("thinking",    "View or change thinking config  ·  /thinking level <low|medium|high>  ·  /thinking budget <N>"),
+    ("session",     "Show current session ID  ·  /session new to reset"),
     ("audit",       "Show recent audit log  ·  /audit [N lines]"),
     ("memory",      "Show memory / storage settings"),
     ("doctor",      "Run diagnostics and validate the environment"),
-    ("hooks",       "Show hooks configuration"),
+    ("hooks",       "Show post-turn hook configuration"),
     ("version",     "Show installed GemCode version"),
     ("exit",        "Exit GemCode"),
 ]
@@ -157,11 +158,11 @@ class GemCodeInputHandler:
             style=style,
             bottom_toolbar=bottom_toolbar,
             key_bindings=kb,
-            mouse_support=False,
-            complete_in_thread=True,
-            reserve_space_for_menu=10,
-            # Show completion descriptions to the right (like VS Code)
-            complete_style="COLUMN",
+        mouse_support=False,
+        complete_in_thread=True,
+        reserve_space_for_menu=20,
+        # Single-column popup with description column (like VS Code)
+        complete_style="COLUMN",
         )
 
     def is_interactive(self) -> bool:

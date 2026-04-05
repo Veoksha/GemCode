@@ -497,20 +497,26 @@ async def run_gemcode_scrollback_tui(
         thought_text = "".join(buffered_thought).strip()
         final_text   = "".join(buffered_final).strip()
 
-        # ── Thinking indicator (collapsed, never full dump) ───────────────
-        # Show only a brief one-line excerpt so the user knows thinking
-        # happened without drowning in the raw internal monologue.
+        # ── Thinking display (collapsed by default, verbose with /thinking verbose)
         if thought_text and not (
             buffered_final and _normalize_ws(thought_text) == _normalize_ws(final_text)
         ):
-          excerpt = thought_text.replace("\n", " ").strip()
-          if len(excerpt) > 100:
-            excerpt = excerpt[:97] + "\u2026"
-          print(
-              f"  \u23bf  {ansi.dim}\u2234 Thinking{ansi.reset}"
-              f"{ansi.dim}  {excerpt}{ansi.reset}"
-          )
-          print("")
+          show_full = bool(getattr(cfg, "show_full_thinking", False))
+          if show_full:
+            # Verbose mode: full thinking rendered as Markdown, like transcript mode.
+            print(f"  \u23bf  {ansi.dim}\u2234 Thinking{ansi.reset}")
+            console.print(_RichPadding(_RichMarkdown(thought_text), (0, 0, 0, 4)))
+            print("")
+          else:
+            # Collapsed: one-line excerpt + hint to expand.
+            excerpt = thought_text.replace("\n", " ").strip()
+            if len(excerpt) > 90:
+              excerpt = excerpt[:87] + "\u2026"
+            print(
+                f"  \u23bf  {ansi.dim}\u2234 Thinking  {excerpt}"
+                f"  \u00b7  /thinking verbose to expand{ansi.reset}"
+            )
+            print("")
 
         # ── Response — rendered as Rich Markdown ──────────────────────────
         # Pipes the text through Rich's Markdown renderer so **bold**,

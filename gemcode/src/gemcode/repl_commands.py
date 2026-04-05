@@ -177,6 +177,8 @@ def slash_help_lines() -> list[str]:
       "  /model use <id>       Override model for this REPL session",
       "  /model list            List available Gemini model IDs",
       "  /thinking             Show current thinking config",
+      "  /thinking verbose     Show full thinking text each turn",
+      "  /thinking brief       Show collapsed one-line excerpt (default)",
       "  /thinking off         Disable model thinking",
       "  /thinking on          Re-enable thinking (auto budget/level)",
       "  /thinking budget <N>  Set thinking token budget (Gemini 2.5, 0=off, -1=dynamic)",
