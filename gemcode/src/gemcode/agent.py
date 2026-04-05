@@ -66,6 +66,8 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
 
   # ── Active capabilities ──────────────────────────────────────────────────
   caps: list[str] = []
+  if getattr(cfg, "enable_web_search", False) and not getattr(cfg, "enable_deep_research", False):
+    caps.append("web_search ON (tool: google_search — standalone search without full deep_research)")
   if getattr(cfg, "enable_deep_research", False):
     dr_extras = " + google_maps_grounding" if getattr(cfg, "enable_maps_grounding", False) else ""
     caps.append(f"deep_research ON (tools: google_search, url_context{dr_extras})")
@@ -148,6 +150,40 @@ Memory is **ON** ({kind}). Stored at: `{mem_path}`
 - Long-running projects (user preferences, patterns, recurring tasks)
 - Multi-session workflows (continuing work from a previous day)
 - Team conventions stored once and reused automatically
+"""
+
+
+def _build_plan_mode_section() -> str:
+  """Injected when plan_mode=True — instructs agent to write explicit plans first."""
+  return """
+## PLAN MODE IS ACTIVE
+
+You are currently in **Plan Mode**. Before executing ANY tools that modify files or run shell commands, you MUST:
+
+1. **Write a numbered plan** in your response text — list every step you intend to take.
+   Example:
+   ```
+   Plan:
+   1. Read src/auth/login.ts to understand the current flow
+   2. Read src/types/user.ts for the User interface
+   3. Add `lastLogin: Date` field to User interface
+   4. Update login handler to set lastLogin on successful auth
+   5. Run `npm run build` to verify no TypeScript errors
+   ```
+
+2. **Pause after the plan** — do not immediately execute tools. Present the plan and wait for the user to confirm ("go", "proceed", "looks good") before starting.
+
+3. **Stick to the plan** — if you discover the plan needs changing mid-execution, note the update before proceeding.
+
+4. **Report completion** against the plan — when done, confirm each step as completed.
+
+**Why plan mode?**
+- Prevents unintended side effects from premature tool execution
+- Gives you and the user visibility into the full scope before any changes
+- Makes complex multi-file tasks reviewable and reversible
+- Catches scope creep early
+
+**To turn off plan mode**, type `/plan off` at the prompt.
 """
 
 
@@ -499,6 +535,9 @@ All file tools use paths **relative to the project root** (where GemCode was sta
 
   if getattr(cfg, "enable_memory", False):
     base = f"{base}\n\n{_build_memory_section(cfg)}"
+
+  if getattr(cfg, "plan_mode", False):
+    base = f"{base}\n\n{_build_plan_mode_section()}"
 
   tool_manifest = build_tool_manifest(cfg)
   if tool_manifest:

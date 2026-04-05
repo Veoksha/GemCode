@@ -141,6 +141,22 @@ def make_before_tool_callback(cfg: GemCodeConfig):
     record = {"tool": name, "args": _redact_args(name, args)}
     append_audit(cfg.project_root, record)
 
+    # ── Shell hooks: pre_tool_use ─────────────────────────────────────────
+    # If the project has a .gemcode/hooks/pre_tool_use.sh, run it now.
+    # Non-zero exit or {"decision":"deny"} stdout will block the tool call.
+    try:
+      from gemcode.hooks import run_pre_tool_use_hook
+      hook_result = run_pre_tool_use_hook(
+          cfg.project_root,
+          model=getattr(cfg, "model", "") or "",
+          tool_name=name,
+          args=args or {},
+      )
+      if hook_result is not None:
+        return hook_result
+    except Exception:
+      pass
+
     streak = 0
     if tool_context is not None:
       try:
@@ -316,6 +332,19 @@ def make_after_tool_callback(cfg: GemCodeConfig):
         st[_STATE_FAILURE_KEY] = 0
     else:
       st[_STATE_FAILURE_KEY] = 0
+    # ── Shell hooks: post_tool_use ────────────────────────────────────────
+    try:
+      from gemcode.hooks import run_post_tool_use_hook
+      run_post_tool_use_hook(
+          cfg.project_root,
+          model=getattr(cfg, "model", "") or "",
+          tool_name=name,
+          args=args or {},
+          result=tool_response if isinstance(tool_response, dict) else {},
+      )
+    except Exception:
+      pass
+
     if _maybe_tool_summary_enabled():
       summary: dict[str, Any] = {
         "phase": "tool_result",
@@ -399,6 +428,7 @@ def make_after_model_callback(cfg: GemCodeConfig):
           "candidates_token_count",
           "cached_content_token_count",
           "total_token_count",
+          "thoughts_token_count",
       ):
         if hasattr(um, attr):
           v = getattr(um, attr)
@@ -406,6 +436,44 @@ def make_after_model_callback(cfg: GemCodeConfig):
             d[attr] = v
     if d:
       append_audit(cfg.project_root, {"phase": "model_usage", **d})
+
+    # ── Expose live token stats to the TUI ───────────────────────────────────
+    # The TUI reads cfg._last_turn_stats after each turn to display token counts
+    # and estimated cost in the footer (like OpenClaude's spinner token display).
+    try:
+      in_tok  = d.get("prompt_token_count", 0) or 0
+      out_tok = d.get("candidates_token_count", 0) or 0
+      think_tok = d.get("thoughts_token_count", 0) or 0
+      cache_tok = d.get("cached_content_token_count", 0) or 0
+      total_tok = d.get("total_token_count", 0) or 0
+
+      prev_session_tokens = int(st.get(SESSION_TOTAL_TOKENS_KEY, 0) or 0)
+      session_total = prev_session_tokens + total_tok
+
+      from gemcode.pricing import estimate_cost
+      turn_cost = estimate_cost(
+          getattr(cfg, "model", "") or "",
+          input_tokens=in_tok,
+          output_tokens=out_tok,
+      )
+      # Accumulate session cost
+      prev_cost = getattr(cfg, "_session_cost_usd", 0.0) or 0.0
+      session_cost = prev_cost + (turn_cost or 0.0)
+      object.__setattr__(cfg, "_session_cost_usd", session_cost)
+
+      stats: dict[str, Any] = {
+          "in": in_tok,
+          "out": out_tok,
+          "think": think_tok,
+          "cache": cache_tok,
+          "total": total_tok,
+          "session_total": session_total,
+          "turn_cost": turn_cost,
+          "session_cost": session_cost,
+      }
+      object.__setattr__(cfg, "_last_turn_stats", stats)
+    except Exception:
+      pass
 
     pt = d.get("prompt_token_count")
     if isinstance(pt, int) and pt >= 0:

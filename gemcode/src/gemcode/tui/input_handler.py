@@ -57,6 +57,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("limits",      "Show/set execution limits (max_llm_calls, context, etc.)"),
     ("kairos",      "Background parallel job scheduler — how to run gemcode kairos"),
     ("code",        "Toggle sandboxed Python code executor (ADK BuiltInCodeExecutor)"),
+    ("plan",        "Toggle plan mode — agent writes explicit plan before executing tools"),
     ("tools",       "List all tools and their permission categories"),
     ("config",      "Show full active configuration (all fields)"),
     ("permissions", "Show current permission mode (default / strict / yes)"),
@@ -114,10 +115,12 @@ class GemCodeInputHandler:
         ansi_enabled: bool = True,
         get_model: Callable[[], str] | None = None,
         get_session_id: Callable[[], str] | None = None,
+        get_cfg: Callable[[], object | None] | None = None,
     ) -> None:
         self._ansi = ansi_enabled
         self._get_model = get_model or (lambda: "gemini")
         self._get_session_id = get_session_id or (lambda: "")
+        self._get_cfg = get_cfg or (lambda: None)
         self._session: "PromptSession | None" = None
 
         if _PT_AVAILABLE and sys.stdin.isatty() and sys.stdout.isatty():
@@ -142,15 +145,30 @@ class GemCodeInputHandler:
 
         get_model = self._get_model
         get_session_id = self._get_session_id
+        get_cfg = self._get_cfg
 
         def bottom_toolbar() -> HTML:
             model = get_model() or "gemini"
             sid = get_session_id()
             sid_short = sid[:8] if len(sid) >= 8 else sid
+            cfg = get_cfg()
+            extras = ""
+            if cfg is not None:
+                flags = []
+                if getattr(cfg, "plan_mode", False):
+                    flags.append("PLAN")
+                if getattr(cfg, "enable_code_executor", False):
+                    flags.append("CODE")
+                if getattr(cfg, "enable_deep_research", False):
+                    flags.append("RESEARCH")
+                if getattr(cfg, "enable_computer_use", False):
+                    flags.append("BROWSER")
+                if flags:
+                    extras = "  ·  " + "  ".join(f"[{f}]" for f in flags)
             return HTML(
                 f'<style bg="#0d1f2d" fg="#5fafd7"><b> ◆ {model}</b></style>'
                 f'<style bg="#0d1f2d" fg="#3d6080">  ·  session {sid_short}'
-                f'  ·  / for commands</style>'
+                f'{extras}  ·  / for commands</style>'
             )
 
         kb = KeyBindings()

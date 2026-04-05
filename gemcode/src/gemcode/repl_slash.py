@@ -357,6 +357,32 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True)
 
+  # ── /plan ─────────────────────────────────────────────────────────────────
+  if name == "plan":
+    args_s = (sc.args or "").strip().lower()
+    if args_s in ("on", "enable", "1", "true"):
+      cfg.plan_mode = True
+      out("Plan mode: ON")
+      out("The agent will now write an explicit numbered plan BEFORE executing")
+      out("any tools. It will pause for your confirmation before proceeding.")
+      out()
+      out("Type /plan off to disable.")
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    elif args_s in ("off", "disable", "0", "false"):
+      cfg.plan_mode = False
+      out("Plan mode: OFF")
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    else:
+      status = "ON" if getattr(cfg, "plan_mode", False) else "OFF"
+      out(f"Plan mode: {status}")
+      out()
+      out("When ON, the agent writes a numbered plan and waits for your")
+      out("confirmation before executing any file or shell operations.")
+      out()
+      out("Best for: complex multi-file refactors, migrations, risky changes.")
+      out("Toggle: /plan on   /plan off")
+      return ReplSlashResult(skip_model_turn=True)
+
   # ── /code ─────────────────────────────────────────────────────────────────
   if name == "code":
     args_s = (sc.args or "").strip().lower()
@@ -603,19 +629,23 @@ async def process_repl_slash(
   # ── /caps ─────────────────────────────────────────────────────────────────
   if name in ("caps", "capabilities", "capability"):
     args_s = (sc.args or "").strip().lower()
-    valid_caps = ("auto", "research", "embeddings", "computer", "all", "none", "reset")
+    valid_caps = ("auto", "research", "embeddings", "computer", "search", "all", "none", "reset")
     out("Active capabilities:")
+    out(f"  web_search:     {'on' if getattr(cfg, 'enable_web_search', False) else 'off'}")
     out(f"  deep_research:  {'on' if cfg.enable_deep_research else 'off'}")
     out(f"  embeddings:     {'on' if cfg.enable_embeddings else 'off'}")
     out(f"  memory:         {'on' if cfg.enable_memory else 'off'}")
     out(f"  computer_use:   {'on' if cfg.enable_computer_use else 'off'}")
     out(f"  maps_grounding: {'on' if cfg.enable_maps_grounding else 'off'}")
+    out(f"  code_executor:  {'on' if getattr(cfg, 'enable_code_executor', False) else 'off'}")
+    out(f"  plan_mode:      {'on' if getattr(cfg, 'plan_mode', False) else 'off'}")
     out(f"  capability_mode (auto-routing): {cfg.capability_mode}")
     out()
     if not args_s:
       out("Commands:")
       out("  /caps none      — turn all off, capability_mode=auto")
-      out("  /caps research  — enable_deep_research on")
+      out("  /caps search    — enable_web_search on (standalone google_search)")
+      out("  /caps research  — enable_deep_research on (search + url_context)")
       out("  /caps embeddings — enable_embeddings on")
       out("  /caps all       — all modalities on")
       out("  /caps reset     — reset to startup defaults (all off, auto mode)")
@@ -626,8 +656,16 @@ async def process_repl_slash(
       cfg.enable_embeddings = False
       cfg.enable_computer_use = False
       cfg.enable_maps_grounding = False
+      if hasattr(cfg, "enable_web_search"):
+        cfg.enable_web_search = False
       cfg.capability_mode = "auto"
       out("capabilities: reset to defaults (all off, auto mode)")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    if args_s == "search":
+      if hasattr(cfg, "enable_web_search"):
+        cfg.enable_web_search = True
+      out("enable_web_search: on (google_search available without full deep_research)")
       out()
       return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
     if args_s == "research":
@@ -650,6 +688,8 @@ async def process_repl_slash(
       cfg.enable_deep_research = True
       cfg.enable_embeddings = True
       cfg.enable_computer_use = True
+      if hasattr(cfg, "enable_web_search"):
+        cfg.enable_web_search = True
       out("capabilities: all on (runner rebuilding…)")
       out()
       return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)

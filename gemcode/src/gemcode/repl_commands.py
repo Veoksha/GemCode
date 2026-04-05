@@ -101,7 +101,8 @@ def format_memory_lines(cfg: GemCodeConfig) -> list[str]:
 
 def format_hooks_lines(cfg: GemCodeConfig) -> list[str]:
   env_hook = os.environ.get("GEMCODE_POST_TURN_HOOK")
-  default_hook = cfg.project_root / ".gemcode" / "hooks" / "post_turn"
+  hooks_dir = cfg.project_root / ".gemcode" / "hooks"
+  default_hook = hooks_dir / "post_turn"
   active: str | None = env_hook
   if not active and _is_executable(default_hook):
     active = str(default_hook)
@@ -115,6 +116,31 @@ def format_hooks_lines(cfg: GemCodeConfig) -> list[str]:
     lines.append(f"  active_hook: {active}")
   else:
     lines.append("  active_hook: (none — set env or chmod +x .gemcode/hooks/post_turn)")
+
+  # ── Shell lifecycle hooks (like OpenClaude PreToolUse / PostToolUse) ──────
+  lines.append("")
+  lines.append("Shell lifecycle hooks (.gemcode/hooks/):")
+  lines.append("  Scripts run at tool/session lifecycle points.")
+  lifecycle_hooks = [
+      ("pre_tool_use",   "Run BEFORE each tool call. Non-zero exit → tool denied."),
+      ("post_tool_use",  "Run AFTER each tool call. Informational; return ignored."),
+      ("session_start",  "Run when a GemCode session starts."),
+      ("session_stop",   "Run when a GemCode session ends."),
+  ]
+  for hook_name, description in lifecycle_hooks:
+    found = None
+    for ext in ("", ".sh", ".py", ".bash"):
+      p = hooks_dir / f"{hook_name}{ext}"
+      if p.is_file() and _is_executable(p):
+        found = p
+        break
+    status = f"✓ {found}" if found else "✗ not found (create and chmod +x to enable)"
+    lines.append(f"  {hook_name:20s}  {status}")
+    lines.append(f"  {'':20s}  {description}")
+  lines.append("")
+  lines.append(f"  Hook directory: {hooks_dir}")
+  lines.append("  Hooks receive JSON on stdin with tool name, args, and result.")
+  lines.append("  Set GEMCODE_HOOK_TYPE env var is set for each hook.")
   return lines
 
 
@@ -217,4 +243,5 @@ def slash_help_lines() -> list[str]:
       "  /hooks                Show post-turn hook configuration",
       "  /kairos               How to launch the background parallel job scheduler",
       "  /code [on|off]        Toggle sandboxed Python executor (ADK BuiltInCodeExecutor)",
+      "  /plan [on|off]        Toggle plan mode — agent plans before executing tools",
   ]

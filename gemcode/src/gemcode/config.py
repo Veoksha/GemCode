@@ -267,6 +267,21 @@ class GemCodeConfig:
     default_factory=lambda: _truthy_env("GEMCODE_ENABLE_ARTIFACTS", default=True)
   )
 
+  # Plan mode: when ON, the agent explicitly writes out a numbered plan
+  # BEFORE executing any tools, then checks the plan before reporting done.
+  # Like OpenClaude's EnterPlanMode — great for complex, multi-file tasks.
+  # Toggle at runtime with /plan on|off.
+  plan_mode: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_PLAN_MODE", default=False)
+  )
+
+  # Always-on web search (independent of deep_research / research mode).
+  # When True, google_search is available as a basic tool without enabling
+  # the full deep_research capability suite (url_context, maps, etc.).
+  enable_web_search: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_ENABLE_WEB_SEARCH", default=False)
+  )
+
   def __post_init__(self) -> None:
     self.project_root = self.project_root.resolve()
     # Default agentic depth when env omits GEMCODE_MAX_LLM_CALLS (was: None → SDK default).

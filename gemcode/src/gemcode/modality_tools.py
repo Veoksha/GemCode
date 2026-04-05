@@ -172,9 +172,23 @@ def build_extra_tools(cfg: GemCodeConfig) -> list[Any]:
   """Return ADK tool unions to expose for enabled modalities."""
   extra: list[Any] = []
 
+  # ── Web search (standalone, no full deep_research needed) ────────────────
+  # enable_web_search=True adds google_search alone.
+  # enable_deep_research=True adds google_search + url_context + optional maps.
+  # If both are on, avoid adding google_search twice.
+  web_search_added = False
+  if getattr(cfg, "enable_web_search", False) and not getattr(cfg, "enable_deep_research", False):
+    try:
+      from google.adk.tools import google_search
+      extra.append(google_search)
+      web_search_added = True
+    except Exception:
+      pass
+
   if getattr(cfg, "enable_deep_research", False):
     from google.adk.tools import google_search, url_context
-    extra.append(google_search)
+    if not web_search_added:
+      extra.append(google_search)
     extra.append(url_context)
     # Google Maps grounding can be incompatible with other built-in tools
     # (e.g., google_search) depending on the request/model tooling layer.

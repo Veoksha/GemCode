@@ -204,6 +204,13 @@ async def run_gemcode_scrollback_tui(
   load_cli_environment()
   os.environ["GEMCODE_TUI_ACTIVE"] = "1"
 
+  # ── Session-start hook ──────────────────────────────────────────────────
+  try:
+    from gemcode.hooks import run_session_start_hook
+    run_session_start_hook(cfg.project_root, model=getattr(cfg, "model", "") or "")
+  except Exception:
+    pass
+
   ansi = _Ansi(
     enabled=(
       sys.stdout.isatty()
@@ -234,6 +241,7 @@ async def run_gemcode_scrollback_tui(
       ansi_enabled=ansi.enabled,
       get_model=lambda: getattr(cfg, "model", "gemini") or "gemini",
       get_session_id=lambda: _current_session_id_holder[0],
+      get_cfg=lambda: cfg,
   )
 
   async def typewrite(text: str) -> None:
@@ -437,10 +445,20 @@ async def run_gemcode_scrollback_tui(
       prompt = await input_handler.prompt_async()
     except EOFError:
       print("")
+      try:
+        from gemcode.hooks import run_session_stop_hook
+        run_session_stop_hook(cfg.project_root, model=getattr(cfg, "model", "") or "")
+      except Exception:
+        pass
       return
     if not prompt:
       continue
     if prompt in (":q", "quit", "exit", "/exit"):
+      try:
+        from gemcode.hooks import run_session_stop_hook
+        run_session_stop_hook(cfg.project_root, model=getattr(cfg, "model", "") or "")
+      except Exception:
+        pass
       return
 
     old_model = getattr(cfg, "model", "")
@@ -707,7 +725,32 @@ async def run_gemcode_scrollback_tui(
           else current_session_id
       )
       model = getattr(cfg, "model", "") or ""
-      print(f"{ansi.dim}  · {model} · session {sid}{ansi.reset}")
+      # ── Token / cost stats from last turn ──────────────────────────────────
+      stats = getattr(cfg, "_last_turn_stats", None)
+      token_part = ""
+      if stats:
+        try:
+          from gemcode.pricing import format_cost, format_tokens
+          in_tok  = stats.get("in", 0) or 0
+          out_tok = stats.get("out", 0) or 0
+          think_tok = stats.get("think", 0) or 0
+          session_total = stats.get("session_total", 0) or 0
+          turn_cost = stats.get("turn_cost")
+          session_cost = stats.get("session_cost")
+          parts_t: list[str] = []
+          parts_t.append(f"↑{format_tokens(in_tok)} ↓{format_tokens(out_tok)}")
+          if think_tok:
+            parts_t.append(f"✦{format_tokens(think_tok)}")
+          if turn_cost is not None:
+            parts_t.append(format_cost(turn_cost))
+          if session_total:
+            parts_t.append(f"session {format_tokens(session_total)}")
+          if session_cost and session_cost > 0.0001:
+            parts_t.append(f"total {format_cost(session_cost)}")
+          token_part = "  ·  " + "  ·  ".join(parts_t)
+        except Exception:
+          pass
+      print(f"{ansi.dim}  · {model} · session {sid}{token_part}{ansi.reset}")
     if os.environ.get("GEMCODE_TUI_TURN_RULE", "1").lower() in (
         "1",
         "true",
