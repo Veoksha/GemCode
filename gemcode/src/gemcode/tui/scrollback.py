@@ -563,27 +563,57 @@ async def run_gemcode_scrollback_tui(
         if not interactive_enabled:
           print("")
           print(
-            f"  ⎿  {ansi.blue_warn}{ansi.bold}Permission needed{ansi.reset} for {ansi.bold}{tool_name}{ansi.reset} "
-            f"but perm mode is not ask. Denying."
+            f"  ⎿  {ansi.blue_warn}{ansi.bold}Permission needed{ansi.reset} for "
+            f"{ansi.bold}{tool_name}{ansi.reset} — auto-denying "
+            f"(run with --yes or /computer on to allow)."
           )
           ok = False
         else:
           print("")
           if hint:
             print(
-              f"  ⎿  {ansi.blue}{ansi.bold}Permission needed{ansi.reset} for {ansi.bold}{tool_name}{ansi.reset}: {hint}"
+              f"  ⎿  {ansi.blue}{ansi.bold}Permission needed{ansi.reset} "
+              f"for {ansi.bold}{tool_name}{ansi.reset}: {hint}"
             )
           else:
             print(
-              f"  ⎿  {ansi.blue}{ansi.bold}Permission needed{ansi.reset} for {ansi.bold}{tool_name}{ansi.reset}."
+              f"  ⎿  {ansi.blue}{ansi.bold}Permission needed{ansi.reset} "
+              f"for {ansi.bold}{tool_name}{ansi.reset}."
             )
+          sys.stdout.flush()
+          # Use run_in_executor so input() runs in a thread — this avoids
+          # blocking the asyncio event loop and prevents the terminal-state
+          # conflict that occurs when prompt_toolkit's raw-mode setup causes
+          # synchronous input() to not recognise \r as end-of-line.
+          prompt_str = (
+              f"  ⎿  Allow? "
+              f"[{ansi.blue_ok}y{ansi.reset} = yes"
+              f"  /{ansi.dim}Enter = no{ansi.reset}] "
+          )
           try:
-            ans = input(
-              f"  ⎿  Allow? ({ansi.blue_ok}y{ansi.reset}/{ansi.dim}N{ansi.reset}) "
-            ).strip().lower()
+            # run_in_executor runs input() in a thread so the asyncio event
+            # loop stays alive (spinner can update, timeouts can fire).
+            # get_running_loop() is the correct call inside an async function.
+            _loop = asyncio.get_running_loop()
+            raw = await _loop.run_in_executor(None, input, prompt_str)
+            # Strip \r and \n — handles raw-mode terminals where pressing
+            # Enter sends \r (shown as ^M) instead of \n.
+            ans = (raw or "").replace("\r", "").replace("\n", "").strip().lower()
           except EOFError:
             ans = ""
           ok = ans in ("y", "yes")
+
+        # Explicit visual feedback — user knows their answer was received.
+        if ok:
+          print(
+              f"  ⎿  {ansi.blue_ok}{ansi.bold}Approved{ansi.reset} — "
+              f"continuing…"
+          )
+        else:
+          print(
+              f"  ⎿  {ansi.dim}Denied — skipping {tool_name}.{ansi.reset}"
+          )
+        sys.stdout.flush()
 
         parts.append(
           types.Part(
@@ -596,6 +626,9 @@ async def run_gemcode_scrollback_tui(
         )
       current_message = types.Content(role="user", parts=parts)
       do_reset = False
+      # Restart the spinner so the user knows the agent is working again
+      # after they answered the permission prompt.
+      _start_anim("Working\u2026")
 
     print("")
     if os.environ.get("GEMCODE_TUI_TURN_FOOTER", "1").lower() in (
