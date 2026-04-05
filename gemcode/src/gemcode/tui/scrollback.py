@@ -14,6 +14,7 @@ from gemcode.capability_routing import apply_capability_routing
 from gemcode.config import load_cli_environment
 from gemcode.model_routing import pick_effective_model
 from gemcode.repl_slash import process_repl_slash
+from gemcode.tui.input_handler import GemCodeInputHandler
 from gemcode.tui.welcome_rich import print_shortcuts_hint, print_welcome_dashboard
 
 _ADK_REQUEST_CONFIRMATION = "adk_request_confirmation"
@@ -185,6 +186,17 @@ async def run_gemcode_scrollback_tui(
 
   char_delay_ms = int(os.environ.get("GEMCODE_TUI_CHAR_DELAY_MS", "0") or "0")
 
+  # Build the interactive input handler (prompt_toolkit when available, plain
+  # input() otherwise).  Callables let the handler always read the *current*
+  # model and session id even after /model or /clear commands.
+  _current_session_id_holder = [session_id]
+
+  input_handler = GemCodeInputHandler(
+      ansi_enabled=ansi.enabled,
+      get_model=lambda: getattr(cfg, "model", "gemini") or "gemini",
+      get_session_id=lambda: _current_session_id_holder[0],
+  )
+
   async def typewrite(text: str) -> None:
     if not text:
       return
@@ -252,7 +264,7 @@ async def run_gemcode_scrollback_tui(
 
   while True:
     try:
-      prompt = input(f"{ansi.bold}❯{ansi.reset} ").strip()
+      prompt = await input_handler.prompt_async()
     except EOFError:
       print("")
       return
@@ -276,6 +288,7 @@ async def run_gemcode_scrollback_tui(
         return
       if slash.new_session_id is not None:
         current_session_id = slash.new_session_id
+        _current_session_id_holder[0] = current_session_id
       if slash.skip_model_turn:
         # Runner binds the model at creation time (LlmAgent(model=...)),
         # so rebuild it when the user overrides the model mid-session.
@@ -400,9 +413,12 @@ async def run_gemcode_scrollback_tui(
             print(
               f"  ⎿  {ansi.blue}{ansi.bold}Permission needed{ansi.reset} for {ansi.bold}{tool_name}{ansi.reset}."
             )
-          ans = input(
-            f"  ⎿  Allow? ({ansi.blue_ok}y{ansi.reset}/{ansi.dim}N{ansi.reset}) "
-          ).strip().lower()
+          try:
+            ans = input(
+              f"  ⎿  Allow? ({ansi.blue_ok}y{ansi.reset}/{ansi.dim}N{ansi.reset}) "
+            ).strip().lower()
+          except EOFError:
+            ans = ""
           ok = ans in ("y", "yes")
 
         parts.append(

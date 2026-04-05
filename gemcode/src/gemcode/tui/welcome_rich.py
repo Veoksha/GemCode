@@ -132,4 +132,9 @@ def print_welcome_dashboard(cfg, *, console: Console) -> None:
 def print_shortcuts_hint(*, console: Console) -> None:
   from rich.text import Text
 
-  console.print(Text("  ? for shortcuts", style=f"dim {_LABEL_GREY}"))
+  console.print(
+    Text(
+      "  Type a message to begin  ·  / for commands  ·  ↑↓ history",
+      style=f"dim {_LABEL_GREY}",
+    )
+  )
