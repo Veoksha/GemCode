@@ -49,11 +49,77 @@ def _chain_before_model_callbacks(*callbacks):
 
 
 def _load_gemini_md(project_root: Path) -> str:
-  for name in ("GEMINI.md", "gemini.md"):
-    p = project_root / name
-    if p.is_file():
-      return p.read_text(encoding="utf-8", errors="replace")[:50_000]
-  return ""
+  """
+  Load GEMINI.md / .gemcode/NOTES.md from a Claude Code–style hierarchy.
+
+  Priority (later entries override earlier ones, all are concatenated):
+    1. ~/.gemcode/GEMINI.md           — user-global instructions (all projects)
+    2. Walk UP from project_root: each directory's GEMINI.md / .gemcode/GEMINI.md
+       (org-level files at higher dirs, project-level at project_root)
+    3. project_root/GEMINI.md         — the primary project instructions
+    4. project_root/.gemcode/GEMINI.md — alternative location
+    5. project_root/.gemcode/notes.md  — agent auto-generated notes (read-only context)
+
+  Max total: 80,000 chars.  Each file is capped at 30,000 chars.
+  HTML comments (<!-- ... -->) are stripped before injection (saves tokens).
+  """
+  import re
+
+  _NAMES = ("GEMINI.md", "gemini.md", ".gemcode/GEMINI.md")
+  _FILE_CAP = 30_000
+  _TOTAL_CAP = 80_000
+  _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+  def _read(p: Path) -> str:
+    if not p.is_file():
+      return ""
+    try:
+      raw = p.read_text(encoding="utf-8", errors="replace")[:_FILE_CAP]
+      # Strip HTML comments (like Claude Code does — saves tokens)
+      return _COMMENT_RE.sub("", raw).strip()
+    except OSError:
+      return ""
+
+  seen: set[Path] = set()
+  sections: list[str] = []
+
+  def _add(p: Path, label: str | None = None) -> None:
+    resolved = p.resolve()
+    if resolved in seen:
+      return
+    seen.add(resolved)
+    text = _read(p)
+    if text:
+      sections.append(f"<!-- {label or str(p)} -->\n{text}" if label else text)
+
+  # 1. User-global: ~/.gemcode/GEMINI.md
+  user_global = Path.home() / ".gemcode" / "GEMINI.md"
+  _add(user_global, "user-global (~/.gemcode/GEMINI.md)")
+
+  # 2. Walk UP from project_root to filesystem root — loads org / monorepo-level instructions
+  walk = project_root.resolve()
+  ancestors = []
+  while walk != walk.parent:
+    walk = walk.parent
+    if walk == Path.home() or walk == Path("/"):
+      break
+    ancestors.append(walk)
+  # Walk outer→inner (org first, closer dirs later — later = higher priority)
+  for ancestor in reversed(ancestors):
+    for name in _NAMES:
+      _add(ancestor / name)
+
+  # 3+4. Project-root level instructions (primary location)
+  for name in ("GEMINI.md", "gemini.md", ".gemcode/GEMINI.md", ".gemcode/gemini.md"):
+    _add(project_root / name)
+
+  # 5. Agent-generated notes (informational context, not instructions)
+  notes = project_root / ".gemcode" / "notes.md"
+  if notes.is_file():
+    _add(notes, "agent notes (.gemcode/notes.md)")
+
+  combined = "\n\n---\n\n".join(s for s in sections if s.strip())
+  return combined[:_TOTAL_CAP]
 
 
 def _build_runtime_facts(cfg: GemCodeConfig) -> str:
@@ -527,7 +593,23 @@ For tasks where quality matters:
 - Prefer small, testable, accurate changes over broad rewrites.
 
 ## Workspace scope
-All file tools use paths **relative to the project root** (where GemCode was started). The root may be the home folder — subfolders like `Desktop`, `Desktop/code`, `Documents` are inside the sandbox. Call `list_directory("Desktop")` or `glob_files("**/*name*.ts")` instead of assuming access is blocked. Only treat access as denied when a tool returns an explicit `error`."""
+All file tools use paths **relative to the project root** (where GemCode was started). The root may be the home folder — subfolders like `Desktop`, `Desktop/code`, `Documents` are inside the sandbox. Call `list_directory("Desktop")` or `glob_files("**/*name*.ts")` instead of assuming access is blocked. Only treat access as denied when a tool returns an explicit `error`.
+
+## Agent notes (.gemcode/notes.md)
+You have two tools to persist project insights across sessions, like Claude Code's auto-memory:
+
+- **`append_project_note(note)`** — write a note to `.gemcode/notes.md`. Use this proactively when you discover something worth remembering:
+  - Build/test/lint commands you discover ("Build: `npm run build` — requires Node 20")
+  - Key file locations ("Auth middleware: `src/middleware/auth.ts`")
+  - Known issues or patterns ("DB migrations: always run `prisma db push` after schema changes")
+  - User workflow preferences ("User prefers running tests before committing")
+  - Architecture decisions or tricky patterns
+  
+  Call this **immediately** when you discover something useful — not just at the end of tasks.
+  Notes are loaded at session start so future sessions inherit this knowledge.
+
+- **`read_project_notes()`** — read current notes before starting a new project task.
+  If notes exist and you haven't read them yet, read them first to avoid re-discovering known information."""
 
   # Inject capability-specific strategy sections only when those caps are on.
   if getattr(cfg, "enable_computer_use", False):
@@ -587,6 +669,14 @@ def build_root_agent(
   try:
     from google.adk.tools import get_user_choice, load_artifacts, exit_loop
     tools = [*tools, get_user_choice, load_artifacts, exit_loop]
+  except Exception:
+    pass
+
+  # Agent auto-notes: write project insights to .gemcode/notes.md (Claude Code MEMORY.md equivalent)
+  try:
+    from gemcode.tools.notes import build_notes_tools
+    notes_tools = build_notes_tools(cfg.project_root)
+    tools = [*tools, *notes_tools]
   except Exception:
     pass
 

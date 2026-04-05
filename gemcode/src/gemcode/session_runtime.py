@@ -56,6 +56,27 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
   else:
     merged_extra_tools = modality_tools or None
 
+  # ── MCP toolsets from .gemcode/mcp.json ─────────────────────────────────
+  # Supports stdio, http (Streamable HTTP), and sse connection types.
+  try:
+    from gemcode.mcp_loader import load_mcp_toolsets
+    mcp_tools = load_mcp_toolsets(cfg)
+    if mcp_tools:
+      merged_extra_tools = list(merged_extra_tools or []) + mcp_tools
+  except Exception:
+    pass  # MCP not installed or mcp.json invalid — continue without
+
+  # ── OpenAPI toolsets from .gemcode/openapi/ ──────────────────────────────
+  # Drop any *.yaml / *.json OpenAPI spec in .gemcode/openapi/ to auto-generate
+  # REST API tools for that service (GitHub, Sentry, internal APIs, etc.)
+  try:
+    from gemcode.openapi_loader import load_openapi_toolsets
+    oa_tools = load_openapi_toolsets(cfg.project_root)
+    if oa_tools:
+      merged_extra_tools = list(merged_extra_tools or []) + oa_tools
+  except Exception:
+    pass  # OpenAPIToolset not in this ADK version — continue without
+
   # Computer-use: ADK ComputerUseToolset backed by our Playwright BrowserComputer.
   # Also inject standalone browser inspection tools (screenshot, get_text, etc.)
   # so the agent can read page state without performing side-effecting actions.

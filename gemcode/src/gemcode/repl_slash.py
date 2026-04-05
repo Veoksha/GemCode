@@ -154,6 +154,117 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True)
 
+  # ── /init ─────────────────────────────────────────────────────────────────
+  # ── /notes ────────────────────────────────────────────────────────────────
+  if name == "notes":
+    sub = (sc.args or "").strip().lower()
+    notes_path = cfg.project_root / ".gemcode" / "notes.md"
+    if sub == "clear":
+      if notes_path.exists():
+        notes_path.unlink()
+        out("Notes cleared.")
+      else:
+        out("No notes file found.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if sub == "edit":
+      import subprocess
+      editor = os.environ.get("EDITOR", "nano")
+      notes_path.parent.mkdir(parents=True, exist_ok=True)
+      if not notes_path.exists():
+        notes_path.write_text("# GemCode Agent Notes\n*Auto-generated project notes.*\n\n", encoding="utf-8")
+      subprocess.run([editor, str(notes_path)])
+      return ReplSlashResult(skip_model_turn=True)
+    # Default: show notes
+    if notes_path.exists():
+      content = notes_path.read_text(encoding="utf-8", errors="replace")
+      out(f"Agent notes ({notes_path}):")
+      out("─" * 60)
+      out(content)
+      out("─" * 60)
+      out("  /notes clear   Delete all notes")
+      out("  /notes edit    Open in $EDITOR")
+    else:
+      out(f"No agent notes yet ({notes_path}).")
+      out("The agent will auto-create notes as it discovers project insights.")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /cost ─────────────────────────────────────────────────────────────────
+  if name == "cost":
+    from gemcode.pricing import format_cost, format_tokens
+    stats = getattr(cfg, "_last_turn_stats", None)
+    out("Session cost summary")
+    out("─" * 40)
+    if stats:
+      out(f"  Last turn input tokens : {format_tokens(stats.get('in', 0) or 0)}")
+      out(f"  Last turn output tokens: {format_tokens(stats.get('out', 0) or 0)}")
+      think = stats.get("think", 0) or 0
+      if think:
+        out(f"  Last turn thinking     : {format_tokens(think)}")
+      cache = stats.get("cache", 0) or 0
+      if cache:
+        out(f"  Last turn cache read   : {format_tokens(cache)}")
+      lc = stats.get("turn_cost")
+      out(f"  Last turn cost         : {format_cost(lc) if lc is not None else '(unknown model pricing)'}")
+      out()
+      out(f"  Session total tokens   : {format_tokens(stats.get('session_total', 0) or 0)}")
+      sc = stats.get("session_cost")
+      if sc and sc > 0:
+        out(f"  Session total cost     : {format_cost(sc)}")
+      else:
+        out("  Session total cost     : (accumulating — will show after first turn)")
+    else:
+      out("  No turn completed yet. Send a message to see token/cost stats.")
+    out()
+    out(f"  Model: {getattr(cfg, 'model', 'unknown')}")
+    out()
+    out("  Note: costs are estimates based on published Gemini pricing.")
+    out("  Thinking tokens billed at same rate as output tokens.")
+    return ReplSlashResult(skip_model_turn=True)
+
+  if name == "init":
+    gemini_md = cfg.project_root / "GEMINI.md"
+    if gemini_md.exists() and (sc.args or "").strip().lower() not in ("force", "overwrite", "-f"):
+      out(f"GEMINI.md already exists at {gemini_md}.")
+      out("Use /init force to regenerate it, or edit it manually.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    # Dispatch to the model to analyze the project and write GEMINI.md.
+    init_prompt = (
+      "Analyze this codebase and generate a GEMINI.md file for me.\n\n"
+      "To do this:\n"
+      "1. Run `list_directory('.')` to understand the project structure\n"
+      "2. Read `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `README.md` "
+      "or equivalent to understand the project type and dependencies\n"
+      "3. Look at the source directory structure (src/, lib/, app/, etc.)\n"
+      "4. Check for test directories and test runner config\n"
+      "5. Look for linting/formatting config files (.eslintrc, .prettierrc, ruff.toml, etc.)\n\n"
+      "Then write a GEMINI.md file at the project root containing:\n"
+      "# Project Name\n"
+      "One-sentence description.\n\n"
+      "## Build & Test\n"
+      "- How to install dependencies\n"
+      "- How to build\n"
+      "- How to run tests\n"
+      "- How to lint/format\n\n"
+      "## Architecture\n"
+      "- Key directories and what they contain\n"
+      "- Important entry points\n"
+      "- Key abstractions or patterns used\n\n"
+      "## Coding standards\n"
+      "- Language/framework conventions\n"
+      "- Any style requirements found in config files\n\n"
+      "## Workflow\n"
+      "- Any git branching rules from README or CONTRIBUTING\n"
+      "- PR/commit conventions\n\n"
+      "Keep it under 200 lines. Write the file to GEMINI.md now."
+    )
+    out("Analyzing project to generate GEMINI.md…")
+    out("(GemCode will read the project structure and write a starting GEMINI.md)")
+    out()
+    return ReplSlashResult(model_prompt=init_prompt)
+
   if name == "hooks":
     out("\n".join(format_hooks_lines(cfg)))
     out()

@@ -151,13 +151,8 @@ async def _run_prompt(
   _maybe_prompt_google_api_key()
   require_google_api_key()
   _initialize_gemcode_project(cfg)
-  extra: list = []
-  if use_mcp:
-    from gemcode.mcp_loader import load_mcp_toolsets
-
-    extra = load_mcp_toolsets(cfg)
-
-  runner = create_runner(cfg, extra_tools=extra or None)
+  # MCP and OpenAPI toolsets are now loaded inside create_runner() directly.
+  runner = create_runner(cfg, extra_tools=None)
   try:
     collected = await run_turn(
         runner,
@@ -184,13 +179,8 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
   require_google_api_key()
   _initialize_gemcode_project(cfg)
 
-  extra: list = []
-  if use_mcp:
-    from gemcode.mcp_loader import load_mcp_toolsets
-
-    extra = load_mcp_toolsets(cfg)
-
-  runner = create_runner(cfg, extra_tools=extra or None)
+  # MCP and OpenAPI toolsets are now loaded inside create_runner() directly.
+  runner = create_runner(cfg, extra_tools=None)
   try:
     # For CLI UX, show concise tool summaries (helps users see what ran).
     if os.environ.get("GEMCODE_EMIT_TOOL_USE_SUMMARIES") is None:
