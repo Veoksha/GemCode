@@ -252,15 +252,26 @@ async def run_gemcode_scrollback_tui(
   REQUEST_CONFIRMATION_FC = _ADK_REQUEST_CONFIRMATION
 
   def _get_confirmation_fcs(events: list) -> list[types.FunctionCall]:
-    out: list[types.FunctionCall] = []
-    for ev in events:
+    """Return confirmation FCs from the LAST event that contains them.
+
+    The ADK runner expects function responses only for the function calls
+    in the most recent event.  Sending responses for FCs from earlier events
+    in the same batch raises:
+      ValueError: Last response event should only contain the responses for
+        the function calls in the same function call event.
+    So we scan backwards and return only the first (= last) match.
+    """
+    for ev in reversed(events):
       try:
-        for fc in ev.get_function_calls() or []:
-          if getattr(fc, "name", None) == _ADK_REQUEST_CONFIRMATION:
-            out.append(fc)
+        fcs = [
+          fc for fc in (ev.get_function_calls() or [])
+          if getattr(fc, "name", None) == _ADK_REQUEST_CONFIRMATION
+        ]
+        if fcs:
+          return fcs
       except Exception:
         continue
-    return out
+    return []
 
   def _extract_tool_and_hint(fc: types.FunctionCall) -> tuple[str, str]:
     tool_name = "unknown_tool"
@@ -527,26 +538,40 @@ async def run_gemcode_scrollback_tui(
       # as different phases of the turn complete.
       _start_anim("Thinking\u2026")
 
-      async for ev in runner.run_async(**kwargs):
-        events.append(ev)
-        _render_tool_calls(ev)
-        _render_tool_results(ev)
-        try:
-          if not ev.content or not ev.content.parts:
-            continue
-          if not getattr(ev, "author", None) or ev.author == "user":
-            continue
-          for part in ev.content.parts:
-            delta = getattr(part, "text", None)
-            if not delta:
+      try:
+        async for ev in runner.run_async(**kwargs):
+          events.append(ev)
+          _render_tool_calls(ev)
+          _render_tool_results(ev)
+          try:
+            if not ev.content or not ev.content.parts:
               continue
-            assistant_wrote_text = True
-            if getattr(part, "thought", None):
-              buffered_thought.append(delta)
-            else:
-              buffered_final.append(delta)
-        except Exception:
-          continue
+            if not getattr(ev, "author", None) or ev.author == "user":
+              continue
+            for part in ev.content.parts:
+              delta = getattr(part, "text", None)
+              if not delta:
+                continue
+              assistant_wrote_text = True
+              if getattr(part, "thought", None):
+                buffered_thought.append(delta)
+              else:
+                buffered_final.append(delta)
+          except Exception:
+            continue
+      except Exception as _turn_err:
+        # Catch runner errors (e.g. ADK ValueError from mismatched function
+        # response IDs) so a single bad turn doesn't crash the whole TUI.
+        _stop_anim()
+        print(
+            f"\n  {ansi.blue_warn}[gemcode] turn error: "
+            f"{type(_turn_err).__name__}: {_turn_err}{ansi.reset}"
+        )
+        print(
+            f"  {ansi.dim}The agent encountered an internal error on this turn. "
+            f"Please send your message again.{ansi.reset}\n"
+        )
+        break
 
       _stop_anim()  # ensure spinner is gone before printing the response
 
