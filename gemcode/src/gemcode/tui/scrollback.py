@@ -117,28 +117,24 @@ class _Ansi:
 
   @property
   def blue(self) -> str:
-    # Sunset orange/warm color instead of blue
-    return self.esc("38;5;215")
+    # ANSI 256-color bright-ish blue
+    return self.esc("38;5;75")
 
   @property
   def blue2(self) -> str:
-    # Deeper warm color
-    return self.esc("38;5;209")
+    return self.esc("38;5;33")
 
   @property
   def blue_ok(self) -> str:
-    # Warm green for success
-    return self.esc("38;5;150")
+    return self.esc("38;5;81")
 
   @property
   def blue_warn(self) -> str:
-    # Warm amber for warnings
-    return self.esc("38;5;221")
+    return self.esc("38;5;39")
 
   @property
   def blue_tool(self) -> str:
-    # Warm tool color
-    return self.esc("38;5;180")
+    return self.esc("38;5;69")
 
 
 def _term_width(default: int = 100) -> int:
