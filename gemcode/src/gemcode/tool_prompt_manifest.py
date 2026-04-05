@@ -108,7 +108,10 @@ Permission policy:
 - session_sticky_hitl={sticky_hitl}: when true, after the user approves **one** tool in this session, further mutating/shell tools may run without re-prompting (set GEMCODE_HITL_STICKY_SESSION=0 to prompt every time).
 
 You may call tools as follows:
-- Session planning: {_fmt_list(planning)}. In-memory task list for this session (no disk writes). Use for non-trivial multi-step work; set merge=true to upsert by id.
+- Session planning / reasoning: {_fmt_list(planning)}.
+  - `todo_write`: in-memory task list (no disk writes). Use for non-trivial multi-step work; merge=true to upsert by id.
+  - `think`: private scratchpad — write reasoning/analysis before risky or complex actions. Not shown to user.
+  - `run_subtask(task, context)`: spawn an isolated sub-agent to handle context-heavy work in parallel or in sequence. Sub-agent inherits your permissions and returns its final text as `result`. Exclude run_subtask from sub-agent by design (no recursion).
 - Read-only tools: {_fmt_list(read_only)}.
   Use these proactively to locate files and code before asking the user for paths.
 - Mutating tools (WRITE/EDIT/DELETE): {_fmt_list(mutating)}.

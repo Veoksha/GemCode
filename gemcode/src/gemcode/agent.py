@@ -151,9 +151,23 @@ You have native deep thinking capability — use it actively:
   - `web_fetch("https://registry.npmjs.org/react/latest")` — npm package info
   - Use when you need to look up an API, check the latest version, or read documentation.
 
-### Planning
+### Reasoning and planning
+- **`think`** — private reasoning scratchpad. Write your analysis, plan, or hypothesis here before acting. Not shown to the user. Use before:
+  - A complex multi-file edit or refactor
+  - A debugging session where you need to trace logic before touching code
+  - Any destructive action (delete, force-push) — think first
+  - Choosing between approaches with real trade-offs
+
 - **`todo_write`** — track work items. Use for any task with 3+ steps.
   - Create at task start, mark completed as you finish, merge updates.
+
+- **`run_subtask`** — spawn an isolated sub-agent with its own fresh context window.
+  - The sub-agent has the same tools (bash, read_file, grep, etc.) but starts from scratch.
+  - Use when a task would bloat your context too much: e.g. "read all 40 test files and find patterns"
+  - Use to parallelize: issue multiple `run_subtask` calls in one turn for concurrent exploration
+  - Use for verification passes: "check all files I edited for consistency and syntax errors"
+  - Always give the sub-agent enough context to operate independently.
+  - End your task prompt with "Summarise your findings clearly." so the result is useful.
 
 ## Multi-step task execution
 One user message = many model↔tool rounds (up to 256 LLM calls by default). This is intentional — you are expected to do complete tasks autonomously.
@@ -174,7 +188,24 @@ Issue independent tool calls in the same turn when outputs don't depend on each 
 - Reading multiple files simultaneously ✓
 - Grepping for different patterns at once ✓
 - `list_directory` + `glob_files` in parallel ✓
+- Multiple `run_subtask` calls in one turn for parallel sub-agent exploration ✓
 Sequential: when step B needs step A's result.
+
+## Sub-agent delegation (orchestrator-worker pattern)
+Use `run_subtask` when the work is better done in an isolated context:
+- **Context preservation**: offload reading/analysing large areas of the codebase so your own context stays clean and focused on the high-level task.
+- **Parallel exploration**: launch multiple sub-agents simultaneously to research different subsystems ("analyse auth module", "analyse payment module") then synthesise.
+- **Verification**: after completing work, spawn a sub-agent to review it independently — "verify the changes in src/ are syntactically correct and don't break imports."
+- **Deep research**: when you need to exhaustively search something (50+ files, long documentation pages) delegate it rather than polluting the main conversation.
+
+The sub-agent inherits your permission settings and returns its final text as `result`. Treat it as a trusted colleague returning a written summary.
+
+## Evaluator-optimizer loop
+For tasks where quality matters:
+1. Complete the task (execute tools, write code, run commands)
+2. Spawn a verification `run_subtask` or use `bash` to run tests/lint
+3. If verification fails, read the error, fix, re-verify
+4. Report done only when verified
 
 ## Error recovery
 - **Test/build failures**: read the full error, identify the exact line, fix, re-run.
@@ -207,9 +238,25 @@ All file tools use paths **relative to the project root** (where GemCode was sta
   return base
 
 
-def build_root_agent(cfg: GemCodeConfig, extra_tools: list | None = None) -> LlmAgent:
-  """Create the root LlmAgent with tools and callbacks (no Runner)."""
-  tools = build_function_tools(cfg)
+def build_root_agent(
+  cfg: GemCodeConfig,
+  extra_tools: list | None = None,
+  *,
+  _tools: list | None = None,
+) -> LlmAgent:
+  """Create the root LlmAgent with tools and callbacks (no Runner).
+
+  Args:
+    cfg: Runtime configuration.
+    extra_tools: Additional tools to append (e.g. modality tools from session_runtime).
+    _tools: Override the entire tool list (used by run_subtask sub-agents to pass a
+            pre-built list that excludes run_subtask itself, preventing recursion).
+            When set, build_function_tools() is NOT called.
+  """
+  if _tools is not None:
+    tools = list(_tools)
+  else:
+    tools = build_function_tools(cfg)
   if getattr(cfg, "enable_memory", False):
     # ADK preload_memory injects retrieved memories into the next llm_request.
     from google.adk.tools import preload_memory
