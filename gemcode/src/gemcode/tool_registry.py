@@ -18,6 +18,7 @@ READ_ONLY_TOOLS: frozenset[str] = frozenset(
     "list_directory",
     "glob_files",
     "grep_content",
+    "web_fetch",
   }
 )
 
@@ -27,11 +28,12 @@ MUTATING_TOOLS: frozenset[str] = frozenset(
     "write_file",
     "search_replace",
     "delete_file",
+    "move_file",
   }
 )
 
-# Subprocess (allowlist enforced inside tool)
-SHELL_TOOLS: frozenset[str] = frozenset({"run_command"})
+# Subprocess (allowlist or bash -c; require --yes / not strict)
+SHELL_TOOLS: frozenset[str] = frozenset({"run_command", "bash"})
 
 # Session planning only (no disk / shell; no extra permission)
 PLANNING_TOOLS: frozenset[str] = frozenset({"todo_write"})
