@@ -58,17 +58,93 @@ def _load_gemini_md(project_root: Path) -> str:
 
 def _build_runtime_facts(cfg: GemCodeConfig) -> str:
   """
-  Injected every session so the model does not hallucinate deployment, permissions,
-  or "how to switch Pro" the way a product-agnostic base prompt would.
+  Injected every session so the model is fully self-aware of its own capabilities,
+  limits, and the environment — not just generic defaults.
   """
   root = cfg.project_root.resolve()
   model = (getattr(cfg, "model", None) or "").strip() or "(default)"
+
+  # ── Active capabilities ──────────────────────────────────────────────────
+  caps: list[str] = []
+  if getattr(cfg, "enable_deep_research", False):
+    dr_extras = " + google_maps_grounding" if getattr(cfg, "enable_maps_grounding", False) else ""
+    caps.append(f"deep_research ON (tools: google_search, url_context{dr_extras})")
+  if getattr(cfg, "enable_embeddings", False):
+    caps.append(f"embeddings ON (tool: semantic_search_files, model: {getattr(cfg, 'embeddings_model', 'default')})")
+  if getattr(cfg, "enable_memory", False):
+    mem_path = root / ".gemcode" / "memories.jsonl"
+    mem_kind = "embedding-backed" if getattr(cfg, "enable_embeddings", False) else "keyword-backed"
+    caps.append(f"memory ON ({mem_kind}, stored at {mem_path}; ADK preload_memory injects relevant memories before each turn)")
+  if getattr(cfg, "enable_computer_use", False):
+    caps.append("computer_use ON (tools: navigate, click_at, type_text_at, browser_screenshot, browser_find_element, etc.)")
+  if not caps:
+    caps.append("none enabled (use /research on, /embeddings on, /memory on, /computer on to enable)")
+  caps_text = "\n".join(f"  - {c}" for c in caps)
+
+  # ── Limits ───────────────────────────────────────────────────────────────
+  max_calls = getattr(cfg, "max_llm_calls", 256) or 256
+  token_budget = getattr(cfg, "token_budget", None)
+  max_session_tokens = getattr(cfg, "max_session_tokens", None)
+  budget_line = f"{max_calls} model↔tool iterations per user message"
+  if token_budget:
+    budget_line += f" · token_budget={token_budget:,} per turn"
+  if max_session_tokens:
+    budget_line += f" · max_session_tokens={max_session_tokens:,}"
+
+  # ── Kairos ────────────────────────────────────────────────────────────────
+  # The user can run `gemcode kairos -C <project>` in a separate terminal to
+  # launch a long-lived scheduler. Jobs submitted to it run concurrently with
+  # the current session. This is useful for background / parallel heavy work.
+  kairos_section = (
+    "- **Kairos background scheduler** — `gemcode kairos -C <project>` launches a "
+    "long-lived daemon that reads prompts from stdin and runs each as an isolated job "
+    "(up to N concurrently). Each job gets `kairos_sleep_ms(ms)` and "
+    "`kairos_enqueue_prompt(prompt, priority, session_id)` tools so the model can "
+    "schedule follow-up work itself. Useful for: bulk file processing, repeated "
+    "polling loops, parallelising large independent tasks. "
+    "Tell the user to open a second terminal and run `gemcode kairos` if a task "
+    "would benefit from background parallelism."
+  )
+
   return f"""## Runtime facts (authoritative for this session)
 - **Project root** — every filesystem tool path is relative to: `{root}`
-- **Model id in use:** `{model}`. In this TUI/REPL you can override it for subsequent turns with `/model use <id>` (use `/model list` to browse IDs). For a full restart you can still use `--model <id>` or env `GEMCODE_MODEL`.
-- **UI banner** phrases such as "GemCode Pro" are **terminal marketing**, not a separate API tier or model you enable from chat.
-- **Env toggles** (`GEMCODE_ENABLE_COMPUTER_USE`, `GEMCODE_MODEL`, etc.) affect only the **OS process** that launched `gemcode`. Pasting `VAR=1` in chat does **not** reconfigure a running session—tell the user to export in their shell, use project `.env`, or restart the CLI.
-- **Working in subfolders** — use tools: e.g. `list_directory("Desktop")`, `glob_files("**/query.ts")`, `read_file("testing/ai-edtech-app/src/app/page.tsx")`, or `run_command` with `cwd_subdir`. Never claim the sandbox cannot reach a subpath unless a tool returned an explicit error."""
+- **Model id in use:** `{model}`. Override mid-session with `/model use <id>` or `/mode fast|balanced|quality|auto`.
+- **Execution budget:** {budget_line}.
+- **Active capabilities:**
+{caps_text}
+- **Capability routing** (`capability_mode={getattr(cfg, 'capability_mode', 'auto')}`): in `auto` mode, GemCode automatically enables deep_research when it detects research-intent keywords in your prompt each turn. You can also type `/research on`, `/embeddings on`, `/memory on`, `/computer on` at the prompt.
+- **Your tool palette can grow mid-session:** if the user enables a capability via a slash command, the runner rebuilds and you get new tools on the next turn.
+- **Memory system:** when `memory ON`, ADK automatically searches `.gemcode/memories.jsonl` and injects relevant past context before each turn. Facts the user tells you in one session can appear in future sessions. You do not need to manage memory explicitly — it is loaded automatically.
+{kairos_section}
+- **UI banner** phrases like "GemCode Pro" are terminal marketing, not a separate API tier.
+- **Env toggles** (`GEMCODE_ENABLE_COMPUTER_USE`, `GEMCODE_MODEL`, etc.) affect only the OS process that launched gemcode. Pasting `VAR=1` in chat does NOT reconfigure a running session—tell the user to export in their shell, use project `.env`, or restart the CLI.
+- **Working in subfolders** — call `list_directory("Desktop")`, `glob_files("**/query.ts")`, `read_file("testing/ai-edtech-app/src/app/page.tsx")` directly. Never claim access is blocked unless a tool returned an explicit error."""
+
+
+def _build_memory_section(cfg: GemCodeConfig) -> str:
+  """Injected when enable_memory=True so the agent understands and uses memory."""
+  mem_path = cfg.project_root / ".gemcode" / "memories.jsonl"
+  kind = "embedding-based (semantic cosine similarity)" if getattr(cfg, "enable_embeddings", False) else "keyword-based"
+  return f"""
+## Persistent Memory System
+Memory is **ON** ({kind}). Stored at: `{mem_path}`
+
+### How it works
+- Before each turn, ADK automatically searches the memory store for relevant past facts and injects them as context — you do not need to call a tool to load them.
+- After each turn, the session is automatically added to memory by the post-turn plugin.
+- The memory file persists across sessions (JSONL, one entry per session).
+
+### What to do with memory
+- **Reference it naturally** — if the injected context mentions past facts ("last time the user's API key was X", "the user prefers TypeScript"), treat that as trusted context.
+- **Update it proactively** — if the user tells you important facts about their project, preferences, or recurring patterns, note them in your response: "I'll remember that for future sessions."
+- **Don't re-explain already-known context** — if the memory already contains the project structure or preferences, skip the discovery step and act on what's known.
+- **Memory is scoped to this project root** — `{cfg.project_root}`. Different project roots have separate memories.
+
+### When memory helps most
+- Long-running projects (user preferences, patterns, recurring tasks)
+- Multi-session workflows (continuing work from a previous day)
+- Team conventions stored once and reused automatically
+"""
 
 
 def _build_computer_use_section(cfg: GemCodeConfig) -> str:
@@ -378,9 +454,12 @@ For tasks where quality matters:
 ## Workspace scope
 All file tools use paths **relative to the project root** (where GemCode was started). The root may be the home folder — subfolders like `Desktop`, `Desktop/code`, `Documents` are inside the sandbox. Call `list_directory("Desktop")` or `glob_files("**/*name*.ts")` instead of assuming access is blocked. Only treat access as denied when a tool returns an explicit `error`."""
 
-  # Inject computer use strategy when the browser is enabled.
+  # Inject capability-specific strategy sections only when those caps are on.
   if getattr(cfg, "enable_computer_use", False):
     base = f"{base}\n\n{_build_computer_use_section(cfg)}"
+
+  if getattr(cfg, "enable_memory", False):
+    base = f"{base}\n\n{_build_memory_section(cfg)}"
 
   tool_manifest = build_tool_manifest(cfg)
   if tool_manifest:
@@ -409,7 +488,7 @@ def build_root_agent(
   if _tools is not None:
     tools = list(_tools)
   else:
-    tools = build_function_tools(cfg)
+  tools = build_function_tools(cfg)
   if getattr(cfg, "enable_memory", False):
     # ADK preload_memory injects retrieved memories into the next llm_request.
     from google.adk.tools import preload_memory

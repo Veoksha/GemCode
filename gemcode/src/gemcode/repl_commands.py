@@ -215,4 +215,5 @@ def slash_help_lines() -> list[str]:
       "  Other:",
       "  /permissions          Show permission / HITL settings",
       "  /hooks                Show post-turn hook configuration",
+      "  /kairos               How to launch the background parallel job scheduler",
   ]

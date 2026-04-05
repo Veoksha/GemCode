@@ -55,6 +55,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("memory",      "Toggle persistent memory  ·  /memory on|off"),
     ("budget",      "Set per-turn token budget  ·  /budget <N>  ·  /budget off"),
     ("limits",      "Show/set execution limits (max_llm_calls, context, etc.)"),
+    ("kairos",      "Background parallel job scheduler — how to run gemcode kairos"),
     ("tools",       "List all tools and their permission categories"),
     ("config",      "Show full active configuration (all fields)"),
     ("permissions", "Show current permission mode (default / strict / yes)"),
