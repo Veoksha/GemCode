@@ -357,6 +357,49 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True)
 
+  # ── /code ─────────────────────────────────────────────────────────────────
+  if name == "code":
+    args_s = (sc.args or "").strip().lower()
+    if args_s in ("on", "enable", "1", "true"):
+      cfg.enable_code_executor = True
+      out("Code executor: ON  (sandboxed Python via Gemini built-in executor)")
+      out("The agent can now write Python code blocks and execute them safely,")
+      out("without requiring bash/shell permission. Best for: math, data, quick tests.")
+      out()
+      out("Note: the sandbox has no internet/filesystem access — use bash for I/O.")
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    elif args_s in ("off", "disable", "0", "false"):
+      cfg.enable_code_executor = False
+      out("Code executor: OFF")
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    else:
+      # Status
+      status = "ON" if getattr(cfg, "enable_code_executor", False) else "OFF"
+      out(f"Code executor: {status}")
+      out()
+      out("ADK BuiltInCodeExecutor — safe sandboxed Python execution via Gemini API.")
+      out()
+      out("What it does:")
+      out("  When ON, the agent can write Python code blocks directly in its response")
+      out("  and the Gemini API executes them in a sandboxed environment. The output")
+      out("  (stdout, result) is sent back so the agent can use it for further reasoning.")
+      out()
+      out("Best for:")
+      out("  - Math and numerical calculations")
+      out("  - Data processing and transformations")
+      out("  - Quick tests of logic or algorithms")
+      out("  - Anything that doesn't need filesystem or network access")
+      out()
+      out("Not for:")
+      out("  - Shell commands (use bash)")
+      out("  - Reading/writing files (use read_file / write_file)")
+      out("  - Internet requests (use web_fetch)")
+      out()
+      out("Toggle: /code on   /code off")
+      out()
+      out("Supported models: gemini-2.5-flash, gemini-2.5-pro, gemini-3.x and newer.")
+      return ReplSlashResult(skip_model_turn=True)
+
   # ── /computer ────────────────────────────────────────────────────────────
   if name in ("computer", "browser"):
     args_s = (sc.args or "").strip().lower()

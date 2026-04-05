@@ -251,6 +251,22 @@ class GemCodeConfig:
     default_factory=lambda: _truthy_env("GEMCODE_SHOW_FULL_THINKING", default=False)
   )
 
+  # Enable ADK BuiltInCodeExecutor for safe sandboxed Python execution via
+  # Gemini's code execution API. When on, the agent can write and run Python
+  # snippets inline (math, data processing, quick tests) without requiring
+  # bash/shell permissions. Requires a Gemini model that supports code execution
+  # (gemini-2.5-flash, gemini-2.5-pro, gemini-3.x).
+  enable_code_executor: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_ENABLE_CODE_EXECUTOR", default=False)
+  )
+
+  # Enable ADK artifact service for storing large/binary outputs (screenshots,
+  # generated files, reports) outside of session history.
+  # When on, the agent can save_artifact / load_artifact keyed by filename.
+  enable_artifacts: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_ENABLE_ARTIFACTS", default=True)
+  )
+
   def __post_init__(self) -> None:
     self.project_root = self.project_root.resolve()
     # Default agentic depth when env omits GEMCODE_MAX_LLM_CALLS (was: None → SDK default).

@@ -126,6 +126,9 @@ def build_tool_manifest(cfg: GemCodeConfig) -> str | None:
   - Returns the sub-agent's final text as `result`.
   - Use for: context-heavy exploration (reading 50+ files), parallel investigation of independent subsystems, verification passes after you finish work.
   - Always give the sub-agent enough context to work independently; end the task with "Summarise your findings clearly."
+- **`get_user_choice(question, choices)`** — present the user with a structured list of options (2–6 items). Returns the user's selected option. Use instead of open-ended questions when the set of valid responses is known and bounded (e.g. framework choice, migration strategy, naming convention).
+- **`load_artifacts(filenames)`** — load one or more named artifacts (binary/large files) saved in this or a previous session. Returns the content of each. Use `user:filename` prefix for cross-session artifacts.
+- **`exit_loop()`** — signal the surrounding LoopAgent to stop iterating and emit the final result. Only relevant when running inside a LoopAgent pipeline (e.g. the `/refine` write→test→fix loop).
 
 ### Read-only tools (no permission needed): {_fmt_list(read_only)}
 Use proactively. Never use bash/run_command just to list or read files — these are instant and require zero approval.

@@ -30,6 +30,23 @@ def session_db_path(cfg: GemCodeConfig) -> Path:
   return cfg.project_root / ".gemcode" / "sessions.sqlite"
 
 
+def _build_artifact_service(cfg: GemCodeConfig):
+  """
+  Return an ADK ArtifactService for this session, or None if disabled.
+
+  Uses InMemoryArtifactService so artifacts are available within the session
+  without requiring GCS credentials. The agent can save screenshots, generated
+  files, large reports, etc. as artifacts to avoid bloating session history.
+  """
+  if not getattr(cfg, "enable_artifacts", True):
+    return None
+  try:
+    from google.adk.artifacts import InMemoryArtifactService
+    return InMemoryArtifactService()
+  except Exception:
+    return None
+
+
 def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner:
   """Construct Runner + SQLite session service + root LlmAgent."""
   modality_tools = build_modality_extra_tools(cfg)
@@ -86,7 +103,9 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
     else:
       memory_service = FileMemoryService(mem_path)
 
-  return Runner(
+  artifact_service = _build_artifact_service(cfg)
+
+  runner_kwargs: dict = dict(
       app_name="gemcode",
       agent=agent,
       session_service=session_service,
@@ -94,3 +113,7 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
       memory_service=memory_service,
       auto_create_session=True,
   )
+  if artifact_service is not None:
+    runner_kwargs["artifact_service"] = artifact_service
+
+  return Runner(**runner_kwargs)

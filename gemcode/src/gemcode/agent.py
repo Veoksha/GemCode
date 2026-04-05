@@ -77,8 +77,12 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
     caps.append(f"memory ON ({mem_kind}, stored at {mem_path}; ADK preload_memory injects relevant memories before each turn)")
   if getattr(cfg, "enable_computer_use", False):
     caps.append("computer_use ON (tools: navigate, click_at, type_text_at, browser_screenshot, browser_find_element, etc.)")
+  if getattr(cfg, "enable_code_executor", False):
+    caps.append("code_executor ON — you can write Python code blocks and they will be executed safely via Gemini's built-in sandboxed executor; results appear as code_execution_result events. Use this for math, data processing, quick tests, and anything that would otherwise require a shell command.")
+  if getattr(cfg, "enable_artifacts", True):
+    caps.append("artifacts ON — use save_artifact(filename, bytes, mime_type) / load_artifact(filename) to store large/binary outputs (screenshots, PDFs, generated files) outside session history. Artifacts are keyed by filename; prefix 'user:' for cross-session persistence.")
   if not caps:
-    caps.append("none enabled (use /research on, /embeddings on, /memory on, /computer on to enable)")
+    caps.append("none enabled (use /research on, /embeddings on, /memory on, /computer on, /code on to enable)")
   caps_text = "\n".join(f"  - {c}" for c in caps)
 
   # ── Limits ───────────────────────────────────────────────────────────────
@@ -426,6 +430,41 @@ Use `run_subtask` when the work is better done in an isolated context:
 
 The sub-agent inherits your permission settings and returns its final text as `result`. Treat it as a trusted colleague returning a written summary.
 
+## ADK Special Tools (always available when ADK supports them)
+
+### `get_user_choice`
+Present the user with a structured multi-option prompt rather than open-ended questions.
+Use when you need the user to pick from 2–6 specific options (e.g. "Which framework would you like?", "Choose migration strategy: A, B, or C").
+This provides a better UX than asking them to type a free-form answer.
+
+### `load_artifacts`
+Load binary/large artifacts that were saved in a previous turn or by a sub-agent.
+Artifacts are keyed by filename (e.g. "report.pdf", "screenshot.png", "output.json").
+Use `user:filename` prefix for user-scoped artifacts that persist across sessions.
+After loading, the artifact bytes are available for further processing (display, analysis, transformation).
+
+### `exit_loop`
+Signal the surrounding LoopAgent to stop iterating and return the final result.
+Only meaningful when this agent is running inside an ADK LoopAgent pipeline.
+Call this when the task is complete and no further iterations are needed.
+
+## Artifacts — storing large outputs
+When `artifacts ON` (see Runtime facts above):
+- **Save** large generated content as artifacts instead of printing them inline:
+  - Screenshots from computer_use: save as "screenshot.png" artifact
+  - Generated reports/PDFs: save as "report.pdf" artifact
+  - Large JSON data: save as "data.json" artifact
+- **Reference** artifacts in instructions via `{artifact.filename?}` template syntax
+- Artifacts are keyed by filename; `user:` prefix = cross-session persistence
+
+## Code Executor (sandboxed Python)
+When `code_executor ON` (see Runtime facts above):
+- You can write Python code blocks in your response and the Gemini API executes them safely
+- The result appears as a `code_execution_result` event with stdout and the outcome
+- Best for: math calculations, data transformation, unit testing logic, quick experiments
+- The sandbox does NOT have internet access or filesystem access — use for pure computation
+- For file I/O or shell commands, use the standard tools (`bash`, `write_file`, etc.)
+
 ## Evaluator-optimizer loop
 For tasks where quality matters:
 1. Complete the task (execute tools, write code, run commands)
@@ -470,6 +509,17 @@ All file tools use paths **relative to the project root** (where GemCode was sta
   return base
 
 
+def _build_code_executor(cfg: GemCodeConfig):
+  """Return an ADK BuiltInCodeExecutor when enable_code_executor=True, else None."""
+  if not getattr(cfg, "enable_code_executor", False):
+    return None
+  try:
+    from google.adk.code_executors import BuiltInCodeExecutor
+    return BuiltInCodeExecutor()
+  except Exception:
+    return None
+
+
 def build_root_agent(
   cfg: GemCodeConfig,
   extra_tools: list | None = None,
@@ -488,12 +538,19 @@ def build_root_agent(
   if _tools is not None:
     tools = list(_tools)
   else:
-  tools = build_function_tools(cfg)
+    tools = build_function_tools(cfg)
   if getattr(cfg, "enable_memory", False):
     # ADK preload_memory injects retrieved memories into the next llm_request.
     from google.adk.tools import preload_memory
-
     tools = [preload_memory, *tools]
+
+  # ADK built-in interactive + artifact tools — always available when ADK supports them.
+  try:
+    from google.adk.tools import get_user_choice, load_artifacts, exit_loop
+    tools = [*tools, get_user_choice, load_artifacts, exit_loop]
+  except Exception:
+    pass
+
   if extra_tools:
     tools = [*tools, *extra_tools]
 
@@ -548,14 +605,30 @@ def build_root_agent(
       tool_config=tool_cfg,
     )
 
-  return LlmAgent(
+  # global_instruction applies to the entire agent tree (including sub-agents
+  # spawned via run_subtask or multi-agent delegation).  Keep it short — it's
+  # prepended to every agent's effective instruction.
+  global_instr = (
+    "You are GemCode, an expert software engineering agent powered by Google Gemini. "
+    "Act, don't advise. Complete tasks fully and autonomously. "
+    "Think before destructive actions. Use read-only tools before shell/write tools."
+  )
+
+  agent_kwargs: dict = dict(
       model=cfg.model,
       name="gemcode",
       instruction=build_instruction(cfg),
+      global_instruction=global_instr,
       tools=tools,
       generate_content_config=gen_cfg,
       **cb_kwargs,
   )
+
+  code_executor = _build_code_executor(cfg)
+  if code_executor is not None:
+    agent_kwargs["code_executor"] = code_executor
+
+  return LlmAgent(**agent_kwargs)
 
 
 def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None):
