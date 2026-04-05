@@ -49,6 +49,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("compact",     "Summarise conversation history to reclaim context space"),
     ("config",      "Show active configuration and environment variables"),
     ("permissions", "Show current permission mode (default / strict / yes)"),
+    ("thinking",    "View or change thinking config  ·  /thinking level <low|medium|high>  ·  /thinking budget <N>"),
     ("audit",       "Show recent audit log  ·  /audit [N lines]"),
     ("memory",      "Show memory / storage settings"),
     ("doctor",      "Run diagnostics and validate the environment"),

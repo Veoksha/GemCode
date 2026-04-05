@@ -39,6 +39,7 @@ class ReplSlashResult:
   new_session_id: str | None = None
   skip_model_turn: bool = False
   model_prompt: str | None = None
+  force_rebuild_runner: bool = False  # True when agent config changed (thinking, etc.)
 
 
 def _parse_tail_n(args: str, *, default: int = 40) -> int:
@@ -269,6 +270,95 @@ async def process_repl_slash(
 
   if name in ("exit", "quit"):
     return ReplSlashResult(exit_repl=True)
+
+  if name == "thinking":
+    model_id = getattr(cfg, "model", "") or ""
+    is_25 = "2.5" in model_id
+    args = (sc.args or "").strip()
+
+    if not args:
+      # Show current thinking config.
+      disable = bool(getattr(cfg, "disable_thinking", False))
+      level   = getattr(cfg, "thinking_level", None)
+      budget  = getattr(cfg, "thinking_budget", None)
+      out("Thinking config:")
+      out(f"  model:            {model_id or '(default)'}")
+      out(f"  disable_thinking: {disable}")
+      if is_25:
+        out(f"  thinking_budget:  {budget if budget is not None else '(auto / dynamic)'}")
+        out()
+        out("Gemini 2.5 commands:")
+        out("  /thinking off              — disable thinking")
+        out("  /thinking on               — re-enable with auto budget")
+        out("  /thinking budget <0-24576> — set exact token budget (0 = off)")
+      else:
+        out(f"  thinking_level:   {level if level is not None else '(auto)'}")
+        out()
+        out("Gemini 3.x commands:")
+        out("  /thinking off                         — use minimal thinking")
+        out("  /thinking on                          — re-enable auto level")
+        out("  /thinking level <minimal|low|medium|high>")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    parts = args.split()
+    sub = parts[0].lower()
+
+    if sub == "off":
+      setattr(cfg, "disable_thinking", True)
+      out("thinking: disabled (runner will rebuild on next turn)")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+    if sub in ("on", "auto"):
+      setattr(cfg, "disable_thinking", False)
+      setattr(cfg, "thinking_level", None)
+      setattr(cfg, "thinking_budget", None)
+      out("thinking: auto (runner will rebuild on next turn)")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+    if sub == "budget":
+      if len(parts) < 2:
+        out("Usage: /thinking budget <N>  e.g. /thinking budget 8192")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      try:
+        budget = int(parts[1])
+      except ValueError:
+        out(f"Invalid budget '{parts[1]}' — must be an integer (0–24576, or -1 for dynamic)")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      setattr(cfg, "thinking_budget", budget)
+      setattr(cfg, "disable_thinking", False)
+      out(f"thinking: budget={budget} tokens (runner will rebuild on next turn)")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+    if sub == "level":
+      if len(parts) < 2:
+        out("Usage: /thinking level <minimal|low|medium|high>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      level = parts[1].lower()
+      valid = ("minimal", "low", "medium", "high")
+      if level not in valid:
+        out(f"Unknown level '{level}'. Choose from: {', '.join(valid)}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      setattr(cfg, "thinking_level", level)
+      setattr(cfg, "disable_thinking", False)
+      out(f"thinking: level={level} (runner will rebuild on next turn)")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+    out(f"Unknown /thinking subcommand: {sub}")
+    if is_25:
+      out("Usage: /thinking [off | on | budget <N>]")
+    else:
+      out("Usage: /thinking [off | on | level <minimal|low|medium|high>]")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
 
   out(f"Unknown command: /{sc.command_name}")
   out("Try /help")

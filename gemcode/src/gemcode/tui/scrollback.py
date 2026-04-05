@@ -236,22 +236,62 @@ async def run_gemcode_scrollback_tui(
       pass
     return tool_name, hint
 
-  # ── Live status indicator ─────────────────────────────────────────────────
-  # spinner_active[0] = True while "⟳ Working..." is on the current line.
-  # _clear_spinner() uses \r + ANSI erase to overwrite it before real output.
-  spinner_active = [False]
+  # ── Live animated status indicator ───────────────────────────────────────
+  # An asyncio.Task drives a braille spinner that rewrites the current line
+  # every 150 ms with the elapsed time.  Because the spinner runs concurrently
+  # with `async for ev in runner.run_async(...)`, it updates while we await
+  # the next event — giving the user live timing feedback at every phase:
+  #   "Thinking…"  → model generating first response
+  #   "Running…"   → tool executing (can be 30–120 s for npx / cargo / pytest)
+  #   "Querying…"  → model re-querying after tool results
+  _anim_task:   list = [None]   # asyncio.Task | None
+  _anim_active: list = [False]  # True while spinner text is on stdout
 
-  def _clear_spinner() -> None:
-    if spinner_active[0]:
+  async def _spinner_loop(msg: str) -> None:
+    frames = "⣾⣽⣻⢿⡿⣟⣯⣷"
+    t0 = asyncio.get_running_loop().time()
+    i = 0
+    try:
+      while True:
+        elapsed = asyncio.get_running_loop().time() - t0
+        frame = frames[i % len(frames)]
+        sys.stdout.write(
+            f"\r  {ansi.dim}{frame}  {msg}  ({elapsed:.0f}s){ansi.reset}  "
+        )
+        sys.stdout.flush()
+        i += 1
+        await asyncio.sleep(0.15)
+    except asyncio.CancelledError:
+      pass  # _stop_anim() handles clearing the line
+
+  def _start_anim(msg: str) -> None:
+    """Start (or restart) the spinner with a new status message."""
+    _stop_anim()
+    if not ansi.enabled:
+      return
+    try:
+      loop = asyncio.get_event_loop()
+      if loop.is_running():
+        _anim_task[0] = loop.create_task(_spinner_loop(msg))
+        _anim_active[0] = True
+    except Exception:
+      pass
+
+  def _stop_anim() -> None:
+    """Cancel the spinner task and erase its line from stdout."""
+    task = _anim_task[0]
+    if task is not None:
+      task.cancel()
+      _anim_task[0] = None
+    if _anim_active[0]:
       sys.stdout.write("\r\033[K")
       sys.stdout.flush()
-      spinner_active[0] = False
+      _anim_active[0] = False
 
   def _fmt_tool_result(resp: object) -> str:
     """One-line summary of a tool execution result."""
     try:
       d = resp if isinstance(resp, dict) else {}
-      # ADK may wrap the return value; try both the raw dict and a nested "result" key.
       inner = d.get("result", d)
       if not isinstance(inner, dict):
         inner = d
@@ -280,7 +320,7 @@ async def run_gemcode_scrollback_tui(
       return ""
 
   def _render_tool_results(ev) -> None:
-    """Print a brief one-line summary when a tool finishes executing."""
+    """Show a one-line result summary; transition spinner to 'Querying…'."""
     try:
       frs: list = []
       try:
@@ -292,28 +332,38 @@ async def run_gemcode_scrollback_tui(
           fr = getattr(part, "function_response", None)
           if fr is not None:
             frs.append(fr)
-      for fr in frs:
-        name = getattr(fr, "name", "") or ""
-        if name == _ADK_REQUEST_CONFIRMATION:
-          continue
-        _clear_spinner()
+      real_frs = [
+          fr for fr in frs
+          if getattr(fr, "name", "") not in ("", _ADK_REQUEST_CONFIRMATION)
+      ]
+      if not real_frs:
+        return  # nothing to show; keep spinner running
+      _stop_anim()  # clear "Running…" before printing results
+      for fr in real_frs:
         resp = getattr(fr, "response", {}) or {}
         summary = _fmt_tool_result(resp)
         if summary:
           print(f"  ⎿    {ansi.dim}\u21b3 {summary}{ansi.reset}")
+      # Restart spinner while model re-queries with the tool outputs.
+      _start_anim("Querying\u2026")
     except Exception:
       pass
 
   def _render_tool_calls(ev) -> None:
-    _clear_spinner()
+    """Print tool-call lines; transition spinner to 'Running…'."""
     try:
       fcs = ev.get_function_calls() or []
     except Exception:
       fcs = []
-    for fc in fcs:
+    real_fcs = [
+        fc for fc in fcs
+        if getattr(fc, "name", "") not in ("", _ADK_REQUEST_CONFIRMATION)
+    ]
+    if not real_fcs:
+      return  # no visible tool calls; leave spinner as-is
+    _stop_anim()  # clear "Thinking…" or "Querying…"
+    for fc in real_fcs:
       name = getattr(fc, "name", "") or ""
-      if name == _ADK_REQUEST_CONFIRMATION:
-        continue
       extra = format_tool_call_extras(fc)
       if extra:
         print(
@@ -322,6 +372,7 @@ async def run_gemcode_scrollback_tui(
         )
       else:
         print(f"  ⎿  {ansi.blue_tool}[tool]{ansi.reset} {ansi.bold}{name}{ansi.reset}")
+    _start_anim("Running\u2026")  # spinner while tool actually executes
 
   run_config = (
     RunConfig(max_llm_calls=cfg.max_llm_calls)
@@ -359,11 +410,16 @@ async def run_gemcode_scrollback_tui(
         current_session_id = slash.new_session_id
         _current_session_id_holder[0] = current_session_id
       if slash.skip_model_turn:
-        # Runner binds the model at creation time (LlmAgent(model=...)),
-        # so rebuild it when the user overrides the model mid-session.
+        # Runner holds the LlmAgent which bakes in model + thinking config at
+        # construction time.  Rebuild whenever the model or thinking changes.
         new_model = getattr(cfg, "model", "")
         new_model_overridden = bool(getattr(cfg, "model_overridden", False))
-        if new_model != old_model or new_model_overridden != old_model_overridden:
+        needs_rebuild = (
+            new_model != old_model
+            or new_model_overridden != old_model_overridden
+            or slash.force_rebuild_runner
+        )
+        if needs_rebuild:
           try:
             close_fn = getattr(runner, "close", None)
             if close_fn:
@@ -400,13 +456,10 @@ async def run_gemcode_scrollback_tui(
         kwargs["run_config"] = run_config
       # (We don't handle token budget reset here; full-screen TUI does.)
 
-      # Show a live "Working…" indicator so the user never wonders if the
-      # agent froze.  _clear_spinner() overwrites it with \r+ANSI-erase
-      # before the first real output (tool call, tool result, or response).
-      if ansi.enabled:
-        spinner_active[0] = True
-        sys.stdout.write(f"  {ansi.dim}\u27f3  Working\u2026{ansi.reset}")
-        sys.stdout.flush()
+      # Animated spinner starts immediately so the user always knows the
+      # agent is active.  It transitions: Thinking… → Running… → Querying…
+      # as different phases of the turn complete.
+      _start_anim("Thinking\u2026")
 
       async for ev in runner.run_async(**kwargs):
         events.append(ev)
@@ -429,7 +482,7 @@ async def run_gemcode_scrollback_tui(
         except Exception:
           continue
 
-      _clear_spinner()  # ensure "Working…" is gone before any response line
+      _stop_anim()  # ensure spinner is gone before printing the response
 
       if not assistant_wrote_text and _events_had_non_confirmation_tools(events):
         await typewrite(

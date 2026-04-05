@@ -25,6 +25,13 @@ def _is_gemini_3_pro(model_id: str) -> bool:
   return "3.1-pro" in (model_id or "") or "3-pro" in (model_id or "")
 
 
+def _supports_thinking(model_id: str) -> bool:
+  """True for Gemini 2.5+ and Gemini 3.x which return thought tokens."""
+  m = model_id or ""
+  return "2.5" in m or "2.0-flash-thinking" in m or "gemini-3" in m or \
+         "-3." in m or "-3-" in m
+
+
 def build_thinking_config(cfg: GemCodeConfig) -> Optional[types.ThinkingConfig]:
   """
   Returns a `types.ThinkingConfig` to pass to ADK's LlmAgent.generate_content_config.
@@ -96,7 +103,11 @@ def build_thinking_config(cfg: GemCodeConfig) -> Optional[types.ThinkingConfig]:
   # Otherwise: Claude-like auto mapping based on model_mode.
   mode = (getattr(cfg, "model_mode", "auto") or "auto").lower()
   if mode == "auto":
-    # Let Gemini choose its dynamic/adaptive thinking.
+    # Use Gemini's adaptive thinking budget but request thought tokens in the
+    # response so the TUI can display them.  Models that don't support thinking
+    # ignore include_thoughts gracefully; for others we fall back to None.
+    if _supports_thinking(model_id):
+      return types.ThinkingConfig(include_thoughts=True)
     return None
 
   if not is_25:
@@ -104,33 +115,32 @@ def build_thinking_config(cfg: GemCodeConfig) -> Optional[types.ThinkingConfig]:
     if mode == "fast":
       return types.ThinkingConfig(
         thinking_level="low" if _is_gemini_3_pro(model_id) else "minimal",
-        include_thoughts=None,
+        include_thoughts=True,
       )
     if mode == "balanced":
       return types.ThinkingConfig(
         thinking_level="medium",
-        include_thoughts=None,
+        include_thoughts=True,
       )
     # quality
     return types.ThinkingConfig(
       thinking_level="high",
-      include_thoughts=None,
+      include_thoughts=True,
     )
 
   # Gemini 2.5 thinkingBudget mapping.
   if mode == "fast":
     if "2.5-pro" in model_id:
-      return types.ThinkingConfig(thinking_budget=512, include_thoughts=None)
+      return types.ThinkingConfig(thinking_budget=512, include_thoughts=True)
     # flash/flash-preview/flash-lite
     return types.ThinkingConfig(
-      thinking_budget=0 if "flash-lite" in model_id else 0, include_thoughts=None
+      thinking_budget=0 if "flash-lite" in model_id else 1024, include_thoughts=True
     )
   if mode == "balanced":
     if "2.5-pro" in model_id:
-      return types.ThinkingConfig(thinking_budget=4096, include_thoughts=None)
-    return types.ThinkingConfig(thinking_budget=1024, include_thoughts=None)
+      return types.ThinkingConfig(thinking_budget=4096, include_thoughts=True)
+    return types.ThinkingConfig(thinking_budget=2048, include_thoughts=True)
 
-  # quality
-  # For 2.5 Pro this remains dynamic because disable isn't supported.
-  return types.ThinkingConfig(thinking_budget=-1, include_thoughts=None)
+  # quality — dynamic budget (model decides how much to think)
+  return types.ThinkingConfig(thinking_budget=-1, include_thoughts=True)
 
