@@ -157,6 +157,24 @@ def make_before_tool_callback(cfg: GemCodeConfig):
     except Exception:
       pass
 
+    # ── Permission rules (.gemcode/settings.json allow/deny) ──────────────
+    # Evaluated before the normal permission flow so explicit allow/deny rules
+    # override cfg.permission_mode and interactive prompts.
+    try:
+      from gemcode.permissions import check_rules
+      rule_result = check_rules(name, args or {}, cfg.project_root)
+      if rule_result == "deny":
+        return {
+          "error": f"Tool call blocked by .gemcode/settings.json deny rule for '{name}'.",
+          "error_kind": _ERROR_KIND_PERMISSION_DENIED,
+        }
+      if rule_result == "allow":
+        # Explicit allow — skip the normal permission prompt entirely
+        # but still run post-tool hook (logging/audit).
+        pass  # fall through to tool execution
+    except Exception:
+      rule_result = None
+
     streak = 0
     if tool_context is not None:
       try:
@@ -180,6 +198,10 @@ def make_before_tool_callback(cfg: GemCodeConfig):
         ),
         "error_kind": _ERROR_KIND_CIRCUIT_BREAKER,
       }
+
+    # If permission rules explicitly allowed this tool call, skip the gate entirely.
+    if rule_result == "allow" and (name in MUTATING_TOOLS or is_computer_tool):
+      return None  # allow without prompting
 
     if name in MUTATING_TOOLS or is_computer_tool:
       if cfg.permission_mode == "strict":

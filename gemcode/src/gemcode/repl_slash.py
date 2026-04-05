@@ -155,6 +155,39 @@ async def process_repl_slash(
     return ReplSlashResult(skip_model_turn=True)
 
   # ── /init ─────────────────────────────────────────────────────────────────
+  # ── /review ───────────────────────────────────────────────────────────────
+  if name == "review":
+    scope = (sc.args or "").strip()
+    # Build a prompt that includes the diff/files as context for the pipeline.
+    # We dispatch this as a model_prompt so the main agent runs the review pipeline.
+    if scope:
+      review_prompt = (
+        f"Run a parallel code review on: {scope}\n\n"
+        "Use the review_code tool if available, or:\n"
+        "1. If it's a file/directory, read the relevant files with read_file/list_directory\n"
+        "2. Run `bash('git diff HEAD -- " + scope + "')` to see recent changes\n"
+        "3. Produce a parallel code review using your SecurityReviewer, StyleReviewer, "
+        "and CorrectnessReviewer sub-agents (via run_subtask with focus='security'/'style'/'correctness'), "
+        "then synthesize the findings into a structured report with: Critical Issues, Suggestions, Verdict."
+      )
+    else:
+      review_prompt = (
+        "Run a parallel code review on the current changes.\n\n"
+        "Steps:\n"
+        "1. Run `bash('git diff HEAD')` to see unstaged changes, and "
+        "`bash('git diff --cached')` for staged changes\n"
+        "2. If no git diff, run `bash('git diff HEAD~1')` for the last commit\n"
+        "3. Run THREE parallel sub-reviews using run_subtask:\n"
+        "   - Security review (auth, injections, secrets, validation)\n"
+        "   - Style review (readability, naming, DRY, docs)\n"
+        "   - Correctness review (logic, error handling, edge cases, tests)\n"
+        "4. Synthesize into a final report: Critical Issues / Suggestions / Verdict\n\n"
+        "Run all three sub-reviews simultaneously using run_subtask for maximum speed."
+      )
+    out("Running parallel code review (security + style + correctness)…")
+    out()
+    return ReplSlashResult(model_prompt=review_prompt)
+
   # ── /notes ────────────────────────────────────────────────────────────────
   if name == "notes":
     sub = (sc.args or "").strip().lower()
@@ -366,12 +399,76 @@ async def process_repl_slash(
     return ReplSlashResult(skip_model_turn=True)
 
   if name in ("session", "clear"):
-    if name == "clear" or sc.args.strip().lower() in ("new", "reset"):
+    args_lower = (sc.args or "").strip().lower()
+    args_raw = (sc.args or "").strip()
+
+    # /clear or /session new — start fresh session
+    if name == "clear" or args_lower in ("new", "reset"):
       new_id = str(uuid.uuid4())
       out(f"new session_id: {new_id}")
       out()
       return ReplSlashResult(skip_model_turn=True, new_session_id=new_id)
+
+    # /session list — show recent sessions
+    if args_lower in ("list", "ls", "history"):
+      from gemcode.session_store import list_sessions, format_session_list
+      sessions = list_sessions(cfg.project_root)
+      out("Recent sessions (most recent first):")
+      out("─" * 55)
+      for line in format_session_list(sessions):
+        out(line)
+      out()
+      out("  /session resume <id|name>  — resume a session")
+      out("  /session name <name>        — name current session")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    # /session name <name> — give a name to the current session
+    if args_lower.startswith("name "):
+      new_name = args_raw[5:].strip()
+      if not new_name:
+        out("Usage: /session name <name>")
+        return ReplSlashResult(skip_model_turn=True)
+      from gemcode.session_store import name_session
+      name_session(cfg.project_root, session_id, new_name)
+      out(f"Session named: '{new_name}'")
+      out(f"Session id   : {session_id[:8]}…")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    # /session resume <id|name> — switch to a different session
+    if args_lower.startswith("resume ") or args_lower.startswith("r "):
+      query = args_raw.split(None, 1)[1].strip() if " " in args_raw else ""
+      if not query:
+        out("Usage: /session resume <session-id|name|prefix>")
+        return ReplSlashResult(skip_model_turn=True)
+      from gemcode.session_store import find_session
+      found = find_session(cfg.project_root, query)
+      if found is None:
+        out(f"No session found matching '{query}'.")
+        out("Use /session list to see available sessions.")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if found == session_id:
+        out(f"Already in session {found[:8]}.")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out(f"Resuming session {found[:8]}…")
+      out()
+      return ReplSlashResult(skip_model_turn=True, new_session_id=found)
+
+    # Default: show current session info
+    from gemcode.session_store import get_session_name, touch_session
+    touch_session(cfg.project_root, session_id)
+    session_name = get_session_name(cfg.project_root, session_id)
     out(f"session_id: {session_id}")
+    if session_name:
+      out(f"name      : {session_name}")
+    out()
+    out("  /session list              — list all sessions")
+    out("  /session name <name>       — name this session")
+    out("  /session resume <id|name>  — resume another session")
+    out("  /session new               — start a fresh session")
     out()
     return ReplSlashResult(skip_model_turn=True)
 
@@ -418,12 +515,36 @@ async def process_repl_slash(
     return ReplSlashResult(skip_model_turn=True)
 
   if name == "compact":
+    focus = (sc.args or "").strip()
     os.environ["GEMCODE_AUTOCOMPACT_FORCE"] = "1"
+    if focus:
+      compact_prompt = (
+        f"Compact the conversation history now. Focus on preserving: {focus}\n\n"
+        "Create a concise summary that retains:\n"
+        "- All decisions, conclusions, and code changes made\n"
+        f"- Special attention to: {focus}\n"
+        "- Any open tasks or blockers\n"
+        "- Key file paths and architecture insights\n\n"
+        "After summarizing, reply with a brief confirmation of what was preserved."
+      )
+    else:
+      compact_prompt = (
+        "Compact the conversation history now.\n\n"
+        "Create a concise summary preserving:\n"
+        "- All decisions, conclusions, and code changes made\n"
+        "- Any open tasks or next steps\n"
+        "- Key file paths, commands, and architecture insights\n"
+        "- Error messages and their resolutions\n\n"
+        "After summarizing, reply with a brief confirmation. "
+        "Tip: use `/compact <focus>` to specify what to prioritize, e.g. `/compact test output and error messages`"
+      )
+    out("Compacting context history…")
+    if focus:
+      out(f"Focus: {focus}")
+    out()
     return ReplSlashResult(
         skip_model_turn=False,
-        model_prompt=(
-            "Compact the conversation history now. Reply with: Compacted."
-        ),
+        model_prompt=compact_prompt,
     )
 
   if name in ("exit", "quit"):

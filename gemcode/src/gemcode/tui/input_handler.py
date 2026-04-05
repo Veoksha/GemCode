@@ -44,6 +44,8 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("init",        "Analyze project and generate GEMINI.md project instructions"),
     ("cost",        "Show session token usage and estimated USD cost breakdown"),
     ("notes",       "View agent auto-generated project notes (.gemcode/notes.md)"),
+    ("review",      "Parallel code review: security + style + correctness simultaneously"),
+    ("compact",     "Compact conversation history to free context window"),
     ("clear",       "Start a fresh session (clears history)  ·  alias: /session new"),
     ("model",       "View or switch model  ·  /model use <id>  ·  /model list"),
     ("mode",        "Set model mode  ·  /mode fast|balanced|quality|auto"),

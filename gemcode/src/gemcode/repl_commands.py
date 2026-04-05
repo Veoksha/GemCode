@@ -70,6 +70,10 @@ def format_model_lines(cfg: GemCodeConfig) -> list[str]:
 
 
 def format_permissions_lines(cfg: GemCodeConfig) -> list[str]:
+  from gemcode.permissions import describe_rules
+  rules_lines = describe_rules(cfg.project_root)
+  settings_file = cfg.project_root / ".gemcode" / "settings.json"
+  global_settings = os.path.expanduser("~/.gemcode/settings.json")
   ac = cfg.allow_commands
   if ac is None:
     preview = "(default allowlist)"
@@ -78,14 +82,23 @@ def format_permissions_lines(cfg: GemCodeConfig) -> list[str]:
     preview = ", ".join(names[:16])
     if len(names) > 16:
       preview += f", … (+{len(names) - 16} more)"
-  return [
+  lines = [
       "Permissions:",
-      f"  permission_mode: {cfg.permission_mode}",
-      f"  yes_to_all: {cfg.yes_to_all}",
-      f"  interactive_permission_ask: {getattr(cfg, 'interactive_permission_ask', False)}",
-      f"  interactive_hitl_sticky_session: {getattr(cfg, 'interactive_hitl_sticky_session', True)}",
-      f"  allow_commands: {preview}",
+      f"  permission_mode       : {cfg.permission_mode}",
+      f"  yes_to_all            : {cfg.yes_to_all}",
+      f"  interactive_permission: {getattr(cfg, 'interactive_permission_ask', False)}",
+      f"  hitl_sticky_session   : {getattr(cfg, 'interactive_hitl_sticky_session', True)}",
+      f"  allow_commands        : {preview}",
+      "",
+      "  Settings-based rules (deny first, then allow):",
+      f"  Project: {settings_file} ({'exists' if settings_file.exists() else 'not found'})",
+      f"  Global : {global_settings} ({'exists' if os.path.exists(global_settings) else 'not found'})",
   ]
+  lines.extend(rules_lines)
+  lines.append("")
+  lines.append("  To add rules, create .gemcode/settings.json:")
+  lines.append('  { "permissions": { "allow": ["bash(git *)"], "deny": ["bash(rm -rf *)"] } }')
+  return lines
 
 
 def format_memory_lines(cfg: GemCodeConfig) -> list[str]:
@@ -201,10 +214,16 @@ def slash_help_lines() -> list[str]:
       "  /help                 Show this help",
       "  /status               Full status: model, capabilities, thinking, limits",
       "  /config               All active config fields (model, caps, context, thinking)",
-      "  /session              Print current session id",
-      "  /session new          Start a new session id (history reset)",
+      "  /session              Print current session id and name",
+      "  /session list         List all sessions (most recent first)",
+      "  /session name <n>     Name the current session",
+      "  /session resume <n>   Resume session by name, ID prefix, or full UUID",
+      "  /session new          Start a fresh session (history reset)",
       "  /clear                Alias for /session new",
-      "  /compact              Force autocompact now (summarize history)",
+      "  /compact              Force context compaction now (summarize history)",
+      "  /compact <focus>      Compact with custom focus, e.g. /compact test output",
+      "  /review               Parallel code review: security + style + correctness",
+      "  /review <path>        Review a specific file or directory",
       "  /context              Show context pressure + last prompt tokens",
       "  /audit [N]            Tail of .gemcode/audit.log (default 40 lines)",
       "  /tools                List tool inventory for this config",

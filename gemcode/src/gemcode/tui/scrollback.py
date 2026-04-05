@@ -237,6 +237,13 @@ async def run_gemcode_scrollback_tui(
   # model and session id even after /model or /clear commands.
   _current_session_id_holder = [session_id]
 
+  # Record session start in metadata (enables /session list, /session resume)
+  try:
+    from gemcode.session_store import touch_session
+    touch_session(cfg.project_root, session_id)
+  except Exception:
+    pass
+
   input_handler = GemCodeInputHandler(
       ansi_enabled=ansi.enabled,
       get_model=lambda: getattr(cfg, "model", "gemini") or "gemini",
@@ -477,6 +484,12 @@ async def run_gemcode_scrollback_tui(
       if slash.new_session_id is not None:
         current_session_id = slash.new_session_id
         _current_session_id_holder[0] = current_session_id
+        # Touch metadata for the new/resumed session
+        try:
+          from gemcode.session_store import touch_session
+          touch_session(cfg.project_root, current_session_id)
+        except Exception:
+          pass
       if slash.skip_model_turn:
         # Runner holds the LlmAgent which bakes in model + thinking config at
         # construction time.  Rebuild whenever the model or thinking changes.
