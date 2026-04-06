@@ -30,6 +30,78 @@ def session_db_path(cfg: GemCodeConfig) -> Path:
   return cfg.project_root / ".gemcode" / "sessions.sqlite"
 
 
+class _SafeComputerUseToolset:
+  """
+  Drop-in wrapper around ComputerUseToolset that catches Playwright startup
+  failures (e.g. missing browser binary) and disables computer-use gracefully
+  for the current session instead of crashing every turn with an unhandled error.
+
+  When the underlying toolset fails for the *first* time a one-time warning is
+  printed to stderr so the user knows they need to run ``playwright install``.
+  Subsequent calls are silently no-ops so the session keeps working without
+  browser tools — the agent can still use all other tools normally.
+  """
+
+  def __init__(self, computer) -> None:
+    try:
+      from google.adk.tools.computer_use.computer_use_toolset import ComputerUseToolset
+      self._inner = ComputerUseToolset(computer=computer)
+    except Exception:
+      self._inner = None
+    self._broken = False
+    self._warned = False
+
+  def _warn_once(self, error: Exception) -> None:
+    if self._warned:
+      return
+    self._warned = True
+    import sys
+    msg = str(error)
+    if "playwright install" in msg.lower() or "executable doesn't exist" in msg.lower():
+      print(
+        "\n[gemcode] Browser (computer-use) is unavailable — Playwright browsers are not installed.\n"
+        "  Run:  playwright install chromium\n"
+        "  Then restart GemCode with /computer on (or --computer flag).\n"
+        "  Continuing without browser tools for this session.\n",
+        file=sys.stderr,
+      )
+    else:
+      print(
+        f"\n[gemcode] Browser (computer-use) failed to start: {msg!s:.200}\n"
+        "  Continuing without browser tools for this session.\n",
+        file=sys.stderr,
+      )
+
+  # ── ADK toolset protocol ────────────────────────────────────────────────────
+
+  async def process_llm_request(self, *, tool_context, llm_request) -> None:
+    if self._broken or self._inner is None:
+      return
+    try:
+      await self._inner.process_llm_request(
+          tool_context=tool_context, llm_request=llm_request
+      )
+    except Exception as exc:
+      self._broken = True
+      self._warn_once(exc)
+
+  async def get_tools(self, readonly_context=None):
+    if self._broken or self._inner is None:
+      return []
+    try:
+      return await self._inner.get_tools(readonly_context)
+    except Exception as exc:
+      self._broken = True
+      self._warn_once(exc)
+      return []
+
+  def __getattr__(self, name: str):
+    """Proxy all other attribute accesses to the inner toolset."""
+    if self._inner is not None:
+      return getattr(self._inner, name)
+    raise AttributeError(name)
+
+
 def _build_artifact_service(cfg: GemCodeConfig):
   """
   Return an ADK ArtifactService for this session, or None if disabled.
@@ -92,7 +164,7 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
       headless=headless,
       viewport_size=(viewport_w, viewport_h),
     )
-    computer_toolset = ComputerUseToolset(computer=computer)
+    computer_toolset = _SafeComputerUseToolset(computer=computer)
     merged_extra_tools = list(merged_extra_tools or [])
     merged_extra_tools.append(computer_toolset)
 

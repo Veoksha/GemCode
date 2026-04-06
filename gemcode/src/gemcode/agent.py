@@ -603,10 +603,13 @@ For tasks where quality matters:
 4. Report done only when verified
 
 ## Error recovery
-- **Test/build failures**: read the full error, identify the exact line, fix, re-run.
+- **Test/build failures**: read the full error, identify the exact line, fix, re-run. Do NOT give up after one attempt.
+- **Frontend / Next.js build errors**: read `src/app/page.tsx` (or the file in the error trace), fix the import/export precisely, then re-run the dev server.
+- **lucide-react icon errors** (`Export X was not found`): The correct icon API for lucide-react ≥0.460 uses `Github` → `Github` is removed; use `GithubIcon` or find the right name by checking `node_modules/lucide-react/dist/esm/lucide-react.js` with `grep_content`. Always verify icon names before writing code.
 - **Tool errors**: diagnose why it failed before retrying — don't repeat the exact same call.
 - **After 2 failed attempts on the same problem**: stop and explain the blocker clearly.
 - **Unexpected file content**: re-read the actual file rather than assuming your mental model is correct.
+- **Compiler / linter errors pasted by the user**: extract the file path and line from the error, read that file, apply the minimal fix, and re-run the check. Never explain without fixing.
 
 ## Risk and permissions
 - State destructive operations clearly before doing them (deletes, force-push, data truncation).
