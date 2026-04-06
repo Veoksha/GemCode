@@ -8,6 +8,9 @@ outer/inner loops intact.
 It is intentionally conservative:
 - It only enables capabilities (turns them on), it does not disable
   explicitly requested capabilities.
+- Computer-use is NEVER auto-enabled from prompt heuristics.  It requires
+  an explicit user action (/computer on or capability_mode=computer) because
+  it switches the model, launches a browser, and blocks file-system tools.
 - Computer-use model selection is enforced at model-routing precedence, and
   tool execution remains permission-gated via `callbacks.py`.
 """
@@ -42,19 +45,6 @@ _EMBEDDINGS_TRIGGERS = [
   "rag",
   "retrieve",
   "relevant docs",
-]
-
-_COMPUTER_TRIGGERS = [
-  "click",
-  "button",
-  "double click",
-  "type into",
-  "navigate",
-  "browser",
-  "open website",
-  "scroll",
-  "ui automation",
-  "open tab",
 ]
 
 _AUDIO_TRIGGERS = [
@@ -125,13 +115,16 @@ def apply_capability_routing(
     return
 
   # Auto mode: prompt heuristics.
+  # NOTE: computer-use is deliberately NOT auto-triggered here.
+  # It must be enabled explicitly via /computer on or capability_mode=computer.
+  # Auto-enabling it causes the model to switch to the computer-use preview
+  # for any prompt containing words like "navigate"/"scroll"/"browser",
+  # which blocks normal file and code tools for completely unrelated tasks.
   if mode == "auto":
     if _contains_any(p_norm, _RESEARCH_TRIGGERS):
       enable_research()
     if _contains_any(p_norm, _EMBEDDINGS_TRIGGERS):
       enable_embeddings()
-    if _contains_any(p_norm, _COMPUTER_TRIGGERS):
-      enable_computer()
     if _contains_any(p_norm, _AUDIO_TRIGGERS):
       enable_audio()
     return
