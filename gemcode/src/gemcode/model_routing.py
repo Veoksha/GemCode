@@ -60,7 +60,10 @@ def pick_effective_model(cfg: GemCodeConfig, prompt: str) -> str:
   # (Deep research already handled above.)
   if getattr(cfg, "enable_audio", False):
     return getattr(cfg, "model_audio_live", None) or cfg.model
-  if getattr(cfg, "enable_computer_use", False):
+  # Only switch to the computer-use model when Playwright is actually available.
+  # `_computer_use_available` is set False by session_runtime when the probe fails,
+  # preventing an HTTP 400 ("model requires Computer Use tool") from the API.
+  if getattr(cfg, "enable_computer_use", False) and getattr(cfg, "_computer_use_available", True):
     return getattr(cfg, "model_computer_use", None) or cfg.model
 
   primary_fast = cfg.model

@@ -12,7 +12,12 @@ token budget helpers, and `GemCodeQueryEngine`.
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
+
+# Suppress ADK's noisy "EXPERIMENTAL feature" UserWarning globally.
+# Users get enough context from gemcode's own messages; the warning is redundant.
+warnings.filterwarnings("ignore", category=UserWarning, message=".*EXPERIMENTAL.*")
 
 from google.adk.runners import Runner
 from google.adk.sessions.sqlite_session_service import SqliteSessionService
@@ -28,6 +33,29 @@ from gemcode.plugins.tool_recovery_plugin import GemCodeReflectAndRetryToolPlugi
 
 def session_db_path(cfg: GemCodeConfig) -> Path:
   return cfg.project_root / ".gemcode" / "sessions.sqlite"
+
+
+def _playwright_available() -> bool:
+  """
+  Quick synchronous check: does a usable Playwright browser executable exist?
+
+  Runs playwright.sync_api.sync_playwright() briefly to resolve the browser
+  path, without actually launching a browser. Falls back to a path probe if
+  playwright is not installed.
+
+  Returns True only when Playwright AND at least one browser binary are present.
+  This is called before building the runner so we can disable computer-use
+  early and prevent model routing from switching to gemini-2.5-computer-use-*.
+  """
+  try:
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+      exe = p.chromium.executable_path
+      return bool(exe) and Path(exe).exists()
+  except Exception:
+    pass
+  # playwright not installed at all
+  return False
 
 
 def _make_safe_computer_toolset(computer):
@@ -183,31 +211,47 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
     pass  # OpenAPIToolset not in this ADK version — continue without
 
   # Computer-use: ADK ComputerUseToolset backed by our Playwright BrowserComputer.
-  # Also inject standalone browser inspection tools (screenshot, get_text, etc.)
-  # so the agent can read page state without performing side-effecting actions.
+  # Probe Playwright BEFORE building the agent so model routing (which runs
+  # inside build_root_agent → pick_effective_model) never switches to
+  # gemini-2.5-computer-use-* when the browser binary is missing.
   if getattr(cfg, "enable_computer_use", False):
-    headless_env = os.environ.get("GEMCODE_COMPUTER_HEADLESS", "1").lower()
-    headless = headless_env in ("1", "true", "yes", "on")
-    viewport_w = int(os.environ.get("GEMCODE_BROWSER_WIDTH", "1280"))
-    viewport_h = int(os.environ.get("GEMCODE_BROWSER_HEIGHT", "720"))
-    from gemcode.computer_use.browser_computer import BrowserComputer
+    if not _playwright_available():
+      import sys
+      print(
+        "\n[gemcode] Browser (computer-use) is unavailable — Playwright browsers "
+        "are not installed.\n"
+        "  Run:  playwright install chromium\n"
+        "  Then restart GemCode with /computer on (or --computer flag).\n"
+        "  Disabling computer-use for this session.\n",
+        file=sys.stderr,
+      )
+      # Disable so model_routing stays on the normal model (not computer-use preview).
+      cfg.enable_computer_use = False
+      cfg._computer_use_available = False  # type: ignore[attr-defined]
+    else:
+      cfg._computer_use_available = True  # type: ignore[attr-defined]
+      headless_env = os.environ.get("GEMCODE_COMPUTER_HEADLESS", "1").lower()
+      headless = headless_env in ("1", "true", "yes", "on")
+      viewport_w = int(os.environ.get("GEMCODE_BROWSER_WIDTH", "1280"))
+      viewport_h = int(os.environ.get("GEMCODE_BROWSER_HEIGHT", "720"))
+      from gemcode.computer_use.browser_computer import BrowserComputer
 
-    computer = BrowserComputer(
-      headless=headless,
-      viewport_size=(viewport_w, viewport_h),
-    )
-    computer_toolset = _make_safe_computer_toolset(computer)
-    merged_extra_tools = list(merged_extra_tools or [])
-    if computer_toolset is not None:
-      merged_extra_tools.append(computer_toolset)
+      computer = BrowserComputer(
+        headless=headless,
+        viewport_size=(viewport_w, viewport_h),
+      )
+      computer_toolset = _make_safe_computer_toolset(computer)
+      merged_extra_tools = list(merged_extra_tools or [])
+      if computer_toolset is not None:
+        merged_extra_tools.append(computer_toolset)
 
-    # Standalone read-only browser tools (browser_screenshot, browser_get_text, etc.)
-    from gemcode.tools.browser import build_browser_inspection_tools
-    browser_tools = build_browser_inspection_tools(cfg, computer)
-    merged_extra_tools.extend(browser_tools)
+      # Standalone read-only browser tools (browser_screenshot, browser_get_text, etc.)
+      from gemcode.tools.browser import build_browser_inspection_tools
+      browser_tools = build_browser_inspection_tools(cfg, computer)
+      merged_extra_tools.extend(browser_tools)
 
-    # Store reference on cfg so slash commands / TUI can check browser state.
-    cfg._browser_computer = computer  # type: ignore[attr-defined]
+      # Store reference on cfg so slash commands / TUI can check browser state.
+      cfg._browser_computer = computer  # type: ignore[attr-defined]
 
   agent = build_root_agent(cfg, extra_tools=merged_extra_tools)
   db = session_db_path(cfg)
