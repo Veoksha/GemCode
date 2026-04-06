@@ -577,7 +577,9 @@ async def run_gemcode_scrollback_tui(
           try:
             if not ev.content or not ev.content.parts:
               continue
-            if not getattr(ev, "author", None) or ev.author == "user":
+            # Only skip user turns. ADK often omits `author` on model events — do NOT
+            # skip those or the assistant text never renders (blank reply, ↓0 tokens).
+            if getattr(ev, "author", None) == "user":
               continue
             for part in ev.content.parts:
               delta = getattr(part, "text", None)
@@ -616,6 +618,11 @@ async def run_gemcode_scrollback_tui(
       if not confirmation_fcs:
         thought_text = "".join(buffered_thought).strip()
         final_text   = "".join(buffered_final).strip()
+        # Gemini with thinking enabled may emit visible text only in "thought" parts;
+        # usage can show thoughts_token_count > 0 and candidates_token_count == 0.
+        if not final_text and thought_text:
+          final_text = thought_text
+          thought_text = ""
 
         # ── Thinking display (collapsed by default, verbose with /thinking verbose)
         if thought_text and not (

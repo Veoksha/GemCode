@@ -27,7 +27,7 @@ def _events_to_text(events) -> str:
     if not event.content or not event.content.parts:
       continue
     for part in event.content.parts:
-      if part.text and event.author and event.author != "user":
+      if part.text and getattr(event, "author", None) != "user":
         parts.append(part.text)
   return "".join(parts)
 

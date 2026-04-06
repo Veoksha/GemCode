@@ -27,8 +27,8 @@ def _events_to_text(events: list[Any]) -> str:
       content = getattr(event, "content", None)
       if not content or not getattr(content, "parts", None):
         continue
-      author = getattr(event, "author", None)
-      if not author or author == "user":
+      # Omit only user-authored events; model events may have author=None.
+      if getattr(event, "author", None) == "user":
         continue
       for part in getattr(content, "parts", []) or []:
         t = getattr(part, "text", None)

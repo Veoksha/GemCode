@@ -89,7 +89,7 @@ async def run_live_audio(
         for part in event.content.parts:
           part_text = getattr(part, "text", None)
           # We only print model-authored text to avoid echoing user input.
-          if part_text and getattr(event, "author", None) and event.author != "user":
+          if part_text and getattr(event, "author", None) != "user":
             sys.stdout.write(part_text)
             sys.stdout.flush()
             printed_any = True
