@@ -582,61 +582,6 @@ async def run_gemcode_scrollback_tui(
     except Exception:
       pass
 
-    # ── LLM intent pre-classifier ────────────────────────────────────────────
-    # gemini-2.5-flash-lite classifies the message (same lane as Thinking)
-    try:
-      from gemcode.intent_classifier import (
-          classify_intent_with_source,
-          generate_greeting_reply,
-          show_intentifying_line,
-          INTENT_GREETING,
-          INTENT_DESCRIPTIONS,
-      )
-      # Show as a transient spinner status (do not print a permanent line).
-      _start_anim("Intentifying\u2026")
-      try:
-        _intent, _intent_src = await classify_intent_with_source(prompt)
-      finally:
-        _stop_anim()
-      # If disabled, show nothing; otherwise the spinner already conveyed it.
-      _ = show_intentifying_line(_intent_src)
-
-      if _intent == INTENT_GREETING:
-        _start_anim("Replying\u2026")
-        try:
-          _reply = await generate_greeting_reply(prompt)
-        finally:
-          _stop_anim()
-        print(f"  \u23bf  {ansi.bold}GemCode{ansi.reset}:")
-        console.print(_RichPadding(_RichMarkdown(_reply), (0, 0, 0, 4)))
-        print("")
-        if os.environ.get("GEMCODE_TUI_TURN_RULE", "1").lower() in (
-            "1", "true", "yes", "on"
-        ):
-          print(f"{ansi.dim}{_hr(ch='─')}{ansi.reset}")
-        print("")
-        continue
-
-      # Non-greeting: store classified intent in session state so the main
-      # agent can read it and adapt its tool-use strategy accordingly.
-      try:
-        ss = runner.session_service
-        app = getattr(runner, "app_name", None) or getattr(cfg, "app_name", "gemcode")
-        sess = await ss.get_session(
-            app_name=app, user_id="local", session_id=current_session_id
-        )
-        if sess is not None:
-          _desc = INTENT_DESCRIPTIONS.get(_intent, _intent)
-          sess.state["_gemcode_intent"] = _intent
-          sess.state["_gemcode_intent_desc"] = _desc
-          await ss.update_session(sess)
-      except Exception:
-        pass  # State injection is best-effort
-
-    except Exception:
-      pass  # Classifier unavailable — fall through to main agent unchanged
-    # ─────────────────────────────────────────────────────────────────────────
-
     # Snapshot pre-turn capability state so we can detect routing-triggered changes.
     _pre_dr  = cfg.enable_deep_research
     _pre_emb = cfg.enable_embeddings

@@ -14,6 +14,10 @@ from __future__ import annotations
 # Format: model_prefix → (input_$/M, output_$/M)
 # Matches are done by checking if the model id STARTS WITH any key (longest first).
 _PRICING_TABLE: dict[str, tuple[float, float]] = {
+    # ── Gemini 3 ────────────────────────────────────────────────────────────
+    "gemini-3.1-pro":         (0.30,  1.20),   # preview pricing (approximate)
+    "gemini-3.0-pro":         (0.30,  1.20),
+    "gemini-3":               (0.30,  1.20),
     # ── Gemini 2.5 ──────────────────────────────────────────────────────────
     "gemini-2.5-pro":         (3.50, 10.50),   # standard context ≤200k
     "gemini-2.5-flash-lite":  (0.10,  0.40),   # lowest-cost 2.5 (must precede flash)
@@ -28,7 +32,6 @@ _PRICING_TABLE: dict[str, tuple[float, float]] = {
     "gemini-1.5-pro":         (1.25,  5.00),
     # ── Gemini experimental / preview ───────────────────────────────────────
     "gemini-exp":             (0.00,  0.00),   # free during preview
-    "gemini-3":               (0.30,  1.20),   # approximate future pricing
 }
 
 

@@ -68,7 +68,7 @@ class GemCodeConfig:
   """Runtime options (CLI + env)."""
 
   project_root: Path
-  model: str = field(default_factory=lambda: os.environ.get("GEMCODE_MODEL", "gemini-2.5-flash"))
+  model: str = field(default_factory=lambda: os.environ.get("GEMCODE_MODEL", "gemini-3.1-pro-preview"))
   # Model mode: fast|balanced|quality|auto
   model_mode: str = field(
     default_factory=lambda: os.environ.get("GEMCODE_MODEL_MODE", "fast")
