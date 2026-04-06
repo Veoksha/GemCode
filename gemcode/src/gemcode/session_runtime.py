@@ -77,6 +77,18 @@ def _make_safe_computer_toolset(computer):
           file=sys.stderr,
         )
 
+    # ── BaseToolset required attribute ──────────────────────────────────────
+    @property
+    def tool_name_prefix(self) -> str:
+      if self._inner is not None:
+        try:
+          return self._inner.tool_name_prefix
+        except Exception:
+          pass
+      return ""
+
+    # ── Core protocol methods ────────────────────────────────────────────────
+
     async def process_llm_request(self, *, tool_context, llm_request) -> None:
       if self._broken or self._inner is None:
         return
@@ -85,8 +97,9 @@ def _make_safe_computer_toolset(computer):
             tool_context=tool_context, llm_request=llm_request
         )
       except Exception as exc:
-        self._broken = True
-        self._warn_once(exc)
+        if not self._broken:
+          self._broken = True
+          self._warn_once(exc)
 
     async def get_tools(self, readonly_context=None):
       if self._broken or self._inner is None:
@@ -94,8 +107,9 @@ def _make_safe_computer_toolset(computer):
       try:
         return await self._inner.get_tools(readonly_context)
       except Exception as exc:
-        self._broken = True
-        self._warn_once(exc)
+        if not self._broken:
+          self._broken = True
+          self._warn_once(exc)
         return []
 
     async def close(self) -> None:
@@ -104,6 +118,19 @@ def _make_safe_computer_toolset(computer):
           await self._inner.close()
         except Exception:
           pass
+
+    def __getattr__(self, name: str):
+      """Proxy any other BaseToolset attributes ADK needs to the inner toolset."""
+      # Guard against infinite recursion for our own private attrs.
+      if name.startswith("_"):
+        raise AttributeError(name)
+      inner = object.__getattribute__(self, "_inner")
+      if inner is not None:
+        try:
+          return getattr(inner, name)
+        except AttributeError:
+          pass
+      raise AttributeError(f"'_SafeComputerUseToolset' has no attribute '{name}'")
 
   return _SafeComputerUseToolset()
 
