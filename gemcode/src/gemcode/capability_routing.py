@@ -94,6 +94,10 @@ def apply_capability_routing(
     cfg.enable_embeddings = True
 
   def enable_computer() -> None:
+    # Respect session-level unavailability (e.g. Playwright not installed).
+    # When computer-use is known-broken, auto-routing must not re-enable it.
+    if getattr(cfg, "_computer_use_available", True) is False:
+      return
     cfg.enable_computer_use = True
 
   def enable_audio() -> None:

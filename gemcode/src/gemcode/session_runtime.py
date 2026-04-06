@@ -228,6 +228,14 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
       # Disable so model_routing stays on the normal model (not computer-use preview).
       cfg.enable_computer_use = False
       cfg._computer_use_available = False  # type: ignore[attr-defined]
+      # If the TUI already routed the model to the computer-use preview model for
+      # this turn, reset back to the normal model so the next agent construction
+      # doesn't keep using a model that requires the missing tool.
+      try:
+        if not getattr(cfg, "model_overridden", False) and cfg.model == cfg.model_computer_use:
+          cfg.model = os.environ.get("GEMCODE_MODEL", "gemini-3.1-pro-preview")
+      except Exception:
+        pass
     else:
       cfg._computer_use_available = True  # type: ignore[attr-defined]
       headless_env = os.environ.get("GEMCODE_COMPUTER_HEADLESS", "1").lower()

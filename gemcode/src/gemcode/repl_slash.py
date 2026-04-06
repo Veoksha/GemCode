@@ -696,6 +696,15 @@ async def process_repl_slash(
       return ReplSlashResult(skip_model_turn=True)
 
     if args_s == "on":
+      # If the session has already determined computer-use is unavailable
+      # (Playwright missing), do not allow re-enabling without installing it
+      # and restarting the process.
+      if getattr(cfg, "_computer_use_available", True) is False:
+        out("computer_use: unavailable — Playwright browsers are not installed")
+        out("Run:  python3 -m playwright install chromium")
+        out("Then restart GemCode and run: /computer on")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
       cfg.enable_computer_use = True
       out("computer_use: on — Playwright Chromium browser automation enabled")
       out("  Runner will rebuild on the next turn to inject browser tools.")
@@ -911,6 +920,12 @@ async def process_repl_slash(
       out()
       return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
     if args_s in ("computer", "browser"):
+      if getattr(cfg, "_computer_use_available", True) is False:
+        out("enable_computer_use: unavailable — Playwright browsers are not installed")
+        out("Run:  python3 -m playwright install chromium")
+        out("Then restart GemCode and re-enable computer-use.")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
       cfg.enable_computer_use = True
       out("enable_computer_use: on (runner rebuilding…)")
       out("Tip: set GEMCODE_COMPUTER_HEADLESS=0 before starting gemcode to see the browser window.")
