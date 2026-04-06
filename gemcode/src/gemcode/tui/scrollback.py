@@ -573,12 +573,14 @@ async def run_gemcode_scrollback_tui(
           INTENT_GREETING,
           INTENT_DESCRIPTIONS,
       )
-      _intent, _intent_src = await classify_intent_with_source(prompt)
-      if show_intentifying_line(_intent_src):
-        print(
-            f"  \u23bf  {ansi.dim}\u2234 Intentifying\u2026{ansi.reset}"
-        )
-        print("")
+      # Show as a transient spinner status (do not print a permanent line).
+      _start_anim("Intentifying\u2026")
+      try:
+        _intent, _intent_src = await classify_intent_with_source(prompt)
+      finally:
+        _stop_anim()
+      # If disabled, show nothing; otherwise the spinner already conveyed it.
+      _ = show_intentifying_line(_intent_src)
 
       if _intent == INTENT_GREETING:
         _start_anim("Replying\u2026")
@@ -725,6 +727,14 @@ async def run_gemcode_scrollback_tui(
         if not final_text and thought_text:
           final_text = thought_text
           thought_text = ""
+
+        # If the model produced no visible text at all, show an explicit hint
+        # instead of returning to the prompt silently.
+        if not final_text and not thought_text and not assistant_wrote_text:
+          await typewrite(
+            f"{ansi.dim}(No text response received. Try 'continue' to retry the last request.){ansi.reset}"
+          )
+          print("")
 
         # ── Thinking display (collapsed by default, verbose with /thinking verbose)
         if thought_text and not (
