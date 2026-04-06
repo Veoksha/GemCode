@@ -35,6 +35,60 @@ def session_db_path(cfg: GemCodeConfig) -> Path:
   return cfg.project_root / ".gemcode" / "sessions.sqlite"
 
 
+def _wrap_computer_use_tools_with_safety_ack(llm_request) -> None:
+  """
+  Gemini Computer Use models may include `safety_decision` in tool call args.
+  The client must acknowledge it in the corresponding FunctionResponse or the
+  API returns HTTP 400.
+
+  ADK's ComputerUseTool returns only image/url by default, so we wrap the tool
+  functions to (a) ignore `safety_decision` for execution and (b) include
+  `safety_acknowledgement="true"` in the tool result when present.
+  """
+  try:
+    from google.adk.tools.computer_use.computer_use_tool import ComputerUseTool
+  except Exception:
+    return
+
+  try:
+    tools_dict = getattr(llm_request, "tools_dict", None)
+    if not isinstance(tools_dict, dict) or not tools_dict:
+      return
+  except Exception:
+    return
+
+  # Wrap each ComputerUseTool's underlying function in-place.
+  for tool_name, tool in list(tools_dict.items()):
+    try:
+      if not isinstance(tool, ComputerUseTool):
+        continue
+      original_func = getattr(tool, "func", None)
+      if original_func is None:
+        continue
+
+      async def wrapped(*, _orig=original_func, _tool_name=tool_name, **args):
+        sd = None
+        if isinstance(args, dict) and "safety_decision" in args:
+          sd = args.pop("safety_decision", None)
+        result = await _orig(**args)
+        if sd is None:
+          return result
+        # Acknowledge the safety decision as required by Gemini computer-use.
+        if isinstance(result, dict):
+          out = dict(result)
+          out["safety_acknowledgement"] = "true"
+          return out
+        return {"result": result, "safety_acknowledgement": "true"}
+
+      try:
+        wrapped.__name__ = tool_name
+      except Exception:
+        pass
+      tool.func = wrapped
+    except Exception:
+      continue
+
+
 def _playwright_available() -> bool:
   """
   Quick synchronous check: does a usable Playwright browser executable exist?
@@ -147,6 +201,7 @@ def _make_safe_computer_toolset(computer):
         await self._inner.process_llm_request(
             tool_context=tool_context, llm_request=llm_request
         )
+        _wrap_computer_use_tools_with_safety_ack(llm_request)
       except Exception as exc:
         if not self._broken:
           self._broken = True
