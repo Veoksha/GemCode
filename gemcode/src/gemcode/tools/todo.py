@@ -21,14 +21,48 @@ def make_todo_tool(cfg: GemCodeConfig):
     tool_context: ToolContext,
   ) -> dict[str, Any]:
     """
-    Maintain a task list for this session. Use for multi-step work: plan, then
-    mark items completed as you go.
+    Create and maintain a structured task list for the current session.
+    Tracks progress, organises complex tasks, and makes multi-step work
+    visible to the user.
 
-    Args:
-      merge: If true, upsert by task id and keep prior order for existing ids;
-        if false, replace the entire list.
-      todos: Each item must have id (str), content (str), and status
-        (pending | in_progress | completed | cancelled).
+    ## When to use
+    Use proactively when:
+    1. Task has 3 or more distinct steps
+    2. Task is non-trivial and requires careful planning
+    3. User provides a list of things to do (numbered or comma-separated)
+    4. After receiving new instructions — capture them as todos immediately
+    5. When you start working on a sub-task — mark it in_progress BEFORE beginning.
+       Only one task should be in_progress at a time.
+    6. After completing a sub-task — mark it completed and add any discovered follow-ups
+
+    ## When NOT to use
+    Skip this tool when:
+    1. There is only one simple, straightforward task
+    2. The task is trivial (can be done in 1-2 steps)
+    3. The task is purely conversational or informational
+    4. Answering a question that requires no planning
+
+    ## Verification
+    After completing a list of 3 or more tasks, if none of them was a verification
+    step, add a final verification task: "Verify all changes are correct and
+    consistent" — then actually do it (re-read key files, run tests, check imports).
+
+    ## Args
+    - merge: True = upsert by id (update specific items). False = replace entire list.
+    - todos: list of {id: str, content: str, status: pending|in_progress|completed|cancelled}
+
+    ## Examples
+    Good use (complex multi-step task):
+      todo_write(merge=False, todos=[
+        {"id":"1","content":"Read current auth.ts","status":"in_progress"},
+        {"id":"2","content":"Add JWT refresh logic","status":"pending"},
+        {"id":"3","content":"Update tests","status":"pending"},
+        {"id":"4","content":"Run npm run build to verify","status":"pending"},
+      ])
+
+    Bad use (single trivial task — just do it directly):
+      todo_write(merge=False, todos=[{"id":"1","content":"Fix typo in README","status":"pending"}])
+      # Don't do this. Just fix the typo.
     """
     if not isinstance(todos, list):
       return {"error": "todos must be a list"}

@@ -122,13 +122,68 @@ def _load_gemini_md(project_root: Path) -> str:
   return combined[:_TOTAL_CAP]
 
 
+def _get_git_context(root) -> str:
+  """
+  Run a quick git snapshot at session start — branch, recent commits, diff-stat.
+  Returns a formatted string or empty string if not a git repo.
+  Mirrors OpenClaude's getGitStatus() pattern.
+  """
+  import subprocess
+  import shutil
+
+  git = shutil.which("git")
+  if not git:
+    return ""
+  try:
+    def _run(*args, cwd=root):
+      r = subprocess.run(
+        [git, "--no-optional-locks"] + list(args),
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=5,
+      )
+      return r.stdout.strip() if r.returncode == 0 else ""
+
+    # Check it's a git repo
+    if not _run("rev-parse", "--is-inside-work-tree"):
+      return ""
+
+    branch   = _run("rev-parse", "--abbrev-ref", "HEAD") or "HEAD"
+    log      = _run("log", "--oneline", "-5")
+    status   = _run("status", "--short")
+    username = _run("config", "user.name")
+
+    if not log:  # empty repo
+      return ""
+
+    status_trunc = status[:2000] + "\n(truncated)" if len(status) > 2000 else status
+
+    lines = [
+      "This is the git state at session start — it is a snapshot and will NOT update automatically.",
+      f"Current branch: {branch}",
+    ]
+    if username:
+      lines.append(f"Git user: {username}")
+    lines.append(f"Recent commits:\n{log}")
+    if status_trunc:
+      lines.append(f"Working tree status:\n{status_trunc}")
+    else:
+      lines.append("Working tree: clean")
+    return "\n\n".join(lines)
+  except Exception:
+    return ""
+
+
 def _build_runtime_facts(cfg: GemCodeConfig) -> str:
   """
   Injected every session so the model is fully self-aware of its own capabilities,
   limits, and the environment — not just generic defaults.
   """
+  import datetime
   root = cfg.project_root.resolve()
   model = (getattr(cfg, "model", None) or "").strip() or "(default)"
+  today = datetime.date.today().strftime("%A, %B %d, %Y")
 
   # ── Active capabilities ──────────────────────────────────────────────────
   caps: list[str] = []
@@ -178,7 +233,12 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
     "would benefit from background parallelism."
   )
 
+  # ── Git context ───────────────────────────────────────────────────────────
+  git_ctx = _get_git_context(root)
+  git_section = f"\n\n## Git context (snapshot at session start)\n{git_ctx}" if git_ctx else ""
+
   return f"""## Runtime facts (authoritative for this session)
+- **Today's date:** {today}
 - **Project root** — every filesystem tool path is relative to: `{root}`
 - **Model id in use:** `{model}`. Override mid-session with `/model use <id>` or `/mode fast|balanced|quality|auto`.
 - **Execution budget:** {budget_line}.
@@ -190,7 +250,7 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
 {kairos_section}
 - **UI banner** phrases like "GemCode Pro" are terminal marketing, not a separate API tier.
 - **Env toggles** (`GEMCODE_ENABLE_COMPUTER_USE`, `GEMCODE_MODEL`, etc.) affect only the OS process that launched gemcode. Pasting `VAR=1` in chat does NOT reconfigure a running session—tell the user to export in their shell, use project `.env`, or restart the CLI.
-- **Working in subfolders** — call `list_directory("Desktop")`, `glob_files("**/query.ts")`, `read_file("testing/ai-edtech-app/src/app/page.tsx")` directly. Never claim access is blocked unless a tool returned an explicit error."""
+- **Working in subfolders** — call `list_directory("Desktop")`, `glob_files("**/query.ts")`, `read_file("testing/ai-edtech-app/src/app/page.tsx")` directly. Never claim access is blocked unless a tool returned an explicit error.{git_section}"""
 
 
 def _build_memory_section(cfg: GemCodeConfig) -> str:
@@ -527,13 +587,16 @@ One user message = many model↔tool rounds (up to 256 LLM calls by default). Th
 
 **Do not stop after step 2 or 3** — complete the full task.
 
-## Parallelism
-Issue independent tool calls in the same turn when outputs don't depend on each other:
-- Reading multiple files simultaneously ✓
-- Grepping for different patterns at once ✓
-- `list_directory` + `glob_files` in parallel ✓
-- Multiple `run_subtask` calls in one turn for parallel sub-agent exploration ✓
-Sequential: when step B needs step A's result.
+## Parallelism — batch independent work
+Issue independent tool calls **in the same turn** when outputs don't depend on each other.
+This is faster and costs fewer turns. Concrete examples:
+- Reading multiple files → send all `read_file` calls together
+- Grepping different patterns → one message, multiple `grep_content` calls
+- `list_directory` + `glob_files` → issue both at once
+- Exploring multiple subsystems → one `run_subtask` per subsystem in one turn
+- `git status` and `git log` → chain with `&&` or issue in parallel
+
+Sequential only when step B genuinely needs step A's output.
 
 ## Sub-agent delegation (orchestrator-worker pattern)
 Use `run_subtask` when the work is better done in an isolated context:
@@ -595,10 +658,50 @@ For tasks where quality matters:
 - **Unexpected file content**: re-read the actual file rather than assuming your mental model is correct.
 - **Compiler / linter errors pasted by the user**: extract the file path and line from the error, read that file, apply the minimal fix, and re-run the check. Never explain without fixing.
 
+## Git Safety Protocol
+Follow these rules on every turn, no exceptions:
+- **NEVER** update git config
+- **NEVER** run destructive git commands (`push --force`, `reset --hard`, `checkout .`, `restore .`, `clean -f`, `branch -D`) unless the user *explicitly* asks for it
+- **NEVER** skip hooks (`--no-verify`, `--no-gpg-sign`) unless the user explicitly requests it
+- **NEVER** force-push to main/master — warn the user if they ask for this
+- **Prefer NEW commits over amending.** Only amend when all three conditions hold: (a) user explicitly asked, (b) the commit was created in this session, (c) it has NOT been pushed to remote. If a pre-commit hook rejects a commit, the commit did NOT happen — fix the problem and create a NEW commit, never amend.
+- **Stage selectively** — prefer `git add <specific-file>` over `git add -A` or `git add .` to avoid accidentally including `.env`, credentials, or large binaries
+- **Never commit unless the user explicitly asks.** It is very important to only commit when asked.
+
+## Committing changes
+When the user asks for a git commit:
+1. Run in parallel: `git status`, `git diff`, `git log --oneline -5` (to match their style)
+2. Analyze all staged changes and draft a concise commit message (1-2 sentences, focus on *why* not *what*)
+3. Check for sensitive files (.env, credentials) — warn if they're staged
+4. Stage specific files, then commit via HEREDOC:
+   ```
+   git commit -m "$(cat <<'EOF'
+   Your message here.
+   EOF
+   )"
+   ```
+5. Run `git status` after to confirm success
+6. Do NOT push unless explicitly asked
+
+## Creating pull requests
+Use `gh pr create` via `bash`. When asked to create a PR:
+1. Run in parallel: `git status`, `git diff`, `git log [base]...HEAD`, check remote tracking
+2. Look at ALL commits in the PR (not just the latest)
+3. Push branch if needed: `git push -u origin HEAD`
+4. Create with: `gh pr create --title "..." --body "$(cat <<'EOF'\n## Summary\n...\n## Test plan\n...\nEOF\n)"`
+5. Return the PR URL
+
 ## Risk and permissions
 - State destructive operations clearly before doing them (deletes, force-push, data truncation).
 - For `bash` commands that could be destructive (`rm -rf`, `git push --force`), confirm with the user first.
 - If a tool is denied, adjust the plan — don't retry the same gated call.
+
+## Avoid unnecessary sleep / polling
+- Do NOT `sleep` between commands that can run immediately — just run them
+- Do NOT poll a process in a sleep loop — check its status directly or start it with `background=True`
+- If you're waiting for a background process you started, do not poll — it will complete on its own
+- If you must wait (e.g. for a server to start), use a one-shot check: `bash("sleep 2 && curl -s http://localhost:3000")`
+- Do NOT retry failing commands in a sleep loop — diagnose the root cause first
 
 ## Communication
 - One short line before the first tool call in a turn (e.g. "Reading the auth module and checking the test suite...").

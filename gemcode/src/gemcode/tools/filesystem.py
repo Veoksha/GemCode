@@ -21,12 +21,19 @@ def make_filesystem_tools(cfg: GemCodeConfig):
     end_line: int | None = None,
   ) -> dict:
     """
-    Read a text file relative to the project root. Large files are truncated.
+    Read a text file relative to the project root.
 
-    Use start_line / end_line to read a specific line range (1-indexed, inclusive).
-    This is efficient for large files — e.g. read_file("app.py", start_line=100, end_line=200)
-    reads only lines 100–200 without loading the whole file into context.
-    Omit end_line to read from start_line to end of file (still subject to max_bytes).
+    IMPORTANT: ALWAYS use read_file before editing a file. Never propose changes
+    to code you haven't read — the mental model is always wrong without reading.
+    Never use bash("cat file") or bash("head file") — use read_file instead.
+
+    For large files, use start_line / end_line to read a specific range (1-indexed, inclusive):
+      read_file("app.py", start_line=100, end_line=200)  — lines 100-200
+      read_file("app.py", start_line=500)                — line 500 to end
+    This is efficient — loads only the needed slice into context.
+
+    When multiple files are needed, issue all read_file calls in the same turn
+    (parallel reads) rather than sequentially.
     """
     if not trusted:
       return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
@@ -96,7 +103,13 @@ def make_filesystem_tools(cfg: GemCodeConfig):
     return {"src": src, "dest": dest, "moved": True}
 
   def list_directory(path: str = ".") -> dict:
-    """List files and directories under path (relative to project root)."""
+    """
+    List files and directories under a path (relative to project root).
+
+    Use this instead of bash("ls ...") — it needs no permission and is instant.
+    Prefer for directory exploration before any editing or execution.
+    Issue in parallel with glob_files when you need both structure and file matches.
+    """
     if not trusted:
       return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
     try:
@@ -116,7 +129,14 @@ def make_filesystem_tools(cfg: GemCodeConfig):
     return {"path": path, "entries": entries[:500]}
 
   def glob_files(pattern: str) -> dict:
-    """Glob file paths relative to project root (e.g. 'src/**/*.py')."""
+    """
+    Find files by glob pattern relative to project root (e.g. 'src/**/*.py').
+
+    Use this instead of bash("find . -name '*.py'") — it needs no permission.
+    Supports recursive patterns: '**/*.ts', 'src/**/test_*.py', '**/config*.json'.
+    Can be issued in parallel with list_directory and grep_content in the same turn.
+    Returns up to 200 matches.
+    """
     if not trusted:
       return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
     if ".." in pattern or pattern.startswith("/"):

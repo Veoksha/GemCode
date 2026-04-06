@@ -40,19 +40,60 @@ def make_bash_tool(cfg: GemCodeConfig):
         Run an arbitrary shell command via bash. Supports pipelines, redirects,
         subshells, and multi-step workflows that run_command cannot express.
 
-        Use this for:
-        - Git operations: bash("git log --oneline -20")
-        - Pipelines: bash("cat package.json | python3 -m json.tool")
-        - Finding files: bash("find . -name '*.py' -newer setup.py | head -20")
-        - Complex builds: bash("cd frontend && npm ci && npm run build")
-        - Inspecting output: bash("ls -la | grep '.py'")
-        - Running tests with flags: bash("pytest -x -q --tb=short 2>&1 | head -100")
+        ## Common usage patterns
 
-        For long-running servers use background=True. cwd_subdir sets working
-        directory relative to the project root.
+        Git / version control:
+          bash("git log --oneline -20")
+          bash("git diff HEAD~1 -- src/api/")
+          bash("git status && git diff --stat")
+          bash("git stash list")
 
-        IMPORTANT: This runs real shell commands. Be precise and avoid destructive
-        operations (rm -rf, force-push, etc.) without explicit user approval.
+        Builds / tests:
+          bash("npm run build 2>&1 | tail -50")
+          bash("pytest tests/ -x -q --tb=short 2>&1 | head -150")
+          bash("cargo build --release 2>&1 | tail -30")
+          bash("go test ./... 2>&1 | tail -50")
+
+        Pipelines and inspection:
+          bash("find . -name '*.py' | xargs grep -l 'SomeClass' | head -20")
+          bash("cat package.json | python3 -m json.tool")
+          bash("wc -l $(find . -name '*.py') | sort -n | tail -20")
+
+        Long-running servers — ALWAYS use background=True:
+          bash("npm run dev", background=True)
+          bash("python manage.py runserver", background=True)
+          bash("tail -f logs/app.log", background=True)
+          NEVER call bash("npm run dev") without background=True — it blocks forever.
+
+        ## Issuing multiple commands
+        When commands are independent, issue them in separate parallel tool calls
+        in the same turn. When they depend on each other, chain with && in one call.
+        Use ; only when you don't care if earlier commands fail.
+        DO NOT use newlines to separate commands (newlines are ok inside quoted strings).
+
+        ## Git Safety Protocol — always follow these rules
+        - NEVER update git config
+        - NEVER run destructive git commands (push --force, reset --hard, checkout .,
+          restore ., clean -f, branch -D) without explicit user instruction
+        - NEVER skip hooks (--no-verify, --no-gpg-sign) unless the user explicitly asks
+        - NEVER force-push to main/master — warn the user if they request it
+        - ALWAYS prefer creating a NEW commit over amending an existing one.
+          Amending is ONLY appropriate when: (a) the user explicitly asks for it AND
+          (b) the commit has not been pushed to a remote yet
+        - When staging files, prefer adding specific files by name rather than
+          "git add -A" or "git add ." which can include .env or credentials
+        - Do NOT commit unless the user explicitly asks you to
+
+        ## Avoid unnecessary sleep
+        - Do NOT sleep between commands that can run immediately — just run them
+        - Do NOT poll in a sleep loop — check process status directly or use background=True
+        - If waiting for a background task, do not sleep-poll; it was started and will finish
+        - If you must wait (rate limits, deliberate pacing), keep it under 5 seconds
+
+        ## Security
+        Be precise. Avoid destructive operations (rm -rf, force-push) without
+        explicit user approval. Quote file paths that contain spaces.
+        cwd_subdir is relative to the project root.
         """
         if not trusted:
             return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}

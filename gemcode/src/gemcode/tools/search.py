@@ -38,20 +38,28 @@ def make_grep_tool(cfg: GemCodeConfig):
         case_sensitive: bool = True,
     ) -> dict:
         """
-        Search file contents with a regex pattern.
+        Search file contents with a regex pattern (backed by ripgrep when available).
 
-        Scans files matching path_glob (glob relative to project root). Binary files skipped.
+        Use this instead of bash("grep -r pattern .") — it needs no permission
+        and is instant. Binary files are skipped automatically.
 
-        Options:
-        - context_lines: show N lines before and after each match (like grep -C N). Very useful for
-          understanding surrounding code. Example: grep_content("def foo", context_lines=3)
-        - case_sensitive: set False for case-insensitive search (like grep -i)
-        - max_matches: cap on returned matches (1–500, default 80)
+        Parameters:
+        - pattern:       Regex pattern (Python/ripgrep syntax). Use | for alternation.
+        - path_glob:     File glob relative to project root (default: all files).
+        - context_lines: Lines before+after each match (like grep -C). Use to see
+                         surrounding code — e.g. context_lines=4 shows a function's body.
+        - case_sensitive: False for case-insensitive search.
+        - max_matches:   Cap on returned results (1–500, default 80).
 
         Examples:
-          grep_content("TODO", "**/*.py")                          # find all TODOs in Python files
-          grep_content("useState", "**/*.tsx", context_lines=2)    # React hooks with context
-          grep_content("error", "**/*.log", case_sensitive=False)  # case-insensitive log search
+          grep_content("def authenticate", "**/*.py", context_lines=4)
+          grep_content("TODO|FIXME|HACK", "**/*.ts")
+          grep_content("import React", "**/*.tsx", case_sensitive=False)
+          grep_content("class.*Error", "**/*.py", context_lines=2)
+          grep_content("useState", "src/**/*.tsx", context_lines=3)
+
+        Issue multiple grep_content calls in the same turn when searching for
+        different patterns — they run in parallel.
         """
         if max_matches < 1:
             max_matches = 1
