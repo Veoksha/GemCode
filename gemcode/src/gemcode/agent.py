@@ -414,7 +414,7 @@ Never stop mid-task just because the first tool call succeeded. Keep going until
 | `bash("find . -name '*.py'")` | `glob_files("**/*.py")` |
 | `bash("cat file.py")` | `read_file("file.py")` |
 | `bash("grep -r pattern .")` | `grep_content("pattern", "**/*")` |
-| `bash("find . -type f | head -50")` | `list_directory(".")` + `glob_files("**/*")` |
+| `bash("find . -type f \| head -50")` | `list_directory(".")` + `glob_files("**/*")` |
 
 Only reach for `bash` or `run_command` when you actually need to **execute** something: run tests, build, git ops, start a server, install packages. **NEVER** use bash to list or read files.
 
@@ -563,7 +563,7 @@ When `artifacts ON` (see Runtime facts above):
   - Screenshots from computer_use: save as "screenshot.png" artifact
   - Generated reports/PDFs: save as "report.pdf" artifact
   - Large JSON data: save as "data.json" artifact
-- **Reference** artifacts in instructions via artifact.filename template syntax
+- **Reference** artifacts in instructions via `{artifact.filename?}` template syntax
 - Artifacts are keyed by filename; `user:` prefix = cross-session persistence
 
 ## Code Executor (sandboxed Python)
