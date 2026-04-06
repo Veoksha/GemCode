@@ -47,14 +47,37 @@ def _playwright_available() -> bool:
   This is called before building the runner so we can disable computer-use
   early and prevent model routing from switching to gemini-2.5-computer-use-*.
   """
+  # 1) Preferred: ask Playwright for the resolved executable path.
+  # This can fail in some environment-mismatch cases (package installed but driver
+  # cannot start), so we also do a cache-based probe below.
   try:
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-      exe = p.chromium.executable_path
-      return bool(exe) and Path(exe).exists()
+      exe = getattr(p.chromium, "executable_path", None)
+      if exe and Path(str(exe)).exists():
+        return True
   except Exception:
     pass
-  # playwright not installed at all
+
+  # 2) Fallback: check the default browser cache directly.
+  # This avoids false negatives when Playwright import/driver resolution is flaky,
+  # but browsers are present (common on macOS with mixed --user/system installs).
+  try:
+    cache_root = Path.home() / "Library" / "Caches" / "ms-playwright"
+    if not cache_root.exists():
+      return False
+    # macOS paths (Chromium.app or "Google Chrome for Testing.app")
+    mac_bins = list(cache_root.glob("chromium-*/*/Chromium.app/Contents/MacOS/Chromium"))
+    mac_bins += list(
+      cache_root.glob(
+        "chromium-*/*/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+      )
+    )
+    if any(p.exists() for p in mac_bins):
+      return True
+  except Exception:
+    pass
+
   return False
 
 
