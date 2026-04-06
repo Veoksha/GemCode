@@ -22,13 +22,59 @@ warnings.filterwarnings("ignore", category=UserWarning, message=".*EXPERIMENTAL.
 from google.adk.runners import Runner
 from google.adk.sessions.sqlite_session_service import SqliteSessionService
 
-from gemcode.agent import build_root_agent
+from gemcode.agent import build_global_instruction, build_root_agent
 from gemcode.config import GemCodeConfig
 from gemcode.modality_tools import build_extra_tools as build_modality_extra_tools
 from gemcode.memory.embedding_memory_service import EmbeddingFileMemoryService
 from gemcode.memory.file_memory_service import FileMemoryService
 from gemcode.plugins.terminal_hooks_plugin import GemCodeTerminalHooksPlugin
 from gemcode.plugins.tool_recovery_plugin import GemCodeReflectAndRetryToolPlugin
+
+
+# ---------------------------------------------------------------------------
+# ADK App-level feature helpers
+# ---------------------------------------------------------------------------
+
+def _build_context_cache_config():
+  """Return ContextCacheConfig if context caching is enabled, else None.
+
+  Context caching lets Gemini reuse the compiled representation of a stable
+  prefix (system prompt + tools) across multiple turns, cutting ~75% of input
+  token costs on long sessions.
+
+  Opt-out: set ``GEMCODE_CONTEXT_CACHE=0`` in the environment.
+  """
+  if os.environ.get("GEMCODE_CONTEXT_CACHE", "1").lower() in ("0", "false", "no", "off"):
+    return None
+  try:
+    from google.adk.agents.context_cache_config import ContextCacheConfig
+    return ContextCacheConfig(
+      cache_intervals=10,   # refresh the cache every 10 invocations
+      ttl_seconds=1800,     # cache lives 30 minutes
+      min_tokens=1024,      # skip caching tiny sessions (< ~1 K tokens)
+    )
+  except Exception:
+    return None
+
+
+def _build_app(agent, plugins, cfg: GemCodeConfig):
+  """Wrap the root agent in an ADK App for modern plugin + context-cache support.
+
+  Using ``App`` instead of passing ``agent`` + ``plugins`` directly to ``Runner``
+  is the recommended ADK pattern as of ADK 1.x (``plugins=`` on ``Runner`` is
+  officially deprecated).
+  """
+  try:
+    from google.adk.apps.app import App
+    return App(
+      name="gemcode",
+      root_agent=agent,
+      plugins=plugins,
+      context_cache_config=_build_context_cache_config(),
+    )
+  except Exception:
+    # Fall back silently — Runner still accepts the legacy kwargs.
+    return None
 
 
 def session_db_path(cfg: GemCodeConfig) -> Path:
@@ -242,15 +288,23 @@ def _make_safe_computer_toolset(computer):
 
 
 def _build_artifact_service(cfg: GemCodeConfig):
-  """
-  Return an ADK ArtifactService for this session, or None if disabled.
+  """Return an ADK ArtifactService for this session, or None if disabled.
 
-  Uses InMemoryArtifactService so artifacts are available within the session
-  without requiring GCS credentials. The agent can save screenshots, generated
-  files, large reports, etc. as artifacts to avoid bloating session history.
+  Uses ``FileArtifactService`` backed by ``.gemcode/artifacts/`` so that
+  artifacts (screenshots, generated reports, diffs, etc.) survive session
+  restarts.  Falls back to ``InMemoryArtifactService`` if the file-based
+  service is unavailable (older ADK).
   """
   if not getattr(cfg, "enable_artifacts", True):
     return None
+  try:
+    from google.adk.artifacts import FileArtifactService
+    artifacts_dir = cfg.project_root / ".gemcode" / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    return FileArtifactService(root_dir=artifacts_dir)
+  except Exception:
+    pass
+  # Fallback for older ADK versions that don't have FileArtifactService.
   try:
     from google.adk.artifacts import InMemoryArtifactService
     return InMemoryArtifactService()
@@ -344,11 +398,32 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
   db.parent.mkdir(parents=True, exist_ok=True)
   session_service = SqliteSessionService(str(db))
 
-  plugins = [GemCodeTerminalHooksPlugin(cfg)]
-  # Place recovery plugin before terminal hooks so it can influence tool results
-  # during the invocation.
-  if True:
-    plugins.insert(0, GemCodeReflectAndRetryToolPlugin(cfg))
+  # ── Plugins ──────────────────────────────────────────────────────────────
+  # Recovery plugin first so it can intercept tool errors before terminal hooks.
+  plugins = [GemCodeReflectAndRetryToolPlugin(cfg), GemCodeTerminalHooksPlugin(cfg)]
+
+  # Global instruction is now applied via ADK's GlobalInstructionPlugin (the
+  # modern replacement for the deprecated LlmAgent.global_instruction field).
+  try:
+    from google.adk.plugins.global_instruction_plugin import GlobalInstructionPlugin
+    plugins.insert(0, GlobalInstructionPlugin(build_global_instruction()))
+  except Exception:
+    pass
+
+  # Optional: rich YAML debug log (every LLM request/response + tool calls).
+  # Enable with: GEMCODE_DEBUG_LOG=1
+  if os.environ.get("GEMCODE_DEBUG_LOG", "").lower() in ("1", "true", "yes", "on"):
+    try:
+      from google.adk.plugins.debug_logging_plugin import DebugLoggingPlugin
+      debug_log_path = cfg.project_root / ".gemcode" / "debug.yaml"
+      plugins.append(DebugLoggingPlugin(
+        output_path=str(debug_log_path),
+        include_session_state=True,
+      ))
+    except Exception:
+      pass
+
+  # ── Memory service ────────────────────────────────────────────────────────
   memory_service = None
   if getattr(cfg, "enable_memory", False):
     mem_path = cfg.project_root / ".gemcode" / "memories.jsonl"
@@ -361,14 +436,31 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
 
   artifact_service = _build_artifact_service(cfg)
 
-  runner_kwargs: dict = dict(
-      app_name="gemcode",
-      agent=agent,
-      session_service=session_service,
-      plugins=plugins,
-      memory_service=memory_service,
-      auto_create_session=True,
-  )
+  # ── Runner via ADK App (modern pattern) ──────────────────────────────────
+  # App is the recommended top-level container as of ADK 1.x.  It owns the
+  # plugin list and context-cache config so Runner stays clean.
+  # ``plugins=`` on Runner is officially deprecated; using App avoids the
+  # DeprecationWarning and enables context caching + future App-level features.
+  app = _build_app(agent, plugins, cfg)
+
+  if app is not None:
+    runner_kwargs: dict = dict(
+        app=app,
+        session_service=session_service,
+        memory_service=memory_service,
+        auto_create_session=True,
+    )
+  else:
+    # Legacy fallback if App is unavailable (very old ADK installs).
+    runner_kwargs = dict(
+        app_name="gemcode",
+        agent=agent,
+        session_service=session_service,
+        plugins=plugins,
+        memory_service=memory_service,
+        auto_create_session=True,
+    )
+
   if artifact_service is not None:
     runner_kwargs["artifact_service"] = artifact_service
 

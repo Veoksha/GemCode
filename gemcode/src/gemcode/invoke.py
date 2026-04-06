@@ -6,6 +6,7 @@ CLI and tests call `run_turn` with a Runner already bound to app + session servi
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from typing import Any
@@ -14,6 +15,11 @@ from threading import Lock
 from google.adk.agents.run_config import RunConfig
 from google.adk.runners import Runner
 from google.genai import types
+
+
+# Delays (seconds) between successive transient-error retries: 2s, 5s, 12s.
+# Three retries = up to ~19 seconds of total wait before giving up.
+_TRANSIENT_RETRY_DELAYS = [2.0, 5.0, 12.0]
 
 
 _HITL_PROMPT_LOCK = Lock()
@@ -160,11 +166,43 @@ async def run_turn(
       # Runner handoff loop: if tools request confirmations, we pause here to
       # ask HITL, then send back function responses so ADK can re-execute the
       # tools.
+      #
+      # Transient API errors (HTTP 503, 429) are retried here with exponential
+      # backoff. on_model_error returns None for these, so the exception
+      # propagates from runner.run_async and we catch it below.
       do_reset = True
+      transient_attempts = 0
       while True:
-        events = await _await_runner_events(
-          next_message=current_message, do_reset=do_reset
-        )
+        try:
+          events = await _await_runner_events(
+            next_message=current_message, do_reset=do_reset
+          )
+        except Exception as _exc:
+          from gemcode.model_errors import is_transient_error
+          if is_transient_error(_exc) and transient_attempts < len(_TRANSIENT_RETRY_DELAYS):
+            delay = _TRANSIENT_RETRY_DELAYS[transient_attempts]
+            transient_attempts += 1
+            _tui_active = os.environ.get("GEMCODE_TUI_ACTIVE", "0").lower() in ("1", "true", "yes", "on")
+            _msg = (
+              f"\n[gemcode] Transient API error ({type(_exc).__name__}). "
+              f"Retrying in {delay:.0f}s (attempt {transient_attempts}/{len(_TRANSIENT_RETRY_DELAYS)})...\n"
+            )
+            print(_msg, file=sys.stderr)
+            # Surface retry notice in TUI if available.
+            if _tui_active:
+              try:
+                from gemcode.tui import scrollback as _sb
+                _sb._transient_retry_notice = _msg  # type: ignore[attr-defined]
+              except Exception:
+                pass
+            await asyncio.sleep(delay)
+            # Retry the same message from scratch (session history is intact in SQLite).
+            continue
+          # Non-transient or out of retries: re-raise so the TUI surfaces it.
+          raise
+
+        # Reset transient counter after a successful model call.
+        transient_attempts = 0
         collected.extend(events)
 
         confirmation_fcs = _get_confirmation_requests(events)

@@ -12,6 +12,39 @@ TODO_STATE_KEY = "gemcode:todos"
 _STATUSES = frozenset({"pending", "in_progress", "completed", "cancelled"})
 
 
+def make_todo_read_tool(cfg: GemCodeConfig):
+  _ = cfg
+
+  def todo_read(tool_context: ToolContext) -> dict[str, Any]:
+    """
+    Read the current session todo list.
+
+    Returns all tasks with their ids, content, and status. Use this to check
+    progress before updating tasks, to verify what's pending, or when you need
+    to reference task ids for a merge=True todo_write call.
+
+    Returns a dict with:
+      todos: list of {id, content, status}
+      summary: counts of pending/in_progress/completed/cancelled
+    """
+    try:
+      st = tool_context.state
+    except Exception:
+      return {"error": "Session state unavailable"}
+
+    todos = list(st.get(TODO_STATE_KEY, []) or [])
+    summary = {"pending": 0, "in_progress": 0, "completed": 0, "cancelled": 0}
+    for t in todos:
+      if isinstance(t, dict):
+        status = t.get("status", "pending")
+        if status in summary:
+          summary[status] += 1
+
+    return {"todos": todos, "summary": summary, "total": len(todos)}
+
+  return todo_read
+
+
 def make_todo_tool(cfg: GemCodeConfig):
   _ = cfg
 

@@ -909,5 +909,17 @@ async def run_gemcode_scrollback_tui(
         "on",
     ):
       print(f"{ansi.dim}{_hr(ch='─')}{ansi.reset}")
+
+    # ── Prompt suggestion (OpenClaude-style stopHooks guidance) ──────────────
+    # terminal_hooks_plugin stores the suggestion on cfg._last_prompt_suggestion
+    # only when the turn ended with a non-"completed" terminal reason.
+    try:
+      suggestion = getattr(cfg, "_last_prompt_suggestion", None)
+      if suggestion and isinstance(suggestion, str):
+        print(f"  {ansi.blue_warn}⚑  Suggestion:{ansi.reset} {ansi.dim}{suggestion}{ansi.reset}")
+        print("")
+    except Exception:
+      pass
+
     print("")
 

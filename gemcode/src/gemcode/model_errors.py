@@ -5,6 +5,38 @@ from __future__ import annotations
 import re
 
 
+def is_transient_error(error: Exception) -> bool:
+  """Return True for HTTP 503 / 429 and similar transient API errors that are safe to retry.
+
+  Transient means: the request was fine, the server was temporarily unavailable or
+  rate-limited. Retrying the same request (with backoff) will likely succeed.
+  """
+  try:
+    from google.genai import errors as genai_errors
+    if isinstance(error, genai_errors.APIError):
+      code = int(getattr(error, "code", None) or 0) or None
+      if code in (429, 503):
+        return True
+      # Some 500-range server errors are also transient (502 Bad Gateway, etc.)
+      if code is not None and 500 <= code < 600 and code not in (400, 401, 403, 404):
+        return True
+  except Exception:
+    pass
+
+  # gRPC / google-api-core equivalents
+  et = type(error).__name__
+  if "ResourceExhausted" in et or "ServiceUnavailable" in et or "DeadlineExceeded" in et:
+    return True
+
+  msg = str(error)
+  # Match the specific phrases Gemini uses in 503 responses
+  if "503" in msg and any(p in msg for p in ("high demand", "service unavailable", "overloaded")):
+    return True
+  if "429" in msg and any(p in msg for p in ("rate limit", "quota", "resource exhausted")):
+    return True
+  return False
+
+
 def _sanitize_api_text(s: str) -> str:
   """Strip likely API key material from strings shown to the user."""
   if not s:

@@ -141,6 +141,19 @@ class GemCodeTerminalHooksPlugin(BasePlugin):
         },
       )
 
+      # Surface suggestion to the TUI by storing it on cfg.
+      # The TUI reads cfg._last_prompt_suggestion after each turn and displays it.
+      try:
+        object.__setattr__(self.cfg, "_last_prompt_suggestion", suggestion)
+      except Exception:
+        pass
+    else:
+      # Clear any stale suggestion from the previous turn.
+      try:
+        object.__setattr__(self.cfg, "_last_prompt_suggestion", None)
+      except Exception:
+        pass
+
     if getattr(self.cfg, "enable_memory", False):
       try:
         await callback_context.add_session_to_memory()

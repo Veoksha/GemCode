@@ -626,29 +626,44 @@ def make_on_tool_error_callback(cfg: GemCodeConfig):
 
 
 def make_on_model_error_callback(cfg: GemCodeConfig):
-  """Structured model errors to the user + audit trail."""
+  """Structured model errors to the user + audit trail.
+
+  For transient errors (HTTP 503, 429, server-overloaded) we return None so the
+  exception propagates to invoke.py, which retries with exponential backoff.
+  For permanent errors we absorb and return a user-friendly LlmResponse.
+  """
 
   async def on_model_error(*, callback_context, llm_request, error: Exception):
+    from gemcode.model_errors import is_transient_error
+
+    append_audit(
+        cfg.project_root,
+        {
+            "phase": "model_exception",
+            "error": f"{type(error).__name__}: {error}",
+            "transient": is_transient_error(error),
+        },
+    )
+
+    # Transient errors (503, 429, server-overloaded): let the exception propagate
+    # so invoke.py can retry with backoff. Do NOT set terminal state here — the
+    # turn is not over yet.
+    if is_transient_error(error):
+      return None
+
+    # Permanent errors: mark session terminal and return a user-friendly message.
     try:
       st = callback_context.state
       if st is not None and not st.get(TERMINAL_REASON_KEY):
         st[TERMINAL_REASON_KEY] = "model_error"
     except Exception:
       pass
-    append_audit(
-        cfg.project_root,
-        {
-            "phase": "model_exception",
-            "error": f"{type(error).__name__}: {error}",
-        },
-    )
+
     if _truthy_env("GEMCODE_VERBOSE_MODEL_ERRORS", default=False):
       import traceback
-
       traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
 
     user_text = format_model_error_for_user(error)
-    # Scrollback/TUI already prints "GemCode:" before assistant text — avoid "GemCode: GemCode:".
     from google.adk.models.llm_response import LlmResponse
     from google.genai import types
 

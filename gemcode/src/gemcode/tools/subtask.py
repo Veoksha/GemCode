@@ -11,16 +11,61 @@ Key insight (from AI SDK docs "Subagents"):
    thousands of tokens and have it return only a focused summary."
 
 The sub-agent:
-- Gets the same tools as the parent (read_file, bash, grep, etc.) EXCEPT
+- Gets the same function tools as the parent (read_file, bash, grep, etc.) EXCEPT
   run_subtask itself (prevents infinite recursion).
+- Also gets notes tools, ADK special tools, and modality extras when available.
+- If memory is ON, the sub-agent gets `preload_memory` so it can access project history.
 - Uses an in-memory session (no DB writes, fully isolated).
 - Respects the same permission settings (yes_to_all, permission_mode) as the parent.
-- Is depth-capped (max 48 LLM calls) to prevent runaway cost.
+- Is depth-capped (max 64 LLM calls) to prevent runaway cost.
 """
 
 from __future__ import annotations
 
 from gemcode.config import GemCodeConfig
+
+
+def _build_sub_tools(cfg: GemCodeConfig) -> list:
+    """Build the full tool surface for a sub-agent (mirrors create_runner but in-process)."""
+    from gemcode.tools import build_function_tools
+
+    # Core function tools, minus run_subtask (no recursion).
+    tools = build_function_tools(cfg, include_subtask=False)
+
+    # Memory preload — if the parent has memory ON, sub-agents should too.
+    if getattr(cfg, "enable_memory", False):
+        try:
+            from google.adk.tools import preload_memory
+            tools = [preload_memory, *tools]
+        except Exception:
+            pass
+
+    # ADK special interactive tools — always try to include.
+    try:
+        from google.adk.tools import get_user_choice, load_artifacts, exit_loop
+        tools = [*tools, get_user_choice, load_artifacts, exit_loop]
+    except Exception:
+        pass
+
+    # Notes tools — project knowledge persists to and from sub-agents.
+    try:
+        from gemcode.tools.notes import build_notes_tools
+        notes_tools = build_notes_tools(cfg.project_root)
+        tools = [*tools, *notes_tools]
+    except Exception:
+        pass
+
+    # Modality extras (deep research, embeddings semantic search) when enabled.
+    # This closes the gap where sub-agents previously couldn't do research/semantic search.
+    try:
+        from gemcode.modality_tools import build_extra_tools as build_modality_extra_tools
+        modality = build_modality_extra_tools(cfg)
+        if modality:
+            tools = [*tools, *modality]
+    except Exception:
+        pass
+
+    return tools
 
 
 def make_run_subtask_tool(cfg: GemCodeConfig):
@@ -30,17 +75,19 @@ def make_run_subtask_tool(cfg: GemCodeConfig):
 
         The sub-agent starts with a fresh context window — it does NOT inherit this
         conversation's history. It has access to all the same tools (read_file, bash,
-        grep_content, web_fetch, etc.) and returns its final response as `result`.
+        grep_content, web_fetch, semantic search, project notes, etc.) and returns
+        its final response as `result`.
 
         Use when:
         - Exploring a large codebase section that would bloat your context
           ("read all 40 test files and summarise what each group tests")
         - Running deep analysis in parallel — issue multiple run_subtask calls
-          in the same turn for genuine parallel execution
+          in the same turn for genuine parallel execution across subsystems
         - Delegating a focused research or investigation task while staying
           high-level yourself
-        - Getting a verification or review pass on your own changes
-          ("check my edits in src/ for syntax errors and consistency")
+        - **Verification passes** — after implementing a change, spawn a sub-agent
+          with "You are a strict code reviewer. Check these files for correctness,
+          bugs, and consistency. Report PASS or FAIL with details."
         - Any task that requires 10+ file reads or multiple bash commands but
           whose output can be summarised in a paragraph
 
@@ -71,21 +118,38 @@ def make_run_subtask_tool(cfg: GemCodeConfig):
                 return {"error": "google-adk not available for sub-agent"}
 
         from gemcode.agent import build_root_agent
-        from gemcode.tools import build_function_tools
         from gemcode.invoke import run_turn
+        from gemcode.plugins.tool_recovery_plugin import GemCodeReflectAndRetryToolPlugin
 
-        # Build the sub-agent tool set WITHOUT run_subtask (no recursion).
-        sub_tools = build_function_tools(cfg, include_subtask=False)
+        # Build the full sub-agent tool surface.
+        sub_tools = _build_sub_tools(cfg)
 
-        # Build a standalone LlmAgent with the limited tool set.
+        # Build a standalone LlmAgent with the full tool set.
         sub_agent = build_root_agent(cfg, _tools=sub_tools)
 
         # Isolated in-memory session — never writes to the parent SQLite DB.
-        sub_runner = Runner(
-            app_name="gemcode_sub",
-            agent=sub_agent,
-            session_service=InMemorySessionService(),
-        )
+        # Include the reflect-and-retry plugin so sub-agents also benefit from
+        # automatic tool error recovery.
+        sub_plugins = [GemCodeReflectAndRetryToolPlugin(cfg)]
+        try:
+            from google.adk.plugins.global_instruction_plugin import GlobalInstructionPlugin
+            from gemcode.agent import build_global_instruction
+            sub_plugins.insert(0, GlobalInstructionPlugin(build_global_instruction()))
+        except Exception:
+            pass
+
+        try:
+            from google.adk.apps.app import App
+            sub_app = App(name="gemcode_sub", root_agent=sub_agent, plugins=sub_plugins)
+            sub_runner = Runner(app=sub_app, session_service=InMemorySessionService())
+        except Exception:
+            # Legacy fallback for older ADK installs.
+            sub_runner = Runner(
+                app_name="gemcode_sub",
+                agent=sub_agent,
+                session_service=InMemorySessionService(),
+                plugins=sub_plugins,
+            )
         sub_session_id = str(uuid.uuid4())
 
         # Compose the sub-agent prompt.
@@ -93,8 +157,9 @@ def make_run_subtask_tool(cfg: GemCodeConfig):
         if context and context.strip():
             prompt = f"{task.strip()}\n\nAdditional context:\n{context.strip()}"
 
-        # Cap sub-agent depth to avoid runaway API cost.
-        sub_max_calls = min(int(cfg.max_llm_calls or 48), 48)
+        # Sub-agents get a higher cap than before (64 vs 48) since they now
+        # carry a richer tool surface (research, notes, etc.)
+        sub_max_calls = min(int(cfg.max_llm_calls or 64), 64)
 
         try:
             events = await run_turn(

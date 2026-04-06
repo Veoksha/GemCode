@@ -127,23 +127,49 @@ def make_bash_tool(cfg: GemCodeConfig):
         env = {**os.environ}
 
         if background:
+            # Capture output to a temp log file so task_output() can read it.
+            try:
+                from gemcode.tools.tasks import make_log_file_for_task, register_task
+                log_path = make_log_file_for_task()
+                log_fh = open(log_path, "wb")  # noqa: WPS515
+                _has_task_registry = True
+            except Exception:
+                log_path = None
+                log_fh = None
+                _has_task_registry = False
+
             try:
                 proc = subprocess.Popen(
                     [bash_exe, "-c", command],
                     cwd=str(exec_cwd),
                     env=env,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                    stdout=log_fh if log_fh else subprocess.DEVNULL,
+                    stderr=log_fh if log_fh else subprocess.DEVNULL,
                     start_new_session=True,
                 )
             except OSError as e:
+                if log_fh:
+                    log_fh.close()
                 return {"error": f"Failed to start background process: {e}"}
+
+            if log_fh:
+                log_fh.close()  # child inherited the fd; parent can close its copy
+
+            cwd_rel = str(exec_cwd.relative_to(root)) if exec_cwd != root else "."
+            if _has_task_registry:
+                register_task(proc.pid, command=command, cwd=cwd_rel, log_path=log_path)
+
             return {
                 "command": command,
-                "cwd": str(exec_cwd.relative_to(root)) if exec_cwd != root else ".",
+                "cwd": cwd_rel,
                 "background": True,
                 "pid": proc.pid,
-                "note": "Process started in the background. Stop it with kill from the OS when done.",
+                "log_path": log_path,
+                "note": (
+                    f"Process started (PID {proc.pid}). "
+                    "Use task_output(pid) to read its output, kill_task(pid) to stop it, "
+                    "list_tasks() to see all background tasks."
+                ),
             }
 
         try:
