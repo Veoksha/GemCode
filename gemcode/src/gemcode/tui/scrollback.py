@@ -515,6 +515,57 @@ async def run_gemcode_scrollback_tui(
         continue
       prompt = slash.model_prompt or prompt
 
+    # ── LLM intent pre-classifier ────────────────────────────────────────────
+    # A lightweight Gemini call (gemini-2.0-flash-lite) classifies the message
+    # before the main agent runs.  Greetings are short-circuited entirely:
+    # we generate a natural reply directly and skip the main agent, so the
+    # user gets an instant response with zero unnecessary tool calls.
+    # For all other intents the classified label is stored in session state
+    # so the main agent can adapt its workflow without re-classifying.
+    try:
+      from gemcode.intent_classifier import (
+          classify_intent,
+          generate_greeting_reply,
+          INTENT_GREETING,
+          INTENT_DESCRIPTIONS,
+      )
+      _intent = await classify_intent(prompt)
+
+      if _intent == INTENT_GREETING:
+        # Fast path: generate a warm reply with the lightweight model and skip
+        # the main agent entirely — no tool calls, no spinner, instant UX.
+        _reply = await generate_greeting_reply(prompt)
+        print(f"  \u23bf  {ansi.bold}GemCode{ansi.reset}:")
+        console.print(_RichPadding(_RichMarkdown(_reply), (0, 0, 0, 4)))
+        # Print minimal footer (no token stats since we bypassed the main model)
+        print("")
+        if os.environ.get("GEMCODE_TUI_TURN_RULE", "1").lower() in (
+            "1", "true", "yes", "on"
+        ):
+          print(f"{ansi.dim}{_hr(ch='─')}{ansi.reset}")
+        print("")
+        continue
+
+      # Non-greeting: store classified intent in session state so the main
+      # agent can read it and adapt its tool-use strategy accordingly.
+      try:
+        ss = runner.session_service
+        app = getattr(runner, "app_name", None) or getattr(cfg, "app_name", "gemcode")
+        sess = await ss.get_session(
+            app_name=app, user_id="local", session_id=current_session_id
+        )
+        if sess is not None:
+          _desc = INTENT_DESCRIPTIONS.get(_intent, _intent)
+          sess.state["_gemcode_intent"] = _intent
+          sess.state["_gemcode_intent_desc"] = _desc
+          await ss.update_session(sess)
+      except Exception:
+        pass  # State injection is best-effort
+
+    except Exception:
+      pass  # Classifier unavailable — fall through to main agent unchanged
+    # ─────────────────────────────────────────────────────────────────────────
+
     # Snapshot pre-turn capability state so we can detect routing-triggered changes.
     _pre_dr  = cfg.enable_deep_research
     _pre_emb = cfg.enable_embeddings

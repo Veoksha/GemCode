@@ -154,6 +154,17 @@ async def _run_prompt(
   # MCP and OpenAPI toolsets are now loaded inside create_runner() directly.
   runner = create_runner(cfg, extra_tools=None)
   try:
+    # LLM intent pre-classifier: greetings bypass the main agent entirely.
+    try:
+      from gemcode.intent_classifier import (
+          classify_intent, generate_greeting_reply, INTENT_GREETING
+      )
+      _intent = await classify_intent(prompt)
+      if _intent == INTENT_GREETING:
+        return await generate_greeting_reply(prompt)
+    except Exception:
+      pass
+
     collected = await run_turn(
         runner,
         user_id="local",
