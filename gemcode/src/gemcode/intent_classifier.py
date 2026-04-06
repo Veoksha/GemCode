@@ -94,6 +94,16 @@ _OBVIOUS_GREETINGS: frozenset[str] = frozenset({
     "what's up", "whats up", "wassup",
 })
 
+# Single-token "control" messages users often type after transient model errors.
+# Treat these as "resume the last task", not greetings.
+_RESUME_WORDS: frozenset[str] = frozenset({
+    "continue",
+    "go on",
+    "resume",
+    "retry",
+    "try again",
+})
+
 
 def _classifier_enabled() -> bool:
     v = os.environ.get("GEMCODE_INTENT_CLASSIFY_ENABLED", "1")
@@ -128,6 +138,8 @@ async def classify_intent_with_source(message: str) -> tuple[str, str]:
 
     # Fast local check for unambiguously short greetings — saves an API round-trip.
     lower = stripped.lower()
+    if lower in _RESUME_WORDS:
+        return INTENT_ENGINEERING_TASK, SOURCE_LOCAL
     if lower in _OBVIOUS_GREETINGS or (len(lower) <= 3 and lower.isalpha()):
         return INTENT_GREETING, SOURCE_LOCAL
 

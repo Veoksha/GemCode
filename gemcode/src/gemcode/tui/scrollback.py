@@ -251,6 +251,10 @@ async def run_gemcode_scrollback_tui(
       get_cfg=lambda: cfg,
   )
 
+  # Turn-scoped monitors/state.
+  # Declared up-front so nested render helpers can update them via `nonlocal`.
+  last_tool_error: dict | None = None
+
   async def typewrite(text: str) -> None:
     if not text:
       return
@@ -386,6 +390,7 @@ async def run_gemcode_scrollback_tui(
 
   def _render_tool_results(ev) -> None:
     """Show a one-line result summary; transition spinner to 'Querying…'."""
+    nonlocal last_tool_error
     try:
       frs: list = []
       try:
@@ -409,6 +414,28 @@ async def run_gemcode_scrollback_tui(
         summary = _fmt_tool_result(resp)
         if summary:
           print(f"  ⎿    {ansi.dim}\u21b3 {summary}{ansi.reset}")
+        # Capture the most recent tool error (best-effort) so we can offer to fix it.
+        try:
+          d = resp if isinstance(resp, dict) else {}
+          inner = d.get("result", d)
+          if not isinstance(inner, dict):
+            inner = d
+          err = inner.get("error") or d.get("error")
+          exit_code = inner.get("exit_code")
+          stderr = inner.get("stderr") or ""
+          if err or (isinstance(exit_code, int) and exit_code != 0):
+            full = ""
+            if isinstance(err, str) and err.strip():
+              full = err.strip()
+            elif isinstance(stderr, str) and stderr.strip():
+              full = stderr.strip()
+            last_tool_error = {
+              "tool": getattr(fr, "name", "") or "tool",
+              "summary": (summary or str(err) or str(exit_code) or "error")[:120],
+              "full": full[:2000],
+            }
+        except Exception:
+          pass
       # Restart spinner while model re-queries with the tool outputs.
       _start_anim("Querying\u2026")
     except Exception:
@@ -446,18 +473,24 @@ async def run_gemcode_scrollback_tui(
   )
 
   current_session_id = session_id
+  pending_prompt: str | None = None
+  last_user_prompt: str | None = None
 
   while True:
-    try:
-      prompt = await input_handler.prompt_async()
-    except EOFError:
-      print("")
+    if pending_prompt:
+      prompt = pending_prompt
+      pending_prompt = None
+    else:
       try:
-        from gemcode.hooks import run_session_stop_hook
-        run_session_stop_hook(cfg.project_root, model=getattr(cfg, "model", "") or "")
-      except Exception:
-        pass
-      return
+        prompt = await input_handler.prompt_async()
+      except EOFError:
+        print("")
+        try:
+          from gemcode.hooks import run_session_stop_hook
+          run_session_stop_hook(cfg.project_root, model=getattr(cfg, "model", "") or "")
+        except Exception:
+          pass
+        return
     if not prompt:
       continue
     if prompt in (":q", "quit", "exit", "/exit"):
@@ -467,6 +500,13 @@ async def run_gemcode_scrollback_tui(
       except Exception:
         pass
       return
+
+    # Plain-text resume command: rerun the last user message (useful after 503s).
+    if (prompt or "").strip().lower() in ("continue", "resume", "retry", "try again", "go on"):
+      if last_user_prompt:
+        print(f"  ⎿  {ansi.dim}↻ Continuing last request…{ansi.reset}")
+        print("")
+        prompt = last_user_prompt
 
     old_model = getattr(cfg, "model", "")
     old_model_overridden = bool(getattr(cfg, "model_overridden", False))
@@ -514,6 +554,14 @@ async def run_gemcode_scrollback_tui(
           runner = create_runner(cfg, extra_tools=extra_tools)
         continue
       prompt = slash.model_prompt or prompt
+
+    # Track the last real user request so "continue" can rerun it later.
+    try:
+      pnorm = (prompt or "").strip()
+      if pnorm:
+        last_user_prompt = pnorm
+    except Exception:
+      pass
 
     # ── LLM intent pre-classifier ────────────────────────────────────────────
     # gemini-2.5-flash-lite classifies the message (same lane as Thinking)
@@ -610,6 +658,7 @@ async def run_gemcode_scrollback_tui(
       assistant_wrote_text = False
       buffered_thought: list[str] = []
       buffered_final: list[str] = []
+      last_tool_error = None
       kwargs = dict(
           user_id="local", session_id=current_session_id, new_message=current_message
       )
@@ -707,6 +756,40 @@ async def run_gemcode_scrollback_tui(
           console.print(
               _RichPadding(_RichMarkdown(final_text), (0, 0, 0, 4)),
           )
+
+        # If a tool error occurred during this turn, ask whether to resolve it.
+        if last_tool_error:
+          try:
+            tool_name = last_tool_error.get("tool") or "tool"
+            summary = last_tool_error.get("summary") or "an error"
+            full = last_tool_error.get("full") or ""
+            print("")
+            print(
+              f"  ⎿  {ansi.blue_warn}{ansi.bold}Detected an error{ansi.reset} "
+              f"in {ansi.bold}{tool_name}{ansi.reset}: {ansi.dim}{summary}{ansi.reset}"
+            )
+            sys.stdout.flush()
+            prompt_str = (
+              f"  ⎿  Try to resolve it now? "
+              f"[{ansi.blue_ok}y{ansi.reset} = yes  "
+              f"{ansi.dim}any other key = no{ansi.reset}]  "
+            )
+            sys.stdout.write(prompt_str)
+            sys.stdout.flush()
+            ok = await _read_permission_char(asyncio.get_running_loop())
+            sys.stdout.write(("y" if ok else "n") + "\n")
+            sys.stdout.flush()
+            if ok:
+              pending_prompt = (
+                "We encountered an error during the last turn.\n\n"
+                f"Tool: {tool_name}\n"
+                f"Summary: {summary}\n\n"
+                f"{full}\n\n"
+                "Please fix the issue. If a command needs to be run, propose it "
+                "and ask for confirmation."
+              )
+          except Exception:
+            pass
         break
 
       interactive_enabled = bool(getattr(cfg, "interactive_permission_ask", False))
