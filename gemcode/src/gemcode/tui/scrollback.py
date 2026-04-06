@@ -86,6 +86,25 @@ def format_tool_call_extras(fc) -> str:
     return ""
 
 
+def _events_to_text_best_effort(events: list) -> str:
+  """Fallback extraction of assistant text from ADK events."""
+  parts: list[str] = []
+  for event in events or []:
+    try:
+      content = getattr(event, "content", None)
+      if not content or not getattr(content, "parts", None):
+        continue
+      if getattr(event, "author", None) == "user":
+        continue
+      for part in getattr(content, "parts", []) or []:
+        t = getattr(part, "text", None)
+        if isinstance(t, str) and t:
+          parts.append(t)
+    except Exception:
+      continue
+  return "".join(parts).strip()
+
+
 def _events_had_non_confirmation_tools(events: list) -> bool:
   for ev in events:
     try:
@@ -727,6 +746,16 @@ async def run_gemcode_scrollback_tui(
         if not final_text and thought_text:
           final_text = thought_text
           thought_text = ""
+
+        # Second-pass fallback: sometimes streamed parsing misses text (ADK event shape
+        # changes, tool plugins rewriting events, etc.). Recover from the full event list.
+        if not final_text:
+          try:
+            recovered = _events_to_text_best_effort(events)
+            if recovered:
+              final_text = recovered
+          except Exception:
+            pass
 
         # If the model produced no visible text at all, show an explicit hint
         # instead of returning to the prompt silently.
