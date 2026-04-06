@@ -16,6 +16,7 @@ from __future__ import annotations
 _PRICING_TABLE: dict[str, tuple[float, float]] = {
     # ── Gemini 2.5 ──────────────────────────────────────────────────────────
     "gemini-2.5-pro":         (3.50, 10.50),   # standard context ≤200k
+    "gemini-2.5-flash-lite":  (0.10,  0.40),   # lowest-cost 2.5 (must precede flash)
     "gemini-2.5-flash":       (0.15,  0.60),   # standard context
     "gemini-2.5-flash-8b":    (0.037, 0.15),   # 8B lite variant
     # ── Gemini 2.0 ──────────────────────────────────────────────────────────

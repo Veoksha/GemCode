@@ -516,28 +516,31 @@ async def run_gemcode_scrollback_tui(
       prompt = slash.model_prompt or prompt
 
     # ── LLM intent pre-classifier ────────────────────────────────────────────
-    # A lightweight Gemini call (gemini-2.0-flash-lite) classifies the message
-    # before the main agent runs.  Greetings are short-circuited entirely:
-    # we generate a natural reply directly and skip the main agent, so the
-    # user gets an instant response with zero unnecessary tool calls.
-    # For all other intents the classified label is stored in session state
-    # so the main agent can adapt its workflow without re-classifying.
+    # gemini-2.5-flash-lite classifies the message (same lane as Thinking)
     try:
       from gemcode.intent_classifier import (
-          classify_intent,
+          classify_intent_with_source,
           generate_greeting_reply,
+          format_intent_thinking_line,
           INTENT_GREETING,
           INTENT_DESCRIPTIONS,
       )
-      _intent = await classify_intent(prompt)
+      _intent, _intent_src = await classify_intent_with_source(prompt)
+      _intent_line = format_intent_thinking_line(_intent, _intent_src)
+      if _intent_line:
+        print(
+            f"  \u23bf  {ansi.dim}\u2234 Intent  {_intent_line}{ansi.reset}"
+        )
+        print("")
 
       if _intent == INTENT_GREETING:
-        # Fast path: generate a warm reply with the lightweight model and skip
-        # the main agent entirely — no tool calls, no spinner, instant UX.
-        _reply = await generate_greeting_reply(prompt)
+        _start_anim("Replying\u2026")
+        try:
+          _reply = await generate_greeting_reply(prompt)
+        finally:
+          _stop_anim()
         print(f"  \u23bf  {ansi.bold}GemCode{ansi.reset}:")
         console.print(_RichPadding(_RichMarkdown(_reply), (0, 0, 0, 4)))
-        # Print minimal footer (no token stats since we bypassed the main model)
         print("")
         if os.environ.get("GEMCODE_TUI_TURN_RULE", "1").lower() in (
             "1", "true", "yes", "on"

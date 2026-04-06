@@ -1,7 +1,7 @@
 """
 LLM-based intent pre-classifier.
 
-Before each user turn a lightweight Gemini call (gemini-2.0-flash-lite by
+Before each user turn a lightweight Gemini call (gemini-2.5-flash-lite by
 default) classifies the message into one of five intents.  The TUI / CLI
 can then:
 
@@ -10,7 +10,7 @@ can then:
     workflow automatically without re-classifying
 
 Configure:
-  GEMCODE_INTENT_MODEL  Override the classifier model (default: gemini-2.0-flash-lite)
+  GEMCODE_INTENT_MODEL  Override the classifier model (default: gemini-2.5-flash-lite)
   GEMCODE_INTENT_CLASSIFY_ENABLED  Set "0" to disable (falls back to main agent)
 """
 from __future__ import annotations
@@ -41,6 +41,36 @@ INTENT_DESCRIPTIONS: dict[str, str] = {
     INTENT_ANALYSIS:         "Systematic audit or summarisation — thorough tool sweep, then synthesise.",
 }
 
+# One-line summaries for the TUI — same visual lane as ∴ Thinking (collapsed)
+INTENT_THINKING_SUMMARY: dict[str, str] = {
+    INTENT_GREETING:         "Greeting / chitchat — no tools",
+    INTENT_CONCEPT:          "General knowledge — answer without repo reads if possible",
+    INTENT_PROJECT_QUESTION: "About this repo — a few read-only tools, then answer",
+    INTENT_ENGINEERING_TASK: "Engineering task — orient → plan → execute → verify",
+    INTENT_ANALYSIS:         "Deep analysis — systematic read / grep / synthesise",
+}
+
+# How the intent was determined (for TUI suffix)
+SOURCE_LOCAL = "local"   # obvious greeting / heuristic, no classifier API call
+SOURCE_LLM = "llm"       # gemini-2.5-flash-lite classifier
+SOURCE_OFF = "off"       # classifier disabled
+
+
+def format_intent_thinking_line(intent: str, source: str) -> str | None:
+    """
+    Single line of text after ``∴ Intent`` in the TUI (same visual lane as
+    collapsed ``∴ Thinking``).  Returns None when the classifier is off and
+    nothing should be shown.
+    """
+    if source == SOURCE_OFF:
+        return None
+    summary = INTENT_THINKING_SUMMARY.get(intent, intent)
+    if source == SOURCE_LOCAL:
+        tag = "instant"
+    else:
+        tag = "flash-lite classifier"
+    return f"{intent} — {summary}  ·  {tag}"
+
 # ── Prompts ───────────────────────────────────────────────────────────────────
 _CLASSIFY_PROMPT = """\
 Classify the user message into exactly ONE intent label from the list below.
@@ -67,7 +97,7 @@ _GREETING_SYSTEM = (
 )
 
 _CLASSIFIER_MODEL_ENV = "GEMCODE_INTENT_MODEL"
-_DEFAULT_CLASSIFIER_MODEL = "gemini-2.0-flash-lite"
+_DEFAULT_CLASSIFIER_MODEL = "gemini-2.5-flash-lite"
 
 # Single-word / very-short messages that are unambiguously greetings —
 # checked locally before spending an API call on the classifier.
@@ -98,27 +128,24 @@ def _get_api_key() -> str:
     )
 
 
-async def classify_intent(message: str) -> str:
+async def classify_intent_with_source(message: str) -> tuple[str, str]:
     """
-    Classify a user message using a lightweight Gemini call.
+    Classify a user message; return (intent, source).
 
-    Returns one of: GREETING, CONCEPT, PROJECT_QUESTION, ENGINEERING_TASK, ANALYSIS.
-    Falls back to ENGINEERING_TASK on any error (the main agent handles all real
-    tasks safely with that default).
-
-    Classification is disabled when GEMCODE_INTENT_CLASSIFY_ENABLED=0.
+    ``source`` is one of: ``SOURCE_LOCAL`` (heuristic, no API call),
+    ``SOURCE_LLM`` (classifier model), ``SOURCE_OFF`` (classifier disabled).
     """
     if not _classifier_enabled():
-        return INTENT_ENGINEERING_TASK
+        return INTENT_ENGINEERING_TASK, SOURCE_OFF
 
     stripped = (message or "").strip()
     if not stripped:
-        return INTENT_GREETING
+        return INTENT_GREETING, SOURCE_LOCAL
 
     # Fast local check for unambiguously short greetings — saves an API round-trip.
     lower = stripped.lower()
     if lower in _OBVIOUS_GREETINGS or (len(lower) <= 3 and lower.isalpha()):
-        return INTENT_GREETING
+        return INTENT_GREETING, SOURCE_LOCAL
 
     try:
         import google.genai as genai
@@ -136,14 +163,28 @@ async def classify_intent(message: str) -> str:
         label = (resp.text or "").strip().upper()
         # Exact match first
         if label in _VALID_INTENTS:
-            return label
+            return label, SOURCE_LLM
         # Partial match (model may return extra punctuation or lowercase)
         for key in _VALID_INTENTS:
             if key in label:
-                return key
-        return INTENT_ENGINEERING_TASK
+                return key, SOURCE_LLM
+        return INTENT_ENGINEERING_TASK, SOURCE_LLM
     except Exception:
-        return INTENT_ENGINEERING_TASK
+        return INTENT_ENGINEERING_TASK, SOURCE_LLM
+
+
+async def classify_intent(message: str) -> str:
+    """
+    Classify a user message using a lightweight Gemini call.
+
+    Returns one of: GREETING, CONCEPT, PROJECT_QUESTION, ENGINEERING_TASK, ANALYSIS.
+    Falls back to ENGINEERING_TASK on any error (the main agent handles all real
+    tasks safely with that default).
+
+    Classification is disabled when GEMCODE_INTENT_CLASSIFY_ENABLED=0.
+    """
+    intent, _ = await classify_intent_with_source(message)
+    return intent
 
 
 async def generate_greeting_reply(message: str) -> str:
