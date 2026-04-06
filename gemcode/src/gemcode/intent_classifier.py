@@ -41,35 +41,19 @@ INTENT_DESCRIPTIONS: dict[str, str] = {
     INTENT_ANALYSIS:         "Systematic audit or summarisation — thorough tool sweep, then synthesise.",
 }
 
-# One-line summaries for the TUI — same visual lane as ∴ Thinking (collapsed)
-INTENT_THINKING_SUMMARY: dict[str, str] = {
-    INTENT_GREETING:         "Greeting / chitchat — no tools",
-    INTENT_CONCEPT:          "General knowledge — answer without repo reads if possible",
-    INTENT_PROJECT_QUESTION: "About this repo — a few read-only tools, then answer",
-    INTENT_ENGINEERING_TASK: "Engineering task — orient → plan → execute → verify",
-    INTENT_ANALYSIS:         "Deep analysis — systematic read / grep / synthesise",
-}
-
 # How the intent was determined (for TUI suffix)
 SOURCE_LOCAL = "local"   # obvious greeting / heuristic, no classifier API call
 SOURCE_LLM = "llm"       # gemini-2.5-flash-lite classifier
 SOURCE_OFF = "off"       # classifier disabled
 
 
-def format_intent_thinking_line(intent: str, source: str) -> str | None:
+def show_intentifying_line(source: str) -> bool:
     """
-    Single line of text after ``∴ Intent`` in the TUI (same visual lane as
-    collapsed ``∴ Thinking``).  Returns None when the classifier is off and
-    nothing should be shown.
+    Whether to show the minimal ``∴ Intentifying…`` line in the TUI (same lane
+    as ``∴ Thinking``).  Hidden only when intent classification is disabled
+    (``SOURCE_OFF``).
     """
-    if source == SOURCE_OFF:
-        return None
-    summary = INTENT_THINKING_SUMMARY.get(intent, intent)
-    if source == SOURCE_LOCAL:
-        tag = "instant"
-    else:
-        tag = "flash-lite classifier"
-    return f"{intent} — {summary}  ·  {tag}"
+    return source != SOURCE_OFF
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 _CLASSIFY_PROMPT = """\

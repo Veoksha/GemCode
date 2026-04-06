@@ -521,15 +521,14 @@ async def run_gemcode_scrollback_tui(
       from gemcode.intent_classifier import (
           classify_intent_with_source,
           generate_greeting_reply,
-          format_intent_thinking_line,
+          show_intentifying_line,
           INTENT_GREETING,
           INTENT_DESCRIPTIONS,
       )
       _intent, _intent_src = await classify_intent_with_source(prompt)
-      _intent_line = format_intent_thinking_line(_intent, _intent_src)
-      if _intent_line:
+      if show_intentifying_line(_intent_src):
         print(
-            f"  \u23bf  {ansi.dim}\u2234 Intent  {_intent_line}{ansi.reset}"
+            f"  \u23bf  {ansi.dim}\u2234 Intentifying\u2026{ansi.reset}"
         )
         print("")
 
