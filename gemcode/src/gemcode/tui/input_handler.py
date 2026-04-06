@@ -184,8 +184,18 @@ class GemCodeInputHandler:
             """Ctrl+C clears current line (like a real shell)."""
             event.app.current_buffer.reset()
 
-        # Rows reserved for the / command popup. Too high (e.g. 20) leaves a huge
-        # empty band above the prompt; 10–12 is enough for most slash lists.
+        @kb.add("enter")
+        def _submit(event):
+            """Enter always submits — even in multiline mode (for pasted code)."""
+            event.current_buffer.validate_and_handle()
+
+        @kb.add("escape", "enter", eager=True)
+        @kb.add("c-j")  # Ctrl+J = manual newline inside a message
+        def _newline(event):
+            """Meta+Enter or Ctrl+J inserts a real newline without submitting."""
+            event.current_buffer.insert_text("\n")
+
+        # Rows reserved for the / command popup.
         try:
             _menu_rows = int(os.environ.get("GEMCODE_TUI_RESERVE_MENU_LINES", "12"))
         except ValueError:
@@ -202,8 +212,12 @@ class GemCodeInputHandler:
             mouse_support=False,
             complete_in_thread=True,
             reserve_space_for_menu=_menu_rows,
-            # Single-column popup with description column (like VS Code)
             complete_style="COLUMN",
+            # Multiline=True so pasted code (with \n) lands in the buffer
+            # as one block rather than submitting line-by-line.
+            # Our Enter binding above overrides the default "add newline"
+            # behaviour so single-line prompts work exactly as before.
+            multiline=True,
         )
 
     def is_interactive(self) -> bool:

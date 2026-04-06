@@ -30,76 +30,82 @@ def session_db_path(cfg: GemCodeConfig) -> Path:
   return cfg.project_root / ".gemcode" / "sessions.sqlite"
 
 
-class _SafeComputerUseToolset:
+def _make_safe_computer_toolset(computer):
   """
-  Drop-in wrapper around ComputerUseToolset that catches Playwright startup
-  failures (e.g. missing browser binary) and disables computer-use gracefully
-  for the current session instead of crashing every turn with an unhandled error.
+  Build a BaseToolset-compatible wrapper around ComputerUseToolset that catches
+  Playwright startup failures gracefully instead of crashing LlmAgent validation.
 
-  When the underlying toolset fails for the *first* time a one-time warning is
-  printed to stderr so the user knows they need to run ``playwright install``.
-  Subsequent calls are silently no-ops so the session keeps working without
-  browser tools — the agent can still use all other tools normally.
+  Must be a proper BaseToolset subclass (not a plain class) because ADK's Pydantic
+  model for LlmAgent validates each entry in `tools` against BaseTool | BaseToolset.
+  Returns a real BaseToolset subclass instance, or None if BaseToolset is unavailable.
   """
+  try:
+    from google.adk.tools.base_toolset import BaseToolset
+  except ImportError:
+    return None
 
-  def __init__(self, computer) -> None:
-    try:
-      from google.adk.tools.computer_use.computer_use_toolset import ComputerUseToolset
-      self._inner = ComputerUseToolset(computer=computer)
-    except Exception:
-      self._inner = None
-    self._broken = False
-    self._warned = False
+  class _SafeComputerUseToolset(BaseToolset):
+    """Wraps ComputerUseToolset; degrades to a no-op if Playwright is missing."""
 
-  def _warn_once(self, error: Exception) -> None:
-    if self._warned:
-      return
-    self._warned = True
-    import sys
-    msg = str(error)
-    if "playwright install" in msg.lower() or "executable doesn't exist" in msg.lower():
-      print(
-        "\n[gemcode] Browser (computer-use) is unavailable — Playwright browsers are not installed.\n"
-        "  Run:  playwright install chromium\n"
-        "  Then restart GemCode with /computer on (or --computer flag).\n"
-        "  Continuing without browser tools for this session.\n",
-        file=sys.stderr,
-      )
-    else:
-      print(
-        f"\n[gemcode] Browser (computer-use) failed to start: {msg!s:.200}\n"
-        "  Continuing without browser tools for this session.\n",
-        file=sys.stderr,
-      )
+    def __init__(self) -> None:
+      try:
+        from google.adk.tools.computer_use.computer_use_toolset import ComputerUseToolset
+        self._inner = ComputerUseToolset(computer=computer)
+      except Exception:
+        self._inner = None
+      self._broken = False
+      self._warned = False
 
-  # ── ADK toolset protocol ────────────────────────────────────────────────────
+    def _warn_once(self, error: Exception) -> None:
+      if self._warned:
+        return
+      self._warned = True
+      import sys
+      msg = str(error)
+      if "playwright install" in msg.lower() or "executable doesn't exist" in msg.lower():
+        print(
+          "\n[gemcode] Browser (computer-use) is unavailable — Playwright browsers are not installed.\n"
+          "  Run:  playwright install chromium\n"
+          "  Then restart GemCode with /computer on (or --computer flag).\n"
+          "  Continuing without browser tools for this session.\n",
+          file=sys.stderr,
+        )
+      else:
+        print(
+          f"\n[gemcode] Browser (computer-use) failed to start: {msg!s:.200}\n"
+          "  Continuing without browser tools for this session.\n",
+          file=sys.stderr,
+        )
 
-  async def process_llm_request(self, *, tool_context, llm_request) -> None:
-    if self._broken or self._inner is None:
-      return
-    try:
-      await self._inner.process_llm_request(
-          tool_context=tool_context, llm_request=llm_request
-      )
-    except Exception as exc:
-      self._broken = True
-      self._warn_once(exc)
+    async def process_llm_request(self, *, tool_context, llm_request) -> None:
+      if self._broken or self._inner is None:
+        return
+      try:
+        await self._inner.process_llm_request(
+            tool_context=tool_context, llm_request=llm_request
+        )
+      except Exception as exc:
+        self._broken = True
+        self._warn_once(exc)
 
-  async def get_tools(self, readonly_context=None):
-    if self._broken or self._inner is None:
-      return []
-    try:
-      return await self._inner.get_tools(readonly_context)
-    except Exception as exc:
-      self._broken = True
-      self._warn_once(exc)
-      return []
+    async def get_tools(self, readonly_context=None):
+      if self._broken or self._inner is None:
+        return []
+      try:
+        return await self._inner.get_tools(readonly_context)
+      except Exception as exc:
+        self._broken = True
+        self._warn_once(exc)
+        return []
 
-  def __getattr__(self, name: str):
-    """Proxy all other attribute accesses to the inner toolset."""
-    if self._inner is not None:
-      return getattr(self._inner, name)
-    raise AttributeError(name)
+    async def close(self) -> None:
+      if self._inner is not None:
+        try:
+          await self._inner.close()
+        except Exception:
+          pass
+
+  return _SafeComputerUseToolset()
 
 
 def _build_artifact_service(cfg: GemCodeConfig):
@@ -158,15 +164,15 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
     viewport_w = int(os.environ.get("GEMCODE_BROWSER_WIDTH", "1280"))
     viewport_h = int(os.environ.get("GEMCODE_BROWSER_HEIGHT", "720"))
     from gemcode.computer_use.browser_computer import BrowserComputer
-    from google.adk.tools.computer_use.computer_use_toolset import ComputerUseToolset
 
     computer = BrowserComputer(
       headless=headless,
       viewport_size=(viewport_w, viewport_h),
     )
-    computer_toolset = _SafeComputerUseToolset(computer=computer)
+    computer_toolset = _make_safe_computer_toolset(computer)
     merged_extra_tools = list(merged_extra_tools or [])
-    merged_extra_tools.append(computer_toolset)
+    if computer_toolset is not None:
+      merged_extra_tools.append(computer_toolset)
 
     # Standalone read-only browser tools (browser_screenshot, browser_get_text, etc.)
     from gemcode.tools.browser import build_browser_inspection_tools
