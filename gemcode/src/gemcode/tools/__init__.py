@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from gemcode.config import GemCodeConfig
-from gemcode.tools.bash import make_bash_tool, make_bash_stream_tool
+from gemcode.tools.bash import make_bash_tool
 from gemcode.tools.edit import make_edit_tools
 from gemcode.tools.filesystem import make_filesystem_tools
 from gemcode.tools.search import make_grep_tool
@@ -35,7 +35,6 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
   grep_content = make_grep_tool(cfg)
   run_command = make_run_command(cfg)
   bash = make_bash_tool(cfg)
-  bash_stream = make_bash_stream_tool(cfg)
   write_file, search_replace = make_edit_tools(cfg)
   todo_write = make_todo_tool(cfg)
   think = make_think_tool()
@@ -55,7 +54,6 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
     glob_files,
     grep_content,
     bash_tool,
-    bash_stream,
     run_command_tool,
     write_file,
     search_replace,

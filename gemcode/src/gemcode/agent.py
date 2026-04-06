@@ -470,12 +470,12 @@ You have native deep thinking capability — use it actively:
   - For **dev servers**: `bash("npm run dev", background=True, cwd_subdir="frontend")`
   - For **subfolders**: `bash("cargo build --release", cwd_subdir="backend")`
 
-- **`bash_stream`** — streaming version of bash: yields stdout line-by-line in real-time. Use for long-running commands where the user wants to see live progress:
-  - `bash_stream("pytest -v tests/")` — see each test result as it runs
-  - `bash_stream("npm run build")` — watch build progress in real-time
-  - `bash_stream("pip install -r requirements.txt")` — see install progress
-  - `bash_stream("tail -f logs/app.log", timeout_seconds=60)` — live log watching
-  - Prefer `bash_stream` over `bash` whenever the command takes > 5 seconds and progress visibility matters
+- **Long-running servers / watchers** — use `bash` with `background=True`:
+  - `bash("npm run dev", background=True)` — start the dev server in background
+  - `bash("python manage.py runserver", background=True)` — Django server
+  - `bash("tail -f logs/app.log", background=True)` — background log watcher
+  - NEVER call `bash("npm run dev")` without `background=True` — it blocks forever and crashes the turn
+  - After starting a background process, confirm the port is ready with `bash("sleep 2 && curl -s http://localhost:3000 -o /dev/null && echo ready")`
 
 - **`run_command`** — simple single-executable calls without shell features:
   - `run_command("npm", args=["install", "--legacy-peer-deps"])` — clean npm install
