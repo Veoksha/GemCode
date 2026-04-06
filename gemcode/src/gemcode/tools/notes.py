@@ -86,8 +86,10 @@ def build_notes_tools(project_root: Path) -> list:
     """
     Read the current contents of .gemcode/notes.md.
 
-    Use this to check what has been previously noted about this project before
-    starting a task — avoids re-discovering things already documented.
+    ONLY call this when you are about to work on an actual engineering task
+    (editing files, debugging, building something) and want to avoid re-discovering
+    already-known project facts. Do NOT call this for greetings, chitchat, or
+    general questions that don't require project context.
 
     Returns the full notes content as a string, or an empty string if no notes exist.
     """
