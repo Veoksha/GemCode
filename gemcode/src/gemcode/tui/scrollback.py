@@ -763,7 +763,18 @@ async def run_gemcode_scrollback_tui(
           token_part = "  ·  " + "  ·  ".join(parts_t)
         except Exception:
           pass
-      print(f"{ansi.dim}  · {model} · session {sid}{token_part}{ansi.reset}")
+      # Bottom input bar already shows model + session; avoid duplicating them here
+      # (reduces visual noise and “gappy” repeats). Optional full line via env.
+      _dup = os.environ.get("GEMCODE_TUI_FOOTER_DUP_STATUS", "").lower() in (
+          "1", "true", "yes", "on",
+      )
+      if token_part:
+        if _dup:
+          print(f"{ansi.dim}  · {model} · session {sid}{token_part}{ansi.reset}")
+        else:
+          print(f"{ansi.dim}{token_part}{ansi.reset}")
+      elif _dup:
+        print(f"{ansi.dim}  · {model} · session {sid}{ansi.reset}")
     if os.environ.get("GEMCODE_TUI_TURN_RULE", "1").lower() in (
         "1",
         "true",

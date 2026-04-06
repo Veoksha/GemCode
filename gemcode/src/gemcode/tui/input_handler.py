@@ -15,6 +15,7 @@ stdout is not a TTY (e.g. piped input, CI).
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Callable
 
@@ -143,8 +144,8 @@ class GemCodeInputHandler:
                 "completion-menu.meta.completion":      "bg:#0d2035 fg:#5a7a9a",
                 "completion-menu.meta.completion.current": "bg:#0065a0 fg:#cce8ff",
                 "completion-menu.border":               "#0087d7",
-                # Bottom toolbar
-                "bottom-toolbar":                       "bg:#0d1f2d fg:#4a7a9a",
+                # Bottom status line — muted (not multi-colour); detail in HTML
+                "bottom-toolbar":                       "bg:#0a0e12 fg:#5a6570",
             }
         )
 
@@ -170,9 +171,9 @@ class GemCodeInputHandler:
                     flags.append("BROWSER")
                 if flags:
                     extras = "  ·  " + "  ".join(f"[{f}]" for f in flags)
+            # Single muted tone (no bright cyan) — reads as a quiet status strip
             return HTML(
-                f'<style bg="#0d1f2d" fg="#5fafd7"><b> ◆ {model}</b></style>'
-                f'<style bg="#0d1f2d" fg="#3d6080">  ·  session {sid_short}'
+                f'<style bg="#0a0e12" fg="#5f6b78"> ◆ {model}  ·  session {sid_short}'
                 f'{extras}  ·  / for commands</style>'
             )
 
@@ -183,6 +184,14 @@ class GemCodeInputHandler:
             """Ctrl+C clears current line (like a real shell)."""
             event.app.current_buffer.reset()
 
+        # Rows reserved for the / command popup. Too high (e.g. 20) leaves a huge
+        # empty band above the prompt; 10–12 is enough for most slash lists.
+        try:
+            _menu_rows = int(os.environ.get("GEMCODE_TUI_RESERVE_MENU_LINES", "12"))
+        except ValueError:
+            _menu_rows = 12
+        _menu_rows = max(6, min(24, _menu_rows))
+
         self._session = PromptSession(
             history=InMemoryHistory(),
             completer=_SlashCommandCompleter(),
@@ -190,11 +199,11 @@ class GemCodeInputHandler:
             style=style,
             bottom_toolbar=bottom_toolbar,
             key_bindings=kb,
-        mouse_support=False,
-        complete_in_thread=True,
-        reserve_space_for_menu=20,
-        # Single-column popup with description column (like VS Code)
-        complete_style="COLUMN",
+            mouse_support=False,
+            complete_in_thread=True,
+            reserve_space_for_menu=_menu_rows,
+            # Single-column popup with description column (like VS Code)
+            complete_style="COLUMN",
         )
 
     def is_interactive(self) -> bool:
