@@ -253,7 +253,7 @@ def slash_help_lines() -> list[str]:
       "  Thinking:",
       "  /thinking             Show current thinking config",
       "  /thinking verbose     Show full thinking text each turn",
-      "  /thinking brief       Show collapsed one-line excerpt (default)",
+      "  /thinking brief       Show collapsed one-line excerpt",
       "  /thinking off         Disable model thinking",
       "  /thinking on          Re-enable thinking (auto budget/level)",
       "  /thinking budget <N>  Set thinking token budget (Gemini 2.5, 0=off, -1=dynamic)",

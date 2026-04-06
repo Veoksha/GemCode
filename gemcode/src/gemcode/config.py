@@ -245,10 +245,10 @@ class GemCodeConfig:
   )
 
   # Controls how the TUI renders model thinking: True = full Rich Markdown,
-  # False = collapsed one-line excerpt (default, like OpenClaude).
+  # False = collapsed one-line excerpt.
   # Toggled at runtime via /thinking verbose|brief.
   show_full_thinking: bool = field(
-    default_factory=lambda: _truthy_env("GEMCODE_SHOW_FULL_THINKING", default=False)
+    default_factory=lambda: _truthy_env("GEMCODE_SHOW_FULL_THINKING", default=True)
   )
 
   # Enable ADK BuiltInCodeExecutor for safe sandboxed Python execution via
