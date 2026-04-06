@@ -233,7 +233,7 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
               cfg=cfg,
               runner=runner,
               session_id=session_id,
-              extra_tools=extra or None,
+              extra_tools=None,
           )
           return
         except Exception as e:
@@ -263,7 +263,7 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
           runner=runner,
           session_id=session_id,
           prompt_text=prompt_text,
-          extra_tools=extra or None,
+          extra_tools=None,
       )
       if slash is not None:
         if slash.exit_repl:
