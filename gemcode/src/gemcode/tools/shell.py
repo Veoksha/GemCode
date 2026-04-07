@@ -161,8 +161,8 @@ def make_run_command(cfg: GemCodeConfig):
           "command": [exe, *args],
           "cwd": str(exec_cwd.relative_to(root)) if exec_cwd != root else ".",
           "exit_code": proc.returncode,
-          "stdout": proc.stdout[:50_000],
-          "stderr": proc.stderr[:50_000],
+          "stdout": proc.stdout[:20_000],
+          "stderr": proc.stderr[:20_000],
       }
     except subprocess.TimeoutExpired:
       return {"error": f"Timeout after {timeout_seconds}s"}

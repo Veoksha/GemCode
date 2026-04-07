@@ -462,6 +462,14 @@ key_combination(["control+c"])  # copy
 
 
 def build_instruction(cfg: GemCodeConfig) -> str:
+  import os as _os
+  verbose_tools_guide = _os.environ.get("GEMCODE_VERBOSE_INSTRUCTIONS", "").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+  )
+
   base = f"""You are GemCode, an expert software engineering agent powered by Google Gemini.
 You run locally via the GemCode CLI. You are the same agent the user launched — not a hosted portal.
 
@@ -509,6 +517,17 @@ You have native deep thinking capability — use it actively:
 - When something fails, diagnose (re-read the error, check assumptions) before switching strategy. Do not repeat the same failed call.
 - When asked to analyse or explain something: read the actual files, produce concrete findings, not hypotheses.
 
+## Tool selection guide (only when needed)
+
+Keep tool usage minimal. Prefer short, targeted calls and keep tool outputs small.
+If you need more tool usage examples, set `GEMCODE_VERBOSE_INSTRUCTIONS=1`.
+
+"""
+
+  if not verbose_tools_guide:
+    return base.strip() + "\n"
+
+  tool_guide = r"""
 ## Tool selection guide
 
 ### Shell execution (critical — use these for real work)
@@ -864,6 +883,7 @@ def build_root_agent(
             pre-built list that excludes run_subtask itself, preventing recursion).
             When set, build_function_tools() is NOT called.
   """
+  return (base + tool_guide).strip() + "\n"
   if _tools is not None:
     tools = list(_tools)
   else:

@@ -311,6 +311,29 @@ def make_after_tool_callback(cfg: GemCodeConfig):
     tool_response: dict,
   ) -> dict | None:
     truncated = False
+    offloaded = False
+    name = getattr(tool, "name", None) or ""
+
+    # Offload oversized tool outputs to disk (stable refs) before truncation.
+    if (
+      isinstance(tool_response, dict)
+      and getattr(cfg, "tool_result_offload_enabled", False)
+      and getattr(cfg, "tool_result_max_chars", 0) > 0
+    ):
+      try:
+        from gemcode.tool_result_store import maybe_offload_tool_result
+        new_payload, did = maybe_offload_tool_result(
+          project_root=cfg.project_root,
+          tool_name=name,
+          payload=tool_response,
+          max_inline_chars=int(cfg.tool_result_max_chars),
+        )
+        if did and isinstance(new_payload, dict):
+          tool_response = new_payload
+          offloaded = True
+      except Exception:
+        pass
+
     if isinstance(tool_response, dict) and getattr(cfg, "tool_result_max_chars", 0) > 0:
       new_d, did = truncate_tool_result_dict(
           tool_response, int(cfg.tool_result_max_chars)
@@ -318,13 +341,12 @@ def make_after_tool_callback(cfg: GemCodeConfig):
       if did:
         tool_response = new_d
         truncated = True
-    name = getattr(tool, "name", None) or ""
     if tool_context is None:
-      return tool_response if truncated else None
+      return tool_response if (truncated or offloaded) else None
     try:
       st = tool_context.state
     except Exception:
-      return tool_response if truncated else None
+      return tool_response if (truncated or offloaded) else None
     err = isinstance(tool_response, dict) and tool_response.get("error")
     err_kind = (
       isinstance(tool_response, dict) and tool_response.get("error_kind")
@@ -408,6 +430,8 @@ def make_after_tool_callback(cfg: GemCodeConfig):
       except Exception:
         pass
     if truncated:
+      return tool_response
+    if offloaded:
       return tool_response
     return None
 

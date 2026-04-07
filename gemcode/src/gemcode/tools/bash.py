@@ -182,8 +182,8 @@ def make_bash_tool(cfg: GemCodeConfig):
                 env=env,
                 check=False,
             )
-            stdout = proc.stdout[:80_000]
-            stderr = proc.stderr[:20_000]
+            stdout = proc.stdout[:20_000]
+            stderr = proc.stderr[:10_000]
             result: dict = {
                 "command": command,
                 "cwd": str(exec_cwd.relative_to(root)) if exec_cwd != root else ".",

@@ -16,7 +16,7 @@ def make_filesystem_tools(cfg: GemCodeConfig):
 
   def read_file(
     path: str,
-    max_bytes: int = 200_000,
+    max_bytes: int = 80_000,
     start_line: int = 1,
     end_line: int | None = None,
   ) -> dict:

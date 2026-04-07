@@ -33,7 +33,7 @@ def make_grep_tool(cfg: GemCodeConfig):
     def grep_content(
         pattern: str,
         path_glob: str = "**/*",
-        max_matches: int = 80,
+        max_matches: int = 40,
         context_lines: int = 0,
         case_sensitive: bool = True,
     ) -> dict:

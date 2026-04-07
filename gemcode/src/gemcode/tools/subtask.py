@@ -153,9 +153,24 @@ def make_run_subtask_tool(cfg: GemCodeConfig):
         sub_session_id = str(uuid.uuid4())
 
         # Compose the sub-agent prompt.
-        prompt = task.strip()
-        if context and context.strip():
-            prompt = f"{task.strip()}\n\nAdditional context:\n{context.strip()}"
+        task_clean = task.strip()
+        ctx_clean = (context or "").strip()
+        prompt = task_clean
+        if ctx_clean:
+            prompt = f"{task_clean}\n\nAdditional context:\n{ctx_clean}"
+
+        # Enforce a compact response contract to protect the parent context.
+        prompt = (
+            "Return a concise result using this exact structure:\n"
+            "## Summary\n"
+            "- <3-7 bullets>\n\n"
+            "## Findings\n"
+            "- <key technical findings>\n\n"
+            "## Evidence (paths / commands)\n"
+            "- <file paths, symbols, or commands you used>\n\n"
+            "Do NOT include long code blocks or raw logs. If something is long, summarize it.\n\n"
+            + prompt
+        )
 
         # Sub-agents get a higher cap than before (64 vs 48) since they now
         # carry a richer tool surface (research, notes, etc.)
@@ -196,6 +211,28 @@ def make_run_subtask_tool(cfg: GemCodeConfig):
                 "It may have only called tools. Consider a more explicit task "
                 "that asks the sub-agent to summarise its findings.)"
             )
+
+        # Hard-cap sub-agent output; offload the full text if it exceeds the cap.
+        max_chars = 8_000
+        if len(result_text) > max_chars:
+            try:
+                from gemcode.tool_result_store import offload_text
+                ref_obj = offload_text(
+                    project_root=cfg.project_root,
+                    tool_name="run_subtask",
+                    field="result",
+                    text=result_text,
+                    preview_max_chars=max_chars,
+                )
+                return {
+                    "result": ref_obj.get("preview", "") or "",
+                    "offloaded": True,
+                    "ref": ref_obj.get("ref"),
+                    "note": "Subtask output was long; full text offloaded. Use load_tool_result(ref).",
+                }
+            except Exception:
+                result_text = result_text[:max_chars] + "\n… [truncated]"
+                return {"result": result_text, "truncated": True}
 
         return {"result": result_text}
 

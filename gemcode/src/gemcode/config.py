@@ -130,6 +130,13 @@ class GemCodeConfig:
         int(os.environ.get("GEMCODE_TOOL_RESULT_MAX_CHARS", "12000")),
     )
   )
+
+  # When enabled, oversized tool outputs are offloaded to disk under
+  # .gemcode/tool-results/ and replaced in history with stable refs + previews.
+  # This reduces context bloat and improves prompt-cache stability.
+  tool_result_offload_enabled: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_TOOL_RESULT_OFFLOAD", default=True)
+  )
   # Trim oldest text in llm_request.contents when over budget (see context_budget.py).
   context_shrink_enabled: bool = field(
     default_factory=lambda: _truthy_env("GEMCODE_CONTEXT_SHRINK", default=True)

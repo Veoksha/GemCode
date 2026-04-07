@@ -53,7 +53,7 @@ def _html_to_text(html: str) -> str:
 
 
 def make_web_fetch_tool():
-    def web_fetch(url: str, max_chars: int = 40_000, raw: bool = False) -> dict:
+    def web_fetch(url: str, max_chars: int = 20_000, raw: bool = False) -> dict:
         """
         Fetch content from a URL and return it as text.
 
@@ -64,7 +64,7 @@ def make_web_fetch_tool():
         - Reading READMEs, changelogs, or issue trackers online
 
         Set raw=True to get the raw HTML/JSON instead of extracted text.
-        max_chars caps the returned content (default 40 000 chars).
+        max_chars caps the returned content (default 20 000 chars).
         """
         if not url or not url.strip():
             return {"error": "url must not be empty"}

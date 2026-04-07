@@ -49,6 +49,37 @@ def _concat_text(content: Any) -> str:
   return "\n".join(pieces)
 
 
+def _distill_memory_text(text: str, *, max_chars: int = 1200) -> str:
+  """
+  Distill verbose conversational text into a compact memory payload.
+
+  This is deliberately non-LLM (fast, deterministic) and focuses on:
+  - explicit decisions / constraints
+  - paths / symbols / commands
+  - short summaries
+  """
+  t = (text or "").strip()
+  if not t:
+    return ""
+  # Keep only the first N chars; then try to keep high-signal lines.
+  t = t[:50_000]
+  lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
+  keep: list[str] = []
+  for ln in lines:
+    if any(x in ln for x in (".py", ".ts", ".tsx", ".js", ".json", ".yml", ".yaml", "src/", "gemcode/")):
+      keep.append(ln)
+    elif ln.startswith(("-", "*")) and len(ln) <= 200:
+      keep.append(ln)
+    elif any(k in ln.lower() for k in ("fix", "bug", "root cause", "decision", "constraint", "todo", "note")):
+      keep.append(ln)
+    if sum(len(x) + 1 for x in keep) >= max_chars:
+      break
+  if not keep:
+    return t[:max_chars]
+  out = "\n".join(keep)
+  return out[:max_chars]
+
+
 class FileMemoryService(BaseMemoryService):
   """JSONL-backed memory service with naive keyword matching."""
 
@@ -108,6 +139,9 @@ class FileMemoryService(BaseMemoryService):
       text = _concat_text(content)
       if not text.strip():
         continue
+      distilled = _distill_memory_text(text)
+      if not distilled.strip():
+        continue
 
       ev_id = getattr(ev, "id", None)
       if not isinstance(ev_id, str) or not ev_id:
@@ -127,7 +161,8 @@ class FileMemoryService(BaseMemoryService):
           "session_id": session_id,
           "author": author,
           "timestamp": ts_out,
-          "text": text,
+          "text": distilled,
+          "raw_truncated": text[:4000],
         }
       )
       existing_ids.add(ev_id)
