@@ -87,11 +87,11 @@ async def run_turn(
       if re.search(r"\\b(test|pytest|ci|build|deploy|release)\\b", p, re.I):
         risk += 0.1
       # Multi-file hints
-      if p.count(\"/\") >= 6 or p.count(\".py\") + p.count(\".ts\") + p.count(\".tsx\") >= 3:
+      if p.count("/") >= 6 or p.count(".py") + p.count(".ts") + p.count(".tsx") >= 3:
         risk += 0.1
       # Clamp 0..1
       risk = max(0.0, min(1.0, float(risk)))
-      object.__setattr__(cfg, \"_risk_score\", risk)
+      object.__setattr__(cfg, "_risk_score", risk)
     except Exception:
       pass
   run_config = (
