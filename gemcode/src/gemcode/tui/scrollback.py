@@ -24,7 +24,7 @@ _ADK_REQUEST_CONFIRMATION = "adk_request_confirmation"
 
 def format_tool_call_extras(fc) -> str:
   """
-  One-line summary of tool arguments for Claude-style ``[tool] name …`` lines.
+  One-line summary of tool arguments for conventional ``[tool] name …`` lines.
 
   Parses ``FunctionCall.args`` / nested ``originalFunctionCall.args`` when present.
   """
@@ -213,7 +213,7 @@ async def run_gemcode_scrollback_tui(
     *, cfg, runner, session_id: str, extra_tools=None
 ) -> None:
   """
-  Claude-like terminal UI: NO internal scrolling, just terminal scrollback.
+  familiar terminal UI: NO internal scrolling, just terminal scrollback.
 
   - User prompt line starts with: ❯
   - Assistant/tool blocks start with: ⎿  (indented)
@@ -910,7 +910,7 @@ async def run_gemcode_scrollback_tui(
     ):
       print(f"{ansi.dim}{_hr(ch='─')}{ansi.reset}")
 
-    # ── Prompt suggestion (OpenClaude-style stopHooks guidance) ──────────────
+    # ── Prompt suggestion (Openconventional stopHooks guidance) ──────────────
     # terminal_hooks_plugin stores the suggestion on cfg._last_prompt_suggestion
     # only when the turn ended with a non-"completed" terminal reason.
     try:

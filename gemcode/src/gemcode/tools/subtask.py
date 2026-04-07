@@ -1,7 +1,7 @@
 """
 Sub-agent tool — spawn an isolated focused agent for context-heavy tasks.
 
-Analogous to OpenClaude's AgentTool / AI SDK's ToolLoopAgent subagent pattern.
+Analogous to Reference UI AgentTool / AI SDK's ToolLoopAgent subagent pattern.
 
 Key insight (from AI SDK docs "Subagents"):
   "Some tasks require exploring large amounts of information — reading files,

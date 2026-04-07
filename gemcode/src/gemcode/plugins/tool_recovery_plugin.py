@@ -1,5 +1,5 @@
 """
-Claude-like recovery-loop for GemCode tool failures.
+familiar recovery-loop for GemCode tool failures.
 
 We complement ADK's `ReflectAndRetryToolPlugin` by treating our tool result
 dicts like `{"error": "...", "error_kind": "..."}` as retryable tool failures
@@ -31,7 +31,7 @@ _ERROR_KIND_CIRCUIT_BREAKER = "circuit_breaker"
 
 
 class GemCodeReflectAndRetryToolPlugin(ReflectAndRetryToolPlugin):
-  """Retry tool failures with reflection guidance (Claude recovery-loop)."""
+  """Retry tool failures with reflection guidance (recovery loop)."""
 
   def __init__(self, cfg: GemCodeConfig):
     self.cfg = cfg

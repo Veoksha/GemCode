@@ -37,7 +37,7 @@ def _events_to_text(events) -> str:
 
 def _maybe_prompt_trust(cfg: GemCodeConfig) -> None:
   """
-  Claude Code–style workspace trust prompt.
+  interactive CLI–style workspace trust prompt.
 
   On first use in a project root, ask the user to trust the folder so file,
   shell, and git tools can run. If not trusted, we exit before any tool runs.
@@ -70,7 +70,7 @@ def _maybe_prompt_trust(cfg: GemCodeConfig) -> None:
 
 def _maybe_prompt_google_api_key() -> None:
   """
-  One-time interactive prompt for ``GOOGLE_API_KEY`` (like ``claude login`` / first-run).
+  One-time interactive prompt for ``GOOGLE_API_KEY`` (like ``gemcode login`` / first-run).
 
   Skipped when the key is already set, stdin is not a TTY, or
   ``GEMCODE_NO_LOGIN_PROMPT=1``.
@@ -125,7 +125,7 @@ def _initialize_gemcode_project(cfg: GemCodeConfig) -> None:
   Create ``<project>/.gemcode/`` and print a short banner the first time it appears.
 
   Runs after workspace trust + API key are satisfied so a bare ``gemcode`` REPL
-  feels like a guided first-run (Claude Code–style).
+  feels like a guided first-run (interactive CLI–style).
   """
   root = cfg.project_root.resolve()
   gem_dir = root / ".gemcode"
@@ -174,7 +174,7 @@ async def _run_prompt(
 
 async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> None:
   """
-  Interactive REPL mode (Claude Code-like): keep the session open for multiple turns.
+  Interactive REPL mode (multi-turn REPL): keep the session open for multiple turns.
   """
   load_cli_environment()
   _maybe_prompt_trust(cfg)
@@ -356,7 +356,7 @@ def main() -> None:
       return
     raise SystemExit("Usage: gemcode ide --stdio")
 
-  # Persist or rotate API key (Claude Code–style `claude login`).
+  # Persist or rotate API key (interactive CLI–style `gemcode login`).
   if len(sys.argv) > 1 and sys.argv[1] == "login":
     load_cli_environment()
     if not (hasattr(sys.stdin, "isatty") and sys.stdin.isatty()):
@@ -598,78 +598,78 @@ def main() -> None:
     print(f"\n[gemcode live-audio] session_id={session_id}", file=sys.stderr)
     return
 
-  # Kairos proactive scheduler daemon.
-  if len(sys.argv) > 1 and sys.argv[1] == "kairos":
-    kairos_parser = argparse.ArgumentParser(
-      prog="gemcode kairos",
-      description="Kairos-like proactive scheduler daemon (stdin -> queued jobs).",
+  # Kaira proactive scheduler daemon.
+  if len(sys.argv) > 1 and sys.argv[1] == "kaira":
+    kaira_parser = argparse.ArgumentParser(
+      prog="gemcode kaira",
+      description="Background proactive scheduler daemon (stdin -> queued jobs).",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "-C",
       "--directory",
       type=Path,
       default=Path.cwd(),
       help="Project root",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "--session",
       default=None,
       help="Session id for SQLite-backed history (optional; defaults to a new uuid).",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "--concurrency",
       type=int,
       default=2,
       help="Max number of concurrent queued jobs.",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "--default-priority",
       type=int,
       default=0,
       help="Priority used for stdin-enqueued jobs.",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "--yes",
       action="store_true",
       help="Allow write_file / search_replace (disables interactive HITL prompts).",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "--interactive-ask",
       action="store_true",
       help="Prompt in-run for mutating tool confirmations (HITL).",
     )
-    kairos_parser.add_argument("--model", default=None, help="Override GEMCODE_MODEL")
-    kairos_parser.add_argument(
+    kaira_parser.add_argument("--model", default=None, help="Override GEMCODE_MODEL")
+    kaira_parser.add_argument(
       "--model-mode",
       default=None,
       help="Model mode: auto|fast|balanced|quality (overrides GEMCODE_MODEL_MODE).",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "--deep-research",
       action="store_true",
       help="Enable deep research tools + routing.",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "--maps-grounding",
       action="store_true",
       help="Opt-in to Google Maps grounding tool inside deep-research.",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "--embeddings",
       action="store_true",
       help="Enable embeddings-based semantic retrieval.",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "--capability-mode",
       default=None,
       help="Capability routing: auto|research|embeddings|computer|audio|all (enables tools and routes models).",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "--tool-combination-mode",
       default=None,
       help="Gemini 3 tool context circulation: deep_research|always|never|auto",
     )
-    kairos_parser.add_argument(
+    kaira_parser.add_argument(
       "--max-llm-calls",
       type=int,
       default=None,
@@ -677,7 +677,7 @@ def main() -> None:
       help="Cap model↔tool iterations for each job message (ADK RunConfig.max_llm_calls).",
     )
 
-    args = kairos_parser.parse_args(sys.argv[2:])
+    args = kaira_parser.parse_args(sys.argv[2:])
     load_cli_environment()
 
     cfg = GemCodeConfig(project_root=args.directory)
@@ -713,15 +713,15 @@ def main() -> None:
     require_google_api_key()
 
     session_id = args.session or str(uuid.uuid4())
-    from gemcode.kairos_daemon import KairosDaemon
+    from gemcode.kaira_daemon import KairaDaemon
 
-    daemon = KairosDaemon(
+    daemon = KairaDaemon(
       cfg=cfg,
       concurrency=args.concurrency,
       default_priority=args.default_priority,
     )
     asyncio.run(daemon.run_forever(session_id=session_id))
-    print(f"\n[gemcode kairos] session_id={session_id}", file=sys.stderr)
+    print(f"\n[gemcode kaira] session_id={session_id}", file=sys.stderr)
     return
 
   parser = argparse.ArgumentParser(prog="gemcode", description="Gemini + ADK coding agent")

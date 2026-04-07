@@ -1,5 +1,5 @@
 """
-Session runtime (Claude Code: outer engine ≈ QueryEngine + session store).
+Session runtime (outer engine ≈ QueryEngine + session store).
 
 - **SqliteSessionService**: durable session + events (like transcript persistence).
 - **Runner**: wires the root agent to the session, equivalent to “submit query → stream events”.

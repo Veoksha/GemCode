@@ -1,6 +1,8 @@
 # Web UI Contract (GemCode backend)
 
-This document captures the HTTP/WebSocket contract used by `claude-code-leaked/web` so we can implement a GemCode-backed backend that behaves the same way.
+This document captures the HTTP/WebSocket contract expected by the bundled reference web UI (`gemcode-web-ui/`) so a GemCode-backed backend can implement the same behavior.
+
+**See also:** [GemCode user manual](../gemcode/README.md) (CLI, tools, REPL, env vars), [documentation index](README.md), and the [repository README](../README.md) for project layout and quickstart.
 
 ## 1. Base URLs
 
@@ -12,7 +14,7 @@ This document captures the HTTP/WebSocket contract used by `claude-code-leaked/w
 
 ### 2.1 Frontend reachability checks
 
-`claude-code-leaked/web/lib/BackendContext.tsx` health-checks the backend in this order using `HEAD`:
+`web/lib/BackendContext.tsx` (under the web app) health-checks the backend in this order using `HEAD`:
 
 1. `HEAD /api/health`
 2. `HEAD /api/status`
@@ -22,7 +24,7 @@ Any non-5xx response is treated as “backend up”.
 
 ### 2.2 Concrete health response (reference implementation)
 
-The backend implementation in `claude-code-leaked/src/server/api/index.ts` provides:
+A typical Node reference server might expose:
 
 - `GET /health`
 - `GET /health/live`
@@ -38,7 +40,7 @@ The web UI consumes streaming responses in two places. Some components use a sim
 ### 3.1 Endpoint
 
 - `POST /api/chat`
-- Request body shape (from `claude-code-leaked/web/lib/api.ts`):
+- Request body shape (from `web/lib/api.ts`):
   - `messages`: array of `{ role, content }`
   - `model`: string model id
   - `stream`: boolean (frontend sets `stream: true`)
@@ -53,7 +55,7 @@ The frontend expects a streaming HTTP response (SSE-like), where each frame is:
 
 ### 3.3 Simplified stream protocol (“StreamChunk”) used by `ChatInput`
 
-`claude-code-leaked/web/components/chat/ChatInput.tsx` imports `streamChat` from `claude-code-leaked/web/lib/api.ts`.
+`web/components/chat/ChatInput.tsx` imports `streamChat` from `web/lib/api.ts`.
 
 That `streamChat` parser does:
 
@@ -76,11 +78,11 @@ So at minimum, your GemCode `/api/chat` stream should emit StreamChunk frames wi
 
 ### 3.4 Rich stream protocol (“StreamEvent”) used by `useChat`
 
-`claude-code-leaked/web/hooks/useChat.ts` uses `messageAPI` from `claude-code-leaked/web/lib/api/messages.ts`.
+`web/hooks/useChat.ts` uses `messageAPI` from `web/lib/api/messages.ts`.
 
-That path uses `parseStream()` from `claude-code-leaked/web/lib/api/stream.ts`, which expects “StreamEvent” JSON payloads.
+That path uses `parseStream()` from `web/lib/api/stream.ts`, which expects “StreamEvent” JSON payloads.
 
-In `claude-code-leaked/web/lib/api/types.ts`, `StreamEvent.type` includes:
+In `web/lib/api/types.ts`, `StreamEvent.type` includes:
 
 - `message_start`
 - `content_block_start`

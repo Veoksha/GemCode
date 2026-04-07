@@ -1,7 +1,7 @@
 """
 Optional MCP toolsets from `.gemcode/mcp.json`.
 
-Now supports all three ADK connection types — like Claude Code's MCP integration:
+Now supports all three ADK connection types — like MCP integration:
 
 Schema (example):
 {

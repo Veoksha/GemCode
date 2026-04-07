@@ -1068,10 +1068,10 @@ async def process_repl_slash(
   if name in ("exit", "quit"):
     return ReplSlashResult(exit_repl=True)
 
-  # ── /kairos ───────────────────────────────────────────────────────────────
-  if name == "kairos":
+  # ── /kaira ───────────────────────────────────────────────────────────────
+  if name == "kaira":
     args_s = (sc.args or "").strip()
-    out("Kairos — background parallel job scheduler")
+    out("Kaira — background parallel job scheduler")
     out()
     out("What it does:")
     out("  Runs a long-lived daemon that accepts prompts on stdin and executes")
@@ -1079,9 +1079,9 @@ async def process_repl_slash(
     out("  --concurrency N, default 2) in a priority queue.")
     out()
     out("How to launch (in a separate terminal):")
-    out(f"  gemcode kairos -C {cfg.project_root}")
-    out("  gemcode kairos -C <project> --concurrency 4 --yes")
-    out("  gemcode kairos -C <project> --model gemini-2.5-pro --deep-research")
+    out(f"  gemcode kaira -C {cfg.project_root}")
+    out("  gemcode kaira -C <project> --concurrency 4 --yes")
+    out("  gemcode kaira -C <project> --model gemini-2.5-pro --deep-research")
     out()
     out("Options:")
     out("  --concurrency N      Max parallel jobs (default: 2)")
@@ -1095,13 +1095,13 @@ async def process_repl_slash(
     out("  --session <uuid>     Share session history with a running gemcode session")
     out()
     out("Tools available to jobs (in addition to normal GemCode tools):")
-    out("  kairos_sleep_ms(duration_ms)   — pause this job without blocking others")
-    out("  kairos_enqueue_prompt(prompt, priority, session_id)")
+    out("  kaira_sleep_ms(duration_ms)   — pause this job without blocking others")
+    out("  kaira_enqueue_prompt(prompt, priority, session_id)")
     out("                                  — the model can queue MORE jobs itself")
     out()
     out("Use cases:")
     out("  - Process N files in parallel: each file → one job")
-    out("  - Polling loop: job sleeps, re-enqueues itself with kairos_enqueue_prompt")
+    out("  - Polling loop: job sleeps, re-enqueues itself with kaira_enqueue_prompt")
     out("  - Bulk code generation, test runs, or research across many documents")
     out("  - Background work while you continue chatting in this session")
     out()

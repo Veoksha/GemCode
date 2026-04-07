@@ -1,5 +1,5 @@
 """
-Spinner component matching OpenClaude's exact implementation.
+Spinner component matching Reference UI exact implementation.
 Includes thinking status, tips, and animated spinner.
 """
 
@@ -10,10 +10,10 @@ import random
 import time
 from typing import Optional
 
-# Spinner frames - Braille patterns like OpenClaude
+# Spinner frames - Braille patterns like reference terminal UI
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-# Spinner verbs - matching OpenClaude's variety
+# Spinner verbs - matching Reference UI variety
 SPINNER_VERBS = [
     "Thinking",
     "Analyzing",
@@ -27,7 +27,7 @@ SPINNER_VERBS = [
     "Examining",
 ]
 
-# Tips - matching OpenClaude's helpful hints
+# Tips - matching Reference UI helpful hints
 SPINNER_TIPS = [
     "Use /help to see all available commands",
     "Press Ctrl+O to toggle thinking display",
@@ -56,7 +56,7 @@ class SpinnerState:
     def advance(self) -> None:
         """Advance to next frame."""
         now = time.time()
-        # Update every 120ms like OpenClaude
+        # Update every 120ms like reference terminal UI
         if now - self.last_update >= 0.12:
             self.frame_index += 1
             self.last_update = now
@@ -101,7 +101,7 @@ class SpinnerState:
     
     def should_show_tip(self, elapsed_seconds: float) -> bool:
         """Determine if we should show a tip based on elapsed time."""
-        # Show tips after 30 seconds like OpenClaude
+        # Show tips after 30 seconds like reference terminal UI
         return elapsed_seconds > 30
     
     def get_tip(self) -> str:
@@ -116,7 +116,7 @@ def format_spinner_line(
     show_tip: bool = True,
 ) -> tuple[str, Optional[str]]:
     """
-    Format spinner line matching OpenClaude's exact style.
+    Format spinner line matching Reference UI exact style.
     
     Returns:
         Tuple of (main_line, tip_line)
@@ -144,7 +144,7 @@ def format_spinner_line(
 
 
 def format_idle_status(git_branch: Optional[str] = None) -> str:
-    """Format idle status line matching OpenClaude."""
+    """Format idle status line matching reference terminal UI."""
     if git_branch:
         return f"  🌿 {git_branch}  ·  Ready  ·  Ctrl+K=home  ·  Ctrl+O=thinking"
     return "  📁 workspace  ·  Ready  ·  Ctrl+K=home  ·  Ctrl+O=thinking"

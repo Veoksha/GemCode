@@ -1,5 +1,5 @@
 """
-Query-layer types and helpers (clean-room analogue of Claude Code `src/query/*`).
+Query-layer types and helpers (clean-room analogue of `src/query/*`).
 
 - `transitions` — terminal vs continue reasons for the model↔tool loop.
 - `config` — immutable gate snapshot per run (env/session).

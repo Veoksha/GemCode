@@ -1,8 +1,7 @@
 """
 Think tool — structured reasoning scratchpad before acting.
 
-Inspired by Anthropic's documented "think" tool pattern:
-https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
+Inspired by common agent "think" tool patterns.
 
 Even though Gemini 2.5 has native dynamic thinking, an explicit think() call
 improves quality on hard tasks because:

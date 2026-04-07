@@ -30,15 +30,15 @@ def _events_to_text(events) -> str:
 
 
 @dataclass(frozen=True)
-class KairosJob:
+class KairaJob:
   job_id: str
   prompt: str
   priority: int
   session_id: str
 
 
-class KairosDaemon:
-  """Kairos-like proactive scheduler (stdin -> priority queue -> job runners)."""
+class KairaDaemon:
+  """Background proactive scheduler (stdin -> priority queue -> job runners)."""
 
   def __init__(
     self,
@@ -47,16 +47,16 @@ class KairosDaemon:
     concurrency: int = 2,
     default_priority: int = 0,
     user_id: str = "local",
-    job_runner: Callable[[KairosJob], Awaitable[None]] | None = None,
+    job_runner: Callable[[KairaJob], Awaitable[None]] | None = None,
   ) -> None:
     self.cfg = cfg
     self.concurrency = max(1, int(concurrency))
     self.default_priority = int(default_priority)
     self.user_id = user_id
 
-    # Queue items are (sort_key, seq, KairosJob).
+    # Queue items are (sort_key, seq, KairaJob).
     self._queue: asyncio.PriorityQueue[
-      tuple[int, int, KairosJob]
+      tuple[int, int, KairaJob]
     ] = asyncio.PriorityQueue()
     self._seq = 0
     self._sem = asyncio.Semaphore(self.concurrency)
@@ -75,7 +75,7 @@ class KairosDaemon:
     job_id = f"job_{uuid.uuid4().hex[:10]}"
     pr = self.default_priority if priority is None else int(priority)
     self._seq += 1
-    job = KairosJob(
+    job = KairaJob(
       job_id=job_id,
       prompt=prompt,
       priority=pr,
@@ -85,7 +85,7 @@ class KairosDaemon:
     self._queue.put_nowait((-pr, self._seq, job))
     return job_id
 
-  async def _default_job_runner(self, job: KairosJob) -> None:
+  async def _default_job_runner(self, job: KairaJob) -> None:
     runner: Runner | None = None
     try:
       # Route model/capabilities based on this job's prompt, without mutating
@@ -94,7 +94,7 @@ class KairosDaemon:
       apply_capability_routing(job_cfg, job.prompt, context="prompt")
       job_cfg.model = pick_effective_model(job_cfg, job.prompt)
 
-      # For the initial MVP, we inject Kairos tools via `_build_extra_tools_for_job()`;
+      # For the initial MVP, we inject Kaira tools via `_build_extra_tools_for_job()`;
       # this keeps scheduling logic independent from tool declarations.
       extra_tools = self._build_extra_tools_for_job(job)
       runner = create_runner(job_cfg, extra_tools=extra_tools or None)
@@ -108,28 +108,28 @@ class KairosDaemon:
       )
       text = _events_to_text(events).strip()
       if text:
-        print(f"\n[kairos {job.job_id}] {text}\n", flush=True)
+        print(f"\n[kaira {job.job_id}] {text}\n", flush=True)
       else:
-        print(f"\n[kairos {job.job_id}] (no text output)\n", flush=True)
+        print(f"\n[kaira {job.job_id}] (no text output)\n", flush=True)
     finally:
       if runner is not None:
         await runner.close()
 
-  def _build_extra_tools_for_job(self, job: KairosJob) -> list | None:
+  def _build_extra_tools_for_job(self, job: KairaJob) -> list | None:
     """Inject per-job tools for the model to call."""
 
-    async def kairos_sleep_ms(duration_ms: int) -> dict:
+    async def kaira_sleep_ms(duration_ms: int) -> dict:
       """Pause this job for `duration_ms` (does not block other jobs)."""
       duration_ms = max(0, int(duration_ms))
       await asyncio.sleep(duration_ms / 1000.0)
       return {"slept_ms": duration_ms}
 
-    def kairos_enqueue_prompt(
+    def kaira_enqueue_prompt(
       prompt: str,
       priority: int = 0,
       session_id: str | None = None,
     ) -> dict:
-      """Enqueue a new Kairos job from the model.
+      """Enqueue a new Kaira job from the model.
 
       If `session_id` is not provided, it defaults to the current job's
       session_id.
@@ -142,13 +142,13 @@ class KairosDaemon:
       )
       return {"enqueued_job_id": enqueued_id}
 
-    return [kairos_sleep_ms, kairos_enqueue_prompt]
+    return [kaira_sleep_ms, kaira_enqueue_prompt]
 
-  async def _run_job_with_semaphore(self, job: KairosJob) -> None:
+  async def _run_job_with_semaphore(self, job: KairaJob) -> None:
     async with self._sem:
       await self._job_runner(job)
 
-  async def _run_job_and_release(self, job: KairosJob) -> None:
+  async def _run_job_and_release(self, job: KairaJob) -> None:
     try:
       await self._job_runner(job)
     finally:
@@ -166,7 +166,7 @@ class KairosDaemon:
   async def _stdin_loop(self, *, session_id: str) -> None:
     """Read stdin lines and enqueue each as a new job."""
     # Use a background thread so the asyncio loop stays responsive.
-    prompt_prefix = "kairos> "
+    prompt_prefix = "kaira> "
     while not self._stop_event.is_set():
       try:
         # Print prompt only in interactive terminals.

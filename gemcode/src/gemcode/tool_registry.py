@@ -1,7 +1,7 @@
 """
-Tool catalog and concurrency class (Claude Code–style partitioning, clean-room).
+Tool catalog and concurrency class (interactive CLI–style partitioning, clean-room).
 
-In Claude Code, `tools.ts` registers tools and `toolOrchestration.ts` runs
+In many setups, `tools.ts` registers tools and `toolOrchestration.ts` runs
 concurrency-safe batches in parallel and serializes mutating work. Here we
 classify tools so permissions and docs stay aligned; ADK executes calls as the
 model emits them, but we still enforce policy in order (before_tool_callback).

@@ -1,5 +1,5 @@
 """
-Root LlmAgent definition (Claude Code: agent config + tool list, analogous to tools.ts + prompts).
+Root LlmAgent definition (agent config + tool list, analogous to a tools registry + prompts).
 
 See `session_runtime.py` for Runner/session wiring (outer layer).
 See `tool_registry.py` for tool categories (read vs mutating vs shell).
@@ -64,7 +64,7 @@ def _chain_before_model_callbacks(*callbacks):
 
 def _load_gemini_md(project_root: Path) -> str:
   """
-  Load GEMINI.md / .gemcode/NOTES.md from a Claude Code–style hierarchy.
+  Load GEMINI.md / .gemcode/NOTES.md from a interactive CLI–style hierarchy.
 
   Priority (later entries override earlier ones, all are concatenated):
     1. ~/.gemcode/GEMINI.md           — user-global instructions (all projects)
@@ -89,7 +89,7 @@ def _load_gemini_md(project_root: Path) -> str:
       return ""
     try:
       raw = p.read_text(encoding="utf-8", errors="replace")[:_FILE_CAP]
-      # Strip HTML comments (like Claude Code does — saves tokens)
+      # Strip HTML comments (saves tokens)
       return _COMMENT_RE.sub("", raw).strip()
     except OSError:
       return ""
@@ -140,7 +140,7 @@ def _get_git_context(root) -> str:
   """
   Run a quick git snapshot at session start — branch, recent commits, diff-stat.
   Returns a formatted string or empty string if not a git repo.
-  Mirrors OpenClaude's getGitStatus() pattern.
+  Mirrors Reference UI getGitStatus() pattern.
   """
   import subprocess
   import shutil
@@ -232,18 +232,18 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
   if max_session_tokens:
     budget_line += f" · max_session_tokens={max_session_tokens:,}"
 
-  # ── Kairos ────────────────────────────────────────────────────────────────
-  # The user can run `gemcode kairos -C <project>` in a separate terminal to
+  # ── Kaira ────────────────────────────────────────────────────────────────
+  # The user can run `gemcode kaira -C <project>` in a separate terminal to
   # launch a long-lived scheduler. Jobs submitted to it run concurrently with
   # the current session. This is useful for background / parallel heavy work.
-  kairos_section = (
-    "- **Kairos background scheduler** — `gemcode kairos -C <project>` launches a "
+  kaira_section = (
+    "- **Kaira background scheduler** — `gemcode kaira -C <project>` launches a "
     "long-lived daemon that reads prompts from stdin and runs each as an isolated job "
-    "(up to N concurrently). Each job gets `kairos_sleep_ms(ms)` and "
-    "`kairos_enqueue_prompt(prompt, priority, session_id)` tools so the model can "
+    "(up to N concurrently). Each job gets `kaira_sleep_ms(ms)` and "
+    "`kaira_enqueue_prompt(prompt, priority, session_id)` tools so the model can "
     "schedule follow-up work itself. Useful for: bulk file processing, repeated "
     "polling loops, parallelising large independent tasks. "
-    "Tell the user to open a second terminal and run `gemcode kairos` if a task "
+    "Tell the user to open a second terminal and run `gemcode kaira` if a task "
     "would benefit from background parallelism."
   )
 
@@ -274,7 +274,7 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
 - **Capability routing** (`capability_mode={getattr(cfg, 'capability_mode', 'auto')}`): in `auto` mode, GemCode automatically enables deep_research when it detects research-intent keywords in your prompt each turn. You can also type `/research on`, `/embeddings on`, `/memory on`, `/computer on` at the prompt.
 - **Your tool palette can grow mid-session:** if the user enables a capability via a slash command, the runner rebuilds and you get new tools on the next turn.
 - **Memory system:** when `memory ON`, ADK automatically searches `.gemcode/memories.jsonl` and injects relevant past context before each turn. Facts the user tells you in one session can appear in future sessions. You do not need to manage memory explicitly — it is loaded automatically.
-{kairos_section}
+{kaira_section}
 - **UI banner** phrases like "GemCode Pro" are terminal marketing, not a separate API tier.
 - **Env toggles** (`GEMCODE_ENABLE_COMPUTER_USE`, `GEMCODE_MODEL`, etc.) affect only the OS process that launched gemcode. Pasting `VAR=1` in chat does NOT reconfigure a running session—tell the user to export in their shell, use project `.env`, or restart the CLI.
 - **Working in subfolders** — call `list_directory(\"Desktop\")`, `glob_files(\"**/query.ts\")`, `read_file(\"testing/ai-edtech-app/src/app/page.tsx\")` directly. Never claim access is blocked unless a tool returned an explicit error.{git_section}{curated_section}"""
@@ -680,7 +680,7 @@ Concrete patterns:
 - Grepping different patterns → multiple `grep_content` in one response
 - `list_directory` + `glob_files` → both at once
 
-**Parallel sub-agent exploration (OpenClaude pattern):**
+**Parallel sub-agent exploration (reference terminal UI pattern):**
 When a task requires understanding several subsystems before acting:
 1. Spawn parallel `run_subtask` workers, one per subsystem
 2. Wait for all results to return in the same turn
@@ -844,7 +844,7 @@ Use `gh pr create` via `bash`. When asked to create a PR:
 All file tools use paths **relative to the project root** (where GemCode was started). The root may be the home folder — subfolders like `Desktop`, `Desktop/code`, `Documents` are inside the sandbox. Call `list_directory("Desktop")` or `glob_files("**/*name*.ts")` instead of assuming access is blocked. Only treat access as denied when a tool returns an explicit `error`.
 
 ## Agent notes (.gemcode/notes.md)
-You have two tools to persist project insights across sessions, like Claude Code's auto-memory:
+You have two tools to persist project insights across sessions (auto-memory style):
 
 - **`append_project_note(note)`** — write a note to `.gemcode/notes.md`. Use this proactively when you discover something worth remembering:
   - Build/test/lint commands you discover ("Build: `npm run build` — requires Node 20")
@@ -936,7 +936,7 @@ def build_root_agent(
   except Exception:
     pass
 
-  # Agent auto-notes: write project insights to .gemcode/notes.md (Claude Code MEMORY.md equivalent)
+  # Agent auto-notes: write project insights to .gemcode/notes.md (project notes file)
   try:
     from gemcode.tools.notes import build_notes_tools
     notes_tools = build_notes_tools(cfg.project_root)
@@ -964,7 +964,7 @@ def build_root_agent(
   if before_model is not None:
     cb_kwargs["before_model_callback"] = before_model
 
-  # Claude-like thinking: enabled by default (Gemini dynamic), but allow
+  # familiar thinking: enabled by default (Gemini dynamic), but allow
   # explicit overrides for disable/budgets/levels.
   gen_cfg = None
   thinking_cfg = build_thinking_config(cfg)

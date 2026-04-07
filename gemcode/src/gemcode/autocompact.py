@@ -1,5 +1,5 @@
 """
-Claude Code–style autocompact for ADK/Gemini.
+interactive CLI–style autocompact for ADK/Gemini.
 
 GemCode already has:
 - bounded tool output (after_tool truncation)
@@ -41,7 +41,7 @@ def _autocompact_enabled(cfg: GemCodeConfig) -> bool:
 
 
 def _autocompact_threshold_chars(cfg: GemCodeConfig) -> int:
-  # Claude Code uses token windows; we use a character proxy budget since
+  # uses token windows; we use a character proxy budget since
   # Gemini tokenizers vary and ADK does not expose a cheap exact counter.
   max_chars = int(getattr(cfg, "max_context_chars", 0) or 0)
   if max_chars <= 0:

@@ -4,7 +4,7 @@ Standalone web search tool — always available, no API key required.
 Uses DuckDuckGo's HTML interface as the primary backend (no auth needed).
 Falls back to the `duckduckgo_search` package if installed for richer results.
 
-Analogous to OpenClaude's WebSearchTool. Use this for quick lookups; for
+Analogous to Reference UI WebSearchTool. Use this for quick lookups; for
 deep, multi-page research use /research on (which enables Google Search
 grounding via the Gemini API).
 """

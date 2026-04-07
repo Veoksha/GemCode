@@ -1,5 +1,5 @@
 """
-Bounded tool output and soft prompt-size limits (Claude Code–style context hygiene).
+Bounded tool output and soft prompt-size limits (interactive CLI–style context hygiene).
 
 - Truncate oversized tool result dicts before they enter history (`after_tool`).
 - Before each LLM call, trim oldest text parts until estimated char total is under
@@ -169,7 +169,7 @@ def shrink_contents_text_inplace(contents: Any, max_total_chars: int) -> bool:
         # Choose a max string size that should reduce at least some of the excess.
         if excess >= max_len:
           # Extreme overage: clearing oldest tool payload is closer to
-          # Claude Code's microcompact behavior and guarantees progress.
+          # microcompact behavior and guarantees progress.
           cleared = {"[Old tool result content cleared]": True}
           if getattr(part, "tool_response", None) is not None:
             part.tool_response.response = cleared

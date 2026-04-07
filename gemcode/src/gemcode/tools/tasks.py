@@ -1,5 +1,5 @@
 """
-Background task management — analogous to OpenClaude's TaskStop + TaskOutput.
+Background task management — analogous to Reference UI TaskStop + TaskOutput.
 
 When bash(command, background=True) spawns a process, GemCode registers it in
 a module-level registry keyed by PID. The tools here let the agent:
@@ -13,7 +13,7 @@ Background output capture:
   capture=True (the default). task_output() reads that file. Processes started
   before this feature was added, or with capture=False, will show "no output".
 
-Usage pattern (mirrors OpenClaude):
+Usage pattern (mirrors reference terminal UI):
   pid_info = bash("npm run dev", background=True)   # starts dev server
   task_output(pid_info["pid"])                       # check its startup log
   kill_task(pid_info["pid"])                         # stop it when done

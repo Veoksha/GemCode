@@ -1,5 +1,5 @@
 """
-Single user turn (Claude Code: inner path ≈ `query()` invocation per message).
+Single user turn (inner path ≈ `query()` invocation per message).
 
 CLI and tests call `run_turn` with a Runner already bound to app + session service.
 """

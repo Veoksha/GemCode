@@ -1,7 +1,7 @@
 """
 Arbitrary shell execution via bash -c.
 
-Analogous to OpenClaude's BashTool — allows pipelines, redirects, multi-step
+Analogous to Reference UI BashTool — allows pipelines, redirects, multi-step
 shell workflows that run_command (basename-only) cannot express.
 
 Provides two variants:

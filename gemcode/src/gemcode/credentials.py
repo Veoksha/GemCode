@@ -1,4 +1,4 @@
-"""Persisted Google API credentials (Claude Code–style: save once, override via env)."""
+"""Persisted Google API credentials (interactive CLI–style: save once, override via env)."""
 
 from __future__ import annotations
 

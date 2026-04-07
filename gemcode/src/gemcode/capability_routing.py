@@ -1,8 +1,8 @@
 """
-Capability-based routing (Claude Code style conceptually).
+Capability-based routing (style conceptually).
 
 This layer decides which *capabilities* to enable (deep research tools,
-embeddings retrieval, computer-use tools) and leaves the existing Claude-like
+embeddings retrieval, computer-use tools) and leaves the existing familiar
 outer/inner loops intact.
 
 It is intentionally conservative:

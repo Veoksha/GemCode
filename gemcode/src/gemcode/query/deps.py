@@ -1,5 +1,5 @@
 """
-Injectable dependencies (cf. claude-code `query/deps.ts`).
+Injectable dependencies (cf. typical `query/deps.ts`).
 
 Kept minimal: tests can replace `uuid` without patching modules.
 """

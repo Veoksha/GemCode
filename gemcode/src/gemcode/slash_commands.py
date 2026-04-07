@@ -1,4 +1,4 @@
-"""Claude Code–style slash command parsing and built-ins for GemCode CLI."""
+"""interactive CLI–style slash command parsing and built-ins for GemCode CLI."""
 
 from __future__ import annotations
 

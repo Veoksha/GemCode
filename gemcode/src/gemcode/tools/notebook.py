@@ -1,7 +1,7 @@
 """
 Jupyter notebook tools — read and edit .ipynb files.
 
-Analogous to OpenClaude's NotebookEdit (OpenClaude handles read via the main
+Analogous to Reference UI NotebookEdit (reference terminal UI handles read via the main
 Read tool; GemCode provides dedicated notebook_read + notebook_edit tools).
 
 Jupyter notebooks are JSON files with a cells array. Each cell has:
@@ -136,7 +136,7 @@ def make_notebook_tools(cfg: GemCodeConfig):
         """
         Edit a cell in a Jupyter notebook (.ipynb).
 
-        Supports three edit modes (analogous to OpenClaude's NotebookEdit):
+        Supports three edit modes (analogous to Reference UI NotebookEdit):
         - "replace" (default): Replace the source of the cell at cell_index.
         - "insert": Insert a new cell at cell_index (shifts existing cells down).
         - "delete": Delete the cell at cell_index (new_source is ignored).

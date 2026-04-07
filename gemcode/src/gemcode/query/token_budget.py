@@ -1,5 +1,5 @@
 """
-Per-turn token budget continuation (cf. claude-code `query/tokenBudget.ts`).
+Per-turn token budget continuation (cf. typical `query/tokenBudget.ts`).
 
 Used with a *single* agent (no sub-agent id): decide whether to inject a
 continuation nudge vs stop when cumulative turn tokens approach `budget`.
@@ -63,7 +63,7 @@ def check_token_budget(
     budget: int | None,
     global_turn_tokens: int,
 ) -> TokenBudgetDecision:
-  """Same control flow as Claude Code `checkTokenBudget`."""
+  """Same control flow as `checkTokenBudget`."""
   if agent_id or budget is None or budget <= 0:
     return _StopDecision(action="stop", completion_event=None)
 

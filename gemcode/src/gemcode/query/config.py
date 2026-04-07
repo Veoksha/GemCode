@@ -1,7 +1,7 @@
 """
 Immutable gate snapshot at query entry (cf. `query/config.ts`).
 
-Feature flags in Claude use `feature()` for tree-shaking; we use env + this struct.
+Some codebases use compile-time feature flags; we use env + this struct.
 """
 
 from __future__ import annotations

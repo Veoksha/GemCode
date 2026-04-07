@@ -36,7 +36,7 @@ def _lerp_rgb(
 
 
 def _gradient_logo_line(line: str, *, line_t: float) -> "Text":
-  """Horizontal + mild vertical blend (same idea as OpenClaude startup gradient)."""
+  """Horizontal + mild vertical blend (same idea as reference terminal UI startup gradient)."""
   from rich.text import Text
 
   lo = _hex_rgb(_BLUE_DEEP)

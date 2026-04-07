@@ -1,5 +1,5 @@
 """
-Transition types for the model↔tool loop (cf. claude-code `query/transitions.ts`).
+Transition types for the model↔tool loop (cf. typical `query/transitions.ts`).
 
 Terminal: why a turn or invocation ended.
 Continue: why another model iteration was scheduled (conceptual; ADK handles scheduling).

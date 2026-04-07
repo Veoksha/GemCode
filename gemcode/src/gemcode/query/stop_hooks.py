@@ -1,5 +1,5 @@
 """
-Post-turn hooks (subset of claude-code `query/stopHooks.ts`).
+Post-turn hooks (subset of legacy `query/stopHooks.ts`).
 
 Runs after a user message finishes streaming through the agent. Optional:
 - `GEMCODE_POST_TURN_HOOK` — path to an executable

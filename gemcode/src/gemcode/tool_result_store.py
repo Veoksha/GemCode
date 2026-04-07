@@ -6,7 +6,7 @@ Why:
   context bloat and cache misses in long agent sessions.
 - Instead of truncating blobs inline (which still mutates history repeatedly),
   we store the full payload on disk and replace it with a stable reference +
-  short preview. This matches OpenClaude's "tool result storage" pattern.
+  short preview. This matches Reference UI "tool result storage" pattern.
 """
 
 from __future__ import annotations

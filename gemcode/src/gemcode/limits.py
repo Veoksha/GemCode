@@ -1,5 +1,5 @@
 """
-Pre-model limits (cf. Claude `calculateTokenWarningState` / blocking limit checks).
+Pre-model limits (token warning state / blocking limit checks).
 
 Uses session state updated in `callbacks.make_after_model_callback`.
 """

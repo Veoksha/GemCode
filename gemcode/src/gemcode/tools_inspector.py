@@ -1,7 +1,7 @@
 """
 GemCode tool inventory + declaration smoke testing.
 
-Claude Code's tool-system prompt emphasizes:
+tool-system prompt emphasizes:
 - inventory of available tools (feature-gated vs always-on)
 - schema/declaration compilation smoke tests per tool
 - permission/category metadata

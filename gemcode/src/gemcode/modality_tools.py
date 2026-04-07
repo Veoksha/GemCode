@@ -1,7 +1,7 @@
 """
 Modality tool injection for GemCode.
 
-Claude Code–style: outer loop + inner tool orchestration remains ADK-driven,
+interactive CLI–style: outer loop + inner tool orchestration remains ADK-driven,
 but we choose which tools to expose based on user flags / prompt heuristics.
 """
 

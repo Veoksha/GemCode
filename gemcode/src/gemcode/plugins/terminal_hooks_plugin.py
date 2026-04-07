@@ -1,5 +1,5 @@
 """
-ADK plugin: complements Claude-like stopHooks with GemCode terminal reasons,
+ADK plugin: complements familiar stopHooks with GemCode terminal reasons,
 optional memory ingestion, and post-turn hook execution.
 """
 

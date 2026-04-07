@@ -1,7 +1,7 @@
 """
 Tool system prompt manifest.
 
-Claude Code's "tool system" approach is largely prompt-driven: it provides the
+"tool system" approach is largely prompt-driven: it provides the
 model a clear, consistent contract about what tools exist, what categories they
 fall into, and what the model is allowed to do with each tool.
 

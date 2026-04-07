@@ -1,8 +1,8 @@
 """
-Claude Code–style context pressure signals (cf. `autoCompact.ts` / `calculateTokenWarningState`).
+Context pressure signals for autocompact and warnings (token-based thresholds).
 
 Uses API `prompt_token_count` when available; thresholds are token-based with
-env overrides. Mirrors Claude’s buffer constants where practical.
+env overrides. Mirrors common buffer constants where practical.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import os
 
 from gemcode.config import GemCodeConfig
 
-# Claude `autoCompact.ts` defaults
+# Reference auto-compact defaults
 AUTOCOMPACT_BUFFER_TOKENS = 13_000
 WARNING_THRESHOLD_BUFFER_TOKENS = 20_000
 ERROR_THRESHOLD_BUFFER_TOKENS = 20_000
@@ -40,12 +40,12 @@ def get_effective_context_window_tokens(model: str) -> int:
 
 
 def get_reserved_summary_tokens(model: str) -> int:
-  """Claude reserves headroom for compaction summary output; we use a small cap."""
+  """Reserve headroom for compaction summary output; we use a small cap."""
   return min(_opt_int("GEMCODE_AUTOCOMPACT_RESERVED_OUTPUT_TOKENS", 20_000), 20_000)
 
 
 def get_effective_context_window_size_tokens(model: str) -> int:
-  """`effectiveContextWindow` ≈ window minus reserved output (Claude `getEffectiveContextWindowSize`)."""
+  """`effectiveContextWindow` ≈ window minus reserved output for summaries."""
   w = get_effective_context_window_tokens(model)
   return max(10_000, w - get_reserved_summary_tokens(model))
 
@@ -70,7 +70,7 @@ def calculate_context_warning_state(
     cfg: GemCodeConfig | None = None,
 ) -> dict[str, object]:
   """
-  Returns keys aligned with Claude’s `calculateTokenWarningState`:
+  Returns keys aligned with typical token-warning state helpers:
   - percent_left
   - is_above_warning_threshold
   - is_above_error_threshold

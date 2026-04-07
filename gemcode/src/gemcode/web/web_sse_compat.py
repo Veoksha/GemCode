@@ -1,8 +1,6 @@
 """
-Backward-compatibility wrapper.
-
-Older web integration layers imported `gemcode.web.claude_sse_adapter`.
-The implementation moved to `gemcode.web.sse_adapter` to avoid vendor-specific naming.
+Compatibility shim: re-exports the SSE web adapter for integrations that used
+the older module path. Implementation lives in `gemcode.web.sse_adapter`.
 """
 
 from __future__ import annotations
@@ -24,4 +22,3 @@ def main() -> None:
 
 if __name__ == "__main__":
   main()
-

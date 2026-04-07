@@ -1,4 +1,4 @@
-"""Session-scoped task list (Claude Code TodoWrite–style planning)."""
+"""Session-scoped task list (TodoWrite–style planning)."""
 
 from __future__ import annotations
 

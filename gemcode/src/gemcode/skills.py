@@ -97,7 +97,7 @@ def _split_list(v: str | None) -> list[str] | None:
 
 def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
   """
-  Minimal YAML-frontmatter parser sufficient for Claude-style SKILL.md.
+  Minimal YAML-frontmatter parser sufficient for conventional SKILL.md.
 
   Supported:
   - key: value (single-line)

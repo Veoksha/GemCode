@@ -1,5 +1,5 @@
 """
-GemCode shell hooks — scriptable lifecycle events inspired by OpenClaude.
+GemCode shell hooks — scriptable lifecycle events inspired by reference terminal UI.
 
 Hooks are shell scripts stored under ``<project_root>/.gemcode/hooks/``.
 They receive a JSON payload on stdin and can:

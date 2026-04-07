@@ -61,4 +61,3 @@ def test_sse_adapter_mock(tmp_path) -> None:
   assert assembled == env["GEMCODE_WEB_MOCK_RESPONSE"]
 
   assert any(f.get("type") == "done" for f in frames)
-

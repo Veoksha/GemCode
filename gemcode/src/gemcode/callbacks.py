@@ -1,7 +1,7 @@
 """
 ADK callbacks: permissions, audit, tool failure circuit breaker, usage logging.
 
-Maps to Claude Code patterns:
+Maps to patterns:
 - before_tool / after_tool ≈ permission gates + telemetry around tool execution
 - after_model ≈ cost / usage hooks (see cost-tracker.ts role)
 - Session state for streak counters ≈ autoCompact failure tracking (MVP: tool errors)
@@ -60,7 +60,7 @@ def _truthy_env(name: str, *, default: bool = False) -> bool:
 
 
 def _maybe_tool_summary_enabled() -> bool:
-  # Mirrors Claude's "emit tool use summaries" gate conceptually.
+  # Mirrors optional "emit tool use summaries" gating.
   return _truthy_env("GEMCODE_EMIT_TOOL_USE_SUMMARIES", default=False)
 
 
@@ -344,7 +344,7 @@ def make_before_tool_callback(cfg: GemCodeConfig):
 
 
 def make_after_tool_callback(cfg: GemCodeConfig):
-  """Track consecutive tool failures in session state (Claude-style circuit breaker)."""
+  """Track consecutive tool failures in session state (conventional circuit breaker)."""
 
   def after_tool(
     tool: BaseTool,
@@ -548,7 +548,7 @@ def make_after_tool_callback(cfg: GemCodeConfig):
               summary[k] = v
       append_audit(cfg.project_root, summary)
       # Also print a concise, user-visible summary in CLI contexts.
-      # (Claude Code renders tool cards; this is the lightweight equivalent.)
+      # (renders tool cards; this is the lightweight equivalent.)
       try:
         # Full-screen TUIs get corrupted by stray stderr prints.
         if _truthy_env("GEMCODE_TUI_ACTIVE", default=False):
@@ -621,7 +621,7 @@ def make_after_model_callback(cfg: GemCodeConfig):
 
     # ── Expose live token stats to the TUI ───────────────────────────────────
     # The TUI reads cfg._last_turn_stats after each turn to display token counts
-    # and estimated cost in the footer (like OpenClaude's spinner token display).
+    # and estimated cost in the footer (like Reference UI spinner token display).
     try:
       in_tok  = d.get("prompt_token_count", 0) or 0
       out_tok = d.get("candidates_token_count", 0) or 0
@@ -762,7 +762,7 @@ def make_after_model_callback(cfg: GemCodeConfig):
 
 
 def make_on_tool_error_callback(cfg: GemCodeConfig):
-  """Turn tool exceptions into structured tool results (Claude-like is_error)."""
+  """Turn tool exceptions into structured tool results (familiar is_error)."""
 
   async def on_tool_error(
     *, tool: BaseTool, args: dict[str, Any], tool_context, error: Exception

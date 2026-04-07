@@ -1,5 +1,5 @@
 """
-Built-in REPL slash-command handlers (Claude Code–style thin wrappers).
+Built-in REPL slash-command handlers (interactive CLI–style thin wrappers).
 
 Keeps `cli.py` smaller and makes output testable.
 """
@@ -130,7 +130,7 @@ def format_hooks_lines(cfg: GemCodeConfig) -> list[str]:
   else:
     lines.append("  active_hook: (none — set env or chmod +x .gemcode/hooks/post_turn)")
 
-  # ── Shell lifecycle hooks (like OpenClaude PreToolUse / PostToolUse) ──────
+  # ── Shell lifecycle hooks (like reference terminal UI PreToolUse / PostToolUse) ──────
   lines.append("")
   lines.append("Shell lifecycle hooks (.gemcode/hooks/):")
   lines.append("  Scripts run at tool/session lifecycle points.")
@@ -278,7 +278,7 @@ def slash_help_lines() -> list[str]:
       "  Other:",
       "  /permissions          Show permission / HITL settings",
       "  /hooks                Show post-turn hook configuration",
-      "  /kairos               How to launch the background parallel job scheduler",
+      "  /kaira                How to launch the background parallel job scheduler",
       "  /code [on|off]        Toggle sandboxed Python executor (ADK BuiltInCodeExecutor)",
       "  /plan [on|off]        Toggle plan mode — agent plans before executing tools",
   ]

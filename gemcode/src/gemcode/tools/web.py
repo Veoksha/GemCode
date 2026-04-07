@@ -1,7 +1,7 @@
 """
 Web fetch tool — retrieve URL content for research and documentation lookups.
 
-Analogous to OpenClaude's WebFetchTool. Read-only; no special permissions needed.
+Analogous to Reference UI WebFetchTool. Read-only; no special permissions needed.
 Uses urllib (stdlib) so no extra dependencies.
 """
 

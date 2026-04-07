@@ -1,7 +1,7 @@
 """
 Model routing for GemCode.
 
-Goal: match Claude-style "multi modes" where users can select a model mode
+Goal: match conventional "multi modes" where users can select a model mode
 explicitly, or GemCode can choose a best-fit model automatically (no extra
 model call; heuristic only).
 """

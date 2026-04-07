@@ -49,7 +49,7 @@ def _truthy_env(name: str, *, default: bool = False) -> bool:
 
 
 def token_budget_invocation_reset() -> dict:
-  """Reset per-user-message token budget tracker (matches new `query()` in Claude)."""
+  """Reset per-user-message token budget tracker when starting a new user turn."""
   import time
 
   t = int(time.time() * 1000)
@@ -285,9 +285,9 @@ class GemCodeConfig:
   # role-based routing from overriding their selection.
   model_overridden: bool = False
 
-  # Gemini thinking controls (Claude-like intent, Gemini-specific knobs).
+  # Gemini thinking controls (familiar intent, Gemini-specific knobs).
   #
-  # Claude Code enables thinking by default and only forces disable/budgets
+  # enables thinking by default and only forces disable/budgets
   # when explicitly configured. We match that by returning "None" unless the
   # user asks for explicit overrides below.
   #
@@ -333,7 +333,7 @@ class GemCodeConfig:
 
   # Plan mode: when ON, the agent explicitly writes out a numbered plan
   # BEFORE executing any tools, then checks the plan before reporting done.
-  # Like OpenClaude's EnterPlanMode — great for complex, multi-file tasks.
+  # Like Reference UI EnterPlanMode — great for complex, multi-file tasks.
   # Toggle at runtime with /plan on|off.
   plan_mode: bool = field(
     default_factory=lambda: _truthy_env("GEMCODE_PLAN_MODE", default=False)

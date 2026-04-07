@@ -1,4 +1,4 @@
-"""Tests for Claude-style context warning thresholds."""
+"""Tests for context warning thresholds."""
 
 from __future__ import annotations
 

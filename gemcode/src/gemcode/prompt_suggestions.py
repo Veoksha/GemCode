@@ -1,7 +1,7 @@
 """
-Heuristic next-step guidance (Claude stopHooks-style).
+Heuristic next-step guidance (post-turn style).
 
-We can't perfectly replicate Claude's UI-level "next suggestion job" without
+We can't perfectly replicate a full UI-level "next suggestion job" without
 extra model calls, but we can produce reliable, deterministic guidance from
 GemCode's recorded `terminal_reason`.
 """

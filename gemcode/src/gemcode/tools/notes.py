@@ -1,8 +1,7 @@
 """
-Agent auto-notes tool — inspired by Claude Code's MEMORY.md auto-writing.
+Agent auto-notes tool — project-scoped markdown notes the agent can curate.
 
-Claude Code lets Claude write its own notes to ~/.claude/projects/<proj>/MEMORY.md.
-GemCode provides an equivalent: the agent can write structured notes to
+GemCode provides: the agent can write structured notes to
 .gemcode/notes.md which are loaded back at the start of each session
 (via the GEMINI.md hierarchy in agent.py).
 

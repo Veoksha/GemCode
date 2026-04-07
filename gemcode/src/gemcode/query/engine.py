@@ -1,5 +1,5 @@
 """
-Outer session engine (cf. claude-code `QueryEngine.ts`).
+Outer session engine (cf. typical `QueryEngine.ts`).
 
 Owns config + runner + one `submit_message` path per user turn.
 """

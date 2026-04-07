@@ -23,6 +23,7 @@ def make_edit_tools(cfg: GemCodeConfig):
     except Exception:
       pass
 
+  # Block writes to common non-GemCode agent instruction filenames.
   _BLOCKED_SPECIAL_FILES = {
     "claude.md",
     "agents.md",
@@ -70,7 +71,7 @@ def make_edit_tools(cfg: GemCodeConfig):
       return {
         "error": f"Refusing to create/overwrite special file: {Path(path).name}",
         "error_kind": "blocked_special_file",
-        "hint": "GemCode does not use CLAUDE.md or AGENTS.md. Prefer GEMINI.md for project instructions and .gemcode/* for agent state.",
+        "hint": "Use GEMINI.md for project instructions and .gemcode/* for agent state. Writes to reserved vendor instruction filenames are blocked.",
       }
     _touch(path)
     if getattr(cfg, "ide_proposal_mode", False):
@@ -165,7 +166,7 @@ def make_edit_tools(cfg: GemCodeConfig):
       return {
         "error": f"Refusing to edit special file: {Path(path).name}",
         "error_kind": "blocked_special_file",
-        "hint": "GemCode does not use CLAUDE.md or AGENTS.md. Prefer GEMINI.md for project instructions and .gemcode/* for agent state.",
+        "hint": "Use GEMINI.md for project instructions and .gemcode/* for agent state. Writes to reserved vendor instruction filenames are blocked.",
       }
     _touch(path)
     if getattr(cfg, "ide_proposal_mode", False):

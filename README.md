@@ -1,123 +1,100 @@
 # GemCode
 
-Local-first coding agent: **Gemini** + **[Google ADK](https://google.github.io/adk-docs/)**.
+**Local-first coding agent** built on **Google Gemini** and the **[Agent Development Kit (ADK)](https://google.github.io/adk-docs/)**. GemCode runs an agent loop over your repository: read and edit files, run allowlisted shell commands, search the web, optionally use deep research, embeddings, browser automation, and live audio — with explicit permissions, session persistence, checkpoints, and audit trails.
 
-GemCode is a clean-room implementation (reference only to third-party Claude
-Code trees) that combines:
+GemCode is implemented as an independent **clean-room** design on top of Gemini and ADK.
 
-- Project tools (read/edit files + optional shell)
-- Optional modality toolsets (Deep Research, Embeddings, Computer Use, Live Audio)
-- Permission gates, audit logging, circuit breaker, and recovery-loop behavior
-- Session persistence for multi-turn work
+---
 
-GemCode has evolved quickly — the **authoritative, detailed manual** (CLI, env vars,
-tools, policies, token optimizations, VS Code extension, and release workflow) is:
+## What GemCode is
 
-- **[`gemcode/README.md`](gemcode/README.md)**
+| Layer | Role |
+|--------|------|
+| **Model** | Gemini (configurable family, mode, and per-capability routing). |
+| **Orchestration** | ADK `Runner` / `LlmAgent`: model ↔ tools until the turn completes or limits hit. |
+| **Tools** | Function tools for filesystem, grep, repo map, edit, shell, web, notebooks, skills, memory, checkpoints, subtasks, etc. |
+| **Session** | SQLite-backed history under `.gemcode/sessions.sqlite`; reusable `--session` ids. |
+| **Safety** | Permission modes, optional in-run approval (HITL), allowlists, circuit breaker, recovery retries. |
+| **UX** | CLI one-shot prompts, interactive REPL with slash commands, optional scrollback TUI, VS Code extension, `gemcode ide --stdio` for editor bridges, optional web backends. |
 
-## Quickstart (TL;DR)
+---
 
-Requirements:
+## Documentation map
 
-- Python 3.11+
-- `GOOGLE_API_KEY` (get one from Google AI Studio)
+| Document | Contents |
+|----------|----------|
+| **[`gemcode/README.md`](gemcode/README.md)** | **Primary manual**: install, CLI, flags, `.gemcode/` layout, tools, slash commands, skills, styles, rules, checkpoints, evals, hooks, IDE mode, Kaira, live audio, env vars. |
+| **[`docs/README.md`](docs/README.md)** | Index of repo docs (web UI contract, etc.). |
+| **[`docs/web-ui-contract.md`](docs/web-ui-contract.md)** | HTTP/SSE shapes for web frontends compatible with the reference UI. |
+| **[`gemcode-vscode/README.md`](gemcode-vscode/README.md)** | VS Code extension: commands, settings, Chat + diff apply + `gemcode ide --stdio`. |
 
-Install editable (recommended for development):
+---
+
+## Quickstart
+
+**Requirements:** Python 3.11+, `GOOGLE_API_KEY` ([Google AI Studio](https://aistudio.google.com/app/apikey)).
 
 ```bash
 cd gemcode
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-Run:
+Copy `gemcode/.env.example` to `.env` and set `GOOGLE_API_KEY`, or run once:
 
 ```bash
-gemcode -C . "Explain the codebase structure"
-gemcode -C . --yes "Fix the failing tests"
-gemcode -C . --session myproj --yes "Continue: implement the refactor"
+gemcode login
 ```
 
-## What makes GemCode “smart” (high signal)
+**One-shot from a project root:**
 
-- **Dynamic token policy**: tool output caps adapt to **context pressure** and **task risk**.
-- **Self-tuning per-repo profile**: GemCode learns a repo’s “difficulty” over time via
-  `.gemcode/policy.json` and adjusts evidence budgets automatically.
-- **Stable tool output offloading**: oversized outputs are stored under `.gemcode/tool-results/`
-  and referenced as `tool_result:<sha>` so context stays clean and cache-friendly.
-- **Repo map**: `repo_map()` gives a compact symbol-first view of large repos; read full files on demand.
+```bash
+gemcode -C /path/to/repo "Explain how authentication works"
+gemcode -C /path/to/repo --yes "Fix the failing test in tests/test_foo.py"
+```
 
-## Features (all implemented powers)
+**Interactive REPL** (no prompt argument):
 
-1. **Model routing**
-   - `--model-mode` / `GEMCODE_MODEL_MODE`: `fast|balanced|quality|auto`
-   - `GEMCODE_MODEL_FAMILY_MODE`: `primary|alt|auto`
-   - Capability-aware model selection for deep-research/computer/audio
-   - Gemini 3 tool combination control: `--tool-combination-mode` / `GEMCODE_TOOL_COMBINATION_MODE`
+```bash
+gemcode -C /path/to/repo
+```
 
-2. **Capability routing (auto or forced)**
-   - `--capability-mode` / `GEMCODE_CAPABILITY_MODE`: `auto|research|embeddings|computer|audio|all`
-   - This flips tool injection on/off before the model runs.
+Type natural language, or slash commands (`/help`, `/status`, `/diff`, …). Exit with `/exit` or Ctrl+D.
 
-3. **Custom tools for your repo**
-   - Read-only: `read_file`, `list_directory`, `glob_files`, `grep_content`
-   - Mutating (requires `--yes` unless denied by policy): `write_file`, `search_replace`
-   - Optional shell execution (allowlist gated): `run_command`
+---
 
-4. **Deep research (built-in Gemini tools)**
-   - Injects Gemini built-in tools:
-     - `google_search`, `url_context`
-     - `google_maps_grounding` (optional; injected only when you opt-in via
-       `--maps-grounding` / `GEMCODE_ENABLE_MAPS_GROUNDING=1`)
-   - On Gemini 3.x, GemCode can enable built-in tool context circulation so
-     built-in results can be combined with your custom tools.
+## Feature highlights (short)
 
-5. **Embeddings (semantic retrieval + memory)**
-   - Semantic tool: `semantic_search_files`
-   - Embedding-backed persistent memory: `EmbeddingFileMemoryService`
+- **Dynamic token policy** — Tool output caps and risk-aware budgets; self-tuning `.gemcode/policy.json`.
+- **Tool output offloading** — Large outputs stored under `.gemcode/tool-results/` as stable `tool_result:<sha>` references.
+- **Repo map** — Compact symbol-oriented overview; read full files on demand.
+- **GemSkills** — `.gemcode/skills/<name>/SKILL.md` (and `~/.gemcode/skills/`); `/skills`, `/skill`, tools `list_skills` / `load_skill`; built-in `/batch` orchestrator.
+- **Output styles & rules** — `.gemcode/output-styles/*.md`, `.gemcode/rules/*.md` (optional path gating); `/style`, `/rules`.
+- **Checkpoints** — Mutations can be tracked; `/diff`, `/rewind` (or `/checkpoint`).
+- **Multi-root** — `/add-dir` for extra read/search roots with path safety.
+- **Eval & autotune** — `gemcode eval`, `gemcode autotune init|eval` with ledger under `.gemcode/evals/`.
+- **Optional powers** — Deep research (`google_search`, `url_context`), embeddings + memory, Playwright computer use, MCP (`.gemcode/mcp.json`), Kaira job daemon, `gemcode live-audio`.
 
-6. **Computer Use (optional, browser automation)**
-   - Playwright-backed `BrowserComputer` + ADK `ComputerUseToolset`
-   - Permission-gated: requires `--yes` in default mode; denied in strict mode.
+---
 
-7. **Live Audio (optional, streaming)**
-   - `gemcode live-audio` uses ADK Live API + `LiveRequestQueue`
-   - Requires `sounddevice` + `numpy`
+## Repository layout
 
-8. **Safety + reliability**
-   - Permission gates: `GEMCODE_PERMISSION_MODE=strict|default`
-   - Circuit breaker: `GEMCODE_MAX_CONSECUTIVE_TOOL_FAILURES`
-   - Recovery-loop: tool failure retry (skip policy denials and circuit breaker blocks)
+| Path | Purpose |
+|------|---------|
+| `gemcode/` | Python package (`pip install -e .`), CLI entry `gemcode`. |
+| `gemcode-vscode/` | VS Code extension (launch CLI, Chat, stdio bridge). |
+| `gemcode-web-api/` | Example Node HTTP/WebSocket server wiring terminals and chat. |
+| `docs/` | Contracts and doc indexes. |
 
-9. **Observability + control flow**
-   - Audit log: `.gemcode/audit.log` (tool usage + terminal reasons)
-   - Optional per-tool summaries: `GEMCODE_EMIT_TOOL_USE_SUMMARIES=1`
-   - Token budget & stops: `GEMCODE_TOKEN_BUDGET`, `GEMCODE_MAX_SESSION_TOKENS`
-   - Stop-the-loop hook: `GEMCODE_POST_TURN_HOOK` or `.gemcode/hooks/post_turn`
+---
 
-10. **Prompt suggestions**
-   - Heuristic next-step messaging (`gemcode/prompt_suggestions.py`)
-   - Optional Interactions API-based improvement:
-     `GEMCODE_PROMPT_SUGGESTIONS_USE_INTERACTIONS=1`
+## PyPI releases
 
-11. **Optional MCP**
-   - `--mcp` loads `.gemcode/mcp.json` toolsets
-   - Install extra: `pip install -e ".[mcp]"`
+Tags matching `v*` can drive publishing (see `.github/workflows/` and **`gemcode/README.md` → Release workflow**).
 
-## Tool audit
+---
 
-- `gemcode tools list` and `gemcode tools smoke` enumerate and validate the
-  tool set active for a given config (deep research/embeddings/maps grounding).
+## License
 
-## Docs
-
-Full, detailed documentation (including CLI flags, env vars, and tool
-behavior) lives in [`gemcode/README.md`](gemcode/README.md).
-
-## Web UI (SSE chat compatible)
-
-This workspace includes a web UI in [`claude-code-leaked/web`](claude-code-leaked/web) and a documented backend contract in [`docs/web-ui-contract.md`](docs/web-ui-contract.md).
-
-Run instructions and environment variables are in [`web-ui/README.md`](web-ui/README.md).
-
+See the `LICENSE` file in this repository (and `gemcode/LICENSE` if present).

@@ -1,7 +1,7 @@
 """
 Gemini thinking configuration helper.
 
-Conceptual mapping to Claude Code:
+Behavioral defaults (Gemini-specific):
 - thinking is enabled by default (Gemini adaptive/dynamic)
 - only when user explicitly disables or sets a budget/level we override
 - Gemini 3 uses `thinkingLevel`; Gemini 2.5 uses `thinkingBudget`
@@ -37,12 +37,12 @@ def build_thinking_config(cfg: GemCodeConfig) -> Optional[types.ThinkingConfig]:
   Returns a `types.ThinkingConfig` to pass to ADK's LlmAgent.generate_content_config.
 
   If `None` is returned, GemCode lets Gemini use its default dynamic thinking
-  behavior (Claude-like adaptive default).
+  behavior (familiar adaptive default).
   """
   model_id = getattr(cfg, "model", "") or ""
   is_25 = _is_gemini_2_5_series(model_id)
 
-  # Claude-like disable semantics:
+  # familiar disable semantics:
   # - Gemini 3 can't fully disable, so approximate with `minimal`.
   # - Gemini 2.5 can be disabled by setting thinkingBudget=0 (if supported).
   disable = bool(getattr(cfg, "disable_thinking", False))
@@ -100,7 +100,7 @@ def build_thinking_config(cfg: GemCodeConfig) -> Optional[types.ThinkingConfig]:
   if include:
     return types.ThinkingConfig(include_thoughts=True)
 
-  # Otherwise: Claude-like auto mapping based on model_mode.
+  # Otherwise: familiar auto mapping based on model_mode.
   mode = (getattr(cfg, "model_mode", "auto") or "auto").lower()
   if mode == "auto":
     return None

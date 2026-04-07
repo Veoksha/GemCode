@@ -1,5 +1,5 @@
 """
-Permission rules engine — inspired by Claude Code's allow/deny pattern system.
+Permission rules engine — inspired by allow/deny pattern system.
 
 Users define rules in `.gemcode/settings.json` (project) or `~/.gemcode/settings.json` (global).
 Rules are evaluated for every tool call: deny first, then allow, then default.
@@ -25,7 +25,7 @@ Schema:
   }
 }
 
-Pattern syntax (same as Claude Code's permission rules):
+Pattern syntax (same as permission rules):
   - "bash"                   — matches ALL bash calls
   - "bash(*)"                — same as above
   - "bash(git *)"            — bash calls whose command starts with "git "

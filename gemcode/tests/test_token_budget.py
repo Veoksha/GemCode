@@ -1,4 +1,4 @@
-"""Parity tests for query/token_budget vs Claude Code logic."""
+"""Parity tests for query/token_budget behavior."""
 
 from gemcode.query.token_budget import (
   BudgetTracker,
