@@ -391,6 +391,20 @@ async def process_repl_slash(
     out(f"    thinking_budget:       {cfg.thinking_budget if cfg.thinking_budget is not None else '(auto)'}")
     out(f"    show_full_thinking:    {cfg.show_full_thinking}")
     out()
+    # Dynamic policy telemetry
+    try:
+      risk = float(getattr(cfg, "_risk_score", 0.0) or 0.0)
+      pct = getattr(cfg, "_context_percent_left", None)
+      out("  Dynamic policy:")
+      out(f"    dynamic_token_policy:  {getattr(cfg, 'dynamic_token_policy', True)}")
+      out(f"    dynamic_risk_policy:   {getattr(cfg, 'dynamic_risk_policy', True)}")
+      out(f"    dynamic_risk_boost:    {getattr(cfg, 'dynamic_risk_boost', 0.6)}")
+      out(f"    risk_score:            {risk:.2f}")
+      if isinstance(pct, int):
+        out(f"    context_percent_left:  {pct}%")
+      out()
+    except Exception:
+      pass
     out("  Autocompact:")
     out(f"    GEMCODE_AUTOCOMPACT:               {os.environ.get('GEMCODE_AUTOCOMPACT', '1')}")
     out(f"    GEMCODE_AUTOCOMPACT_BUFFER_CHARS:  {os.environ.get('GEMCODE_AUTOCOMPACT_BUFFER_CHARS', '60000')}")

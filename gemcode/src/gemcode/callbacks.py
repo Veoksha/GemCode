@@ -43,6 +43,8 @@ _CTX_WARN_LEVEL_NOTIFIED = "gemcode:ctx_warn_level_notified"
 _LAST_PROMPT_TOKENS = "gemcode:last_prompt_tokens"
 _LAST_CONTEXT_PCT = "gemcode:last_context_percent_left"
 _LAST_CONTEXT_LEVEL = "gemcode:last_context_alert_level"
+_RISK_FILES_TOUCHED = "gemcode:risk_files_touched"
+_RISK_TOOL_CALLS = "gemcode:risk_tool_calls"
 
 def _truthy_env(name: str, *, default: bool = False) -> bool:
   v = os.environ.get(name)
@@ -140,6 +142,36 @@ def make_before_tool_callback(cfg: GemCodeConfig):
     is_computer_tool = _is_computer_use_tool(tool)
     record = {"tool": name, "args": _redact_args(name, args)}
     append_audit(cfg.project_root, record)
+
+    # Dynamic risk signals from actual repo interaction.
+    try:
+      if tool_context is not None:
+        st = tool_context.state
+        st[_RISK_TOOL_CALLS] = int(st.get(_RISK_TOOL_CALLS, 0) or 0) + 1
+        if name == "read_file":
+          p = (args or {}).get("path")
+          if isinstance(p, str) and p.strip():
+            touched: set[str] = set(st.get(_RISK_FILES_TOUCHED, []) or [])
+            touched.add(p.strip())
+            # Store as list for JSON-serializable session state.
+            st[_RISK_FILES_TOUCHED] = list(sorted(touched))[:200]
+            # More files touched => higher complexity.
+            n = len(touched)
+            cur = float(getattr(cfg, "_risk_score", 0.0) or 0.0)
+            if n >= 10:
+              cur = min(1.0, cur + 0.08)
+            elif n >= 5:
+              cur = min(1.0, cur + 0.04)
+            object.__setattr__(cfg, "_risk_score", cur)
+        # Writes / shell are inherently higher risk; allow more evidence.
+        if name in MUTATING_TOOLS:
+          cur = float(getattr(cfg, "_risk_score", 0.0) or 0.0)
+          object.__setattr__(cfg, "_risk_score", min(1.0, cur + 0.12))
+        if name in SHELL_TOOLS:
+          cur = float(getattr(cfg, "_risk_score", 0.0) or 0.0)
+          object.__setattr__(cfg, "_risk_score", min(1.0, cur + 0.08))
+    except Exception:
+      pass
 
     # ── Shell hooks: pre_tool_use ─────────────────────────────────────────
     # If the project has a .gemcode/hooks/pre_tool_use.sh, run it now.
@@ -395,6 +427,9 @@ def make_after_tool_callback(cfg: GemCodeConfig):
       if isinstance(tool_response, dict) and isinstance(tool_response.get("exit_code"), int):
         if int(tool_response["exit_code"]) != 0:
           bump += 0.10
+          # Test/build failures should boost evidence allowance more.
+          if name in ("bash", "run_command"):
+            bump += 0.05
       # decay slowly when things are healthy
       if bump == 0.0:
         cur = max(0.0, cur * 0.90)
