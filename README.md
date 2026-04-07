@@ -10,6 +10,44 @@ Code trees) that combines:
 - Permission gates, audit logging, circuit breaker, and recovery-loop behavior
 - Session persistence for multi-turn work
 
+GemCode has evolved quickly — the **authoritative, detailed manual** (CLI, env vars,
+tools, policies, token optimizations, VS Code extension, and release workflow) is:
+
+- **[`gemcode/README.md`](gemcode/README.md)**
+
+## Quickstart (TL;DR)
+
+Requirements:
+
+- Python 3.11+
+- `GOOGLE_API_KEY` (get one from Google AI Studio)
+
+Install editable (recommended for development):
+
+```bash
+cd gemcode
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+Run:
+
+```bash
+gemcode -C . "Explain the codebase structure"
+gemcode -C . --yes "Fix the failing tests"
+gemcode -C . --session myproj --yes "Continue: implement the refactor"
+```
+
+## What makes GemCode “smart” (high signal)
+
+- **Dynamic token policy**: tool output caps adapt to **context pressure** and **task risk**.
+- **Self-tuning per-repo profile**: GemCode learns a repo’s “difficulty” over time via
+  `.gemcode/policy.json` and adjusts evidence budgets automatically.
+- **Stable tool output offloading**: oversized outputs are stored under `.gemcode/tool-results/`
+  and referenced as `tool_result:<sha>` so context stays clean and cache-friendly.
+- **Repo map**: `repo_map()` gives a compact symbol-first view of large repos; read full files on demand.
+
 ## Features (all implemented powers)
 
 1. **Model routing**

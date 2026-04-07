@@ -28,6 +28,16 @@ gemcode --yes "Add a module docstring to src/foo.py"
 gemcode --session mysess --yes "Continue: run tests and fix failures"
 ```
 
+### What GemCode writes to `.gemcode/`
+
+GemCode keeps project-local state under `.gemcode/`:
+
+- **`sessions.sqlite`**: session events/history (ADK `SqliteSessionService`)
+- **`audit.log`**: JSONL audit trail for tool usage + model usage + stop reasons
+- **`tool-results/`**: oversized tool outputs offloaded to stable refs (`tool_result:<sha>`)
+- **`artifacts/`**: file artifacts (ADK `FileArtifactService`)
+- **`policy.json`**: self-tuning per-repo profile used to calibrate dynamic budgets
+
 - **`--yes`**: allow mutating tools (`write_file`, `search_replace`). Shell execution is still restricted by the `.env.example` allowlist.
 - **`--session`**: Conversation history is stored under `.gemcode/sessions.sqlite` (ADK `SqliteSessionService`). Reuse the same `--session` id to continue.
 - **`--max-llm-calls`**: cap model↔tool iterations for this message (maps to ADK `RunConfig.max_llm_calls`). You can also set `GEMCODE_MAX_LLM_CALLS`.
@@ -54,6 +64,33 @@ gemcode --session mysess --yes "Continue: run tests and fix failures"
 - **Recovery-loop**: ADK `ReflectAndRetryToolPlugin`-based retries on tool failures.
   - Set `GEMCODE_ENABLE_TOOL_RECOVERY_RETRY=0` to disable.
   - Set `GEMCODE_TOOL_REFLECT_MAX_RETRIES=1` to control retries per tool.
+
+### Token efficiency (dynamic + intelligent)
+
+GemCode optimizes tokens without losing capability by using a dynamic policy:
+
+- **Context-pressure aware**: tool caps tighten when context is tight, loosen when there is room.
+- **Risk/complexity aware**: caps increase for risky tasks (writes, shell, failures, many files).
+- **Self-tuning per repo**: `.gemcode/policy.json` calibrates baseline evidence budgets over time.
+
+Key env toggles:
+
+- `GEMCODE_DYNAMIC_TOKEN_POLICY=0|1`
+- `GEMCODE_DYNAMIC_RISK_POLICY=0|1`
+- `GEMCODE_DYNAMIC_RISK_BOOST=<float>` (default `0.6`)
+- `GEMCODE_TOOL_RESULT_OFFLOAD=0|1` (default `1`)
+
+Live telemetry:
+
+- `/status` shows `risk_score`, `context_percent_left`, and profile EMAs.
+
+### Stable tool output offloading (OpenClaude-style)
+
+Oversized tool outputs are automatically offloaded and replaced with stable refs:
+
+- Stored in: `.gemcode/tool-results/`
+- References: `tool_result:<sha256>`
+- Load on demand: `load_tool_result(ref)`
 - **Gemini thinking controls (Claude-like)**:
   - By default GemCode lets Gemini use its dynamic/adaptive thinking behavior.
   - Set `GEMCODE_DISABLE_THINKING=1` to force a best-effort “low thinking” mode:
@@ -112,12 +149,24 @@ the user’s project.
   - `list_directory`
   - `glob_files`
   - `grep_content`
+  - `repo_map`
+  - `web_search`
+  - `web_fetch`
+  - `notebook_read`
+  - `notebook_edit`
 - Mutating tools (require `--yes` unless your policy blocks them):
   - `write_file`
   - `search_replace`
 - Shell execution:
   - `run_command` (guarded by `GEMCODE_ALLOW_COMMANDS` from `.env.example` and
     `GEMCODE_PERMISSION_MODE`).
+  - `bash` (pipelines + redirects; supports `background=True`)
+
+- Background task management (for processes started via `bash(..., background=True)`):
+  - `list_tasks`, `task_output`, `kill_task`
+
+- Tool offload loader:
+  - `load_tool_result(ref)`
 
 Tool execution is still controlled by permission gates and then governed by
 GemCode’s circuit breaker + recovery behavior.
@@ -243,6 +292,23 @@ GemCode enforces:
 ```bash
 pip install -e ".[dev]"
 pytest
+```
+
+## Release workflow (GitHub Actions → PyPI)
+
+This repository publishes to PyPI on tag pushes:
+
+- `.github/workflows/publish-pypi.yml` triggers on tags matching `v*`
+
+Typical release steps:
+
+```bash
+# 1) bump gemcode/pyproject.toml version
+git add -A
+git commit -m "release: vX.Y.Z"
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin HEAD
+git push origin vX.Y.Z
 ```
 
 ## References (local only)

@@ -48,6 +48,9 @@ _RISK_TOOL_CALLS = "gemcode:risk_tool_calls"
 _RISK_HAD_SHELL = "gemcode:risk_had_shell"
 _RISK_HAD_WRITE = "gemcode:risk_had_write"
 _RISK_HAD_FAILURE = "gemcode:risk_had_failure"
+_TOOL_GROUP_CHARS = "gemcode:tool_group_chars"
+_TOOL_GROUP_EXCEEDED = "gemcode:tool_group_budget_exceeded"
+_TOOL_SEQ = "gemcode:tool_seq"
 
 def _truthy_env(name: str, *, default: bool = False) -> bool:
   v = os.environ.get(name)
@@ -150,6 +153,8 @@ def make_before_tool_callback(cfg: GemCodeConfig):
     try:
       if tool_context is not None:
         st = tool_context.state
+        # Per-turn tool sequence (used for stable tool-result replacement keys).
+        st[_TOOL_SEQ] = int(st.get(_TOOL_SEQ, 0) or 0) + 1
         st[_RISK_TOOL_CALLS] = int(st.get(_RISK_TOOL_CALLS, 0) or 0) + 1
         if name == "read_file":
           p = (args or {}).get("path")
@@ -360,18 +365,40 @@ def make_after_tool_callback(cfg: GemCodeConfig):
     except Exception:
       pass
 
+    # Aggregate per-turn tool-result budget: if we already exceeded the budget,
+    # tighten caps further for the rest of this user message.
+    try:
+      if tool_context is not None:
+        st = tool_context.state
+        if bool(st.get(_TOOL_GROUP_EXCEEDED, False)):
+          effective_tool_chars = max(1500, int(effective_tool_chars * 0.5))
+    except Exception:
+      pass
+
     if (
       isinstance(tool_response, dict)
       and getattr(cfg, "tool_result_offload_enabled", False)
       and effective_tool_chars > 0
     ):
       try:
-        from gemcode.tool_result_store import maybe_offload_tool_result
-        new_payload, did = maybe_offload_tool_result(
+        from gemcode.tool_result_store import maybe_offload_tool_result_stable
+        seq = None
+        st = None
+        try:
+          if tool_context is not None:
+            st = tool_context.state
+            seq = int(st.get(_TOOL_SEQ, 0) or 0)
+        except Exception:
+          st = None
+          seq = None
+        new_payload, did = maybe_offload_tool_result_stable(
           project_root=cfg.project_root,
           tool_name=name,
+          args=args or {},
           payload=tool_response,
           max_inline_chars=int(effective_tool_chars),
+          state=st,
+          seq=seq,
         )
         if did and isinstance(new_payload, dict):
           tool_response = new_payload
@@ -392,6 +419,19 @@ def make_after_tool_callback(cfg: GemCodeConfig):
       st = tool_context.state
     except Exception:
       return tool_response if (truncated or offloaded) else None
+
+    # Update aggregate per-turn budget counters (best-effort).
+    try:
+      from gemcode.context_budget import estimate_obj_string_chars
+      budget = int(getattr(cfg, "tool_result_group_budget_chars", 0) or 0)
+      if budget > 0:
+        used = int(st.get(_TOOL_GROUP_CHARS, 0) or 0)
+        used += int(estimate_obj_string_chars(tool_response))
+        st[_TOOL_GROUP_CHARS] = used
+        if used >= budget:
+          st[_TOOL_GROUP_EXCEEDED] = True
+    except Exception:
+      pass
     err = isinstance(tool_response, dict) and tool_response.get("error")
     err_kind = (
       isinstance(tool_response, dict) and tool_response.get("error_kind")

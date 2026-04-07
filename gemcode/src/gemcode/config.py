@@ -60,6 +60,10 @@ def token_budget_invocation_reset() -> dict:
       "gemcode:bt_t0": t,
       "gemcode:bt_base_total_tokens": -1,
       "gemcode:bt_token_budget_stop": False,
+      # Tool-result aggregate budget (per user message)
+      "gemcode:tool_group_chars": 0,
+      "gemcode:tool_group_budget_exceeded": False,
+      "gemcode:tool_seq": 0,
   }
 
 
@@ -129,6 +133,12 @@ class GemCodeConfig:
         1000,
         int(os.environ.get("GEMCODE_TOOL_RESULT_MAX_CHARS", "12000")),
     )
+  )
+
+  # Aggregate tool-result budget per user message (approx. characters of tool payloads).
+  # When exceeded, GemCode tightens subsequent tool output caps for the remainder of the turn.
+  tool_result_group_budget_chars: int = field(
+    default_factory=lambda: int(os.environ.get("GEMCODE_TOOL_RESULT_GROUP_BUDGET_CHARS", "60000"))
   )
 
   # When enabled, oversized tool outputs are offloaded to disk under

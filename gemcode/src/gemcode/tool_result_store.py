@@ -18,6 +18,73 @@ from pathlib import Path
 from typing import Any
 
 _REF_PREFIX = "tool_result:"
+_REPL_STATE_KEY = "gemcode:tool_replacement_state"
+
+
+def _stable_key(tool_name: str, args: dict[str, Any] | None, seq: int | None) -> str:
+  """
+  Build a stable key for replacement decisions.
+
+  ADK does not expose tool_use_id directly to callbacks in all versions, so we use:
+  - per-turn tool sequence number (preferred when available)
+  - tool name
+  - a stable hash of args (best-effort)
+  """
+  import json
+  try:
+    args_s = json.dumps(args or {}, sort_keys=True, ensure_ascii=False)
+  except Exception:
+    args_s = str(args or {})
+  b = (f"{seq or 0}:{tool_name}:{args_s}").encode("utf-8", errors="replace")
+  return _sha256_bytes(b)
+
+
+def maybe_offload_tool_result_stable(
+  *,
+  project_root: Path,
+  tool_name: str,
+  args: dict[str, Any] | None,
+  payload: Any,
+  max_inline_chars: int,
+  state: dict[str, Any] | None,
+  seq: int | None,
+) -> tuple[Any, bool]:
+  """
+  Stable offload wrapper.
+
+  - If we've already processed an identical tool call in this session, we re-apply
+    the exact same replacement structure to preserve prompt byte stability.
+  - Otherwise, we apply offload and remember the replacement result.
+  """
+  if state is None:
+    return maybe_offload_tool_result(
+      project_root=project_root,
+      tool_name=tool_name,
+      payload=payload,
+      max_inline_chars=max_inline_chars,
+    )
+
+  repl_state = state.get(_REPL_STATE_KEY)
+  if not isinstance(repl_state, dict):
+    repl_state = {}
+    state[_REPL_STATE_KEY] = repl_state
+
+  key = _stable_key(tool_name, args, seq)
+  if key in repl_state:
+    return repl_state[key], False
+
+  new_payload, did = maybe_offload_tool_result(
+    project_root=project_root,
+    tool_name=tool_name,
+    payload=payload,
+    max_inline_chars=max_inline_chars,
+  )
+  if did:
+    repl_state[key] = new_payload
+  else:
+    # Freeze "no replacement" decision too (prevents later shape drift).
+    repl_state[key] = payload
+  return new_payload, did
 
 
 def _store_dir(project_root: Path) -> Path:
