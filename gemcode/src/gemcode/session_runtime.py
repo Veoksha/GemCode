@@ -314,6 +314,16 @@ def _build_artifact_service(cfg: GemCodeConfig):
 
 def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner:
   """Construct Runner + SQLite session service + root LlmAgent."""
+  # Load per-repo calibration profile (self-tuning dynamic policy).
+  try:
+    from gemcode.policy_profile import calibrated_baseline_risk, load_profile
+    prof = load_profile(cfg.project_root)
+    base = calibrated_baseline_risk(prof)
+    cur = float(getattr(cfg, "_risk_score", 0.0) or 0.0)
+    object.__setattr__(cfg, "_risk_score", max(cur, base))
+    object.__setattr__(cfg, "_policy_profile", prof.to_dict())
+  except Exception:
+    pass
   modality_tools = build_modality_extra_tools(cfg)
   merged_extra_tools: list | None
   if extra_tools:

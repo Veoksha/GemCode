@@ -45,6 +45,9 @@ _LAST_CONTEXT_PCT = "gemcode:last_context_percent_left"
 _LAST_CONTEXT_LEVEL = "gemcode:last_context_alert_level"
 _RISK_FILES_TOUCHED = "gemcode:risk_files_touched"
 _RISK_TOOL_CALLS = "gemcode:risk_tool_calls"
+_RISK_HAD_SHELL = "gemcode:risk_had_shell"
+_RISK_HAD_WRITE = "gemcode:risk_had_write"
+_RISK_HAD_FAILURE = "gemcode:risk_had_failure"
 
 def _truthy_env(name: str, *, default: bool = False) -> bool:
   v = os.environ.get(name)
@@ -165,9 +168,11 @@ def make_before_tool_callback(cfg: GemCodeConfig):
             object.__setattr__(cfg, "_risk_score", cur)
         # Writes / shell are inherently higher risk; allow more evidence.
         if name in MUTATING_TOOLS:
+          st[_RISK_HAD_WRITE] = True
           cur = float(getattr(cfg, "_risk_score", 0.0) or 0.0)
           object.__setattr__(cfg, "_risk_score", min(1.0, cur + 0.12))
         if name in SHELL_TOOLS:
+          st[_RISK_HAD_SHELL] = True
           cur = float(getattr(cfg, "_risk_score", 0.0) or 0.0)
           object.__setattr__(cfg, "_risk_score", min(1.0, cur + 0.08))
     except Exception:
@@ -423,9 +428,17 @@ def make_after_tool_callback(cfg: GemCodeConfig):
       cur = float(getattr(cfg, "_risk_score", 0.0) or 0.0)
       bump = 0.0
       if err:
+        try:
+          st[_RISK_HAD_FAILURE] = True
+        except Exception:
+          pass
         bump += 0.15
       if isinstance(tool_response, dict) and isinstance(tool_response.get("exit_code"), int):
         if int(tool_response["exit_code"]) != 0:
+          try:
+            st[_RISK_HAD_FAILURE] = True
+          except Exception:
+            pass
           bump += 0.10
           # Test/build failures should boost evidence allowance more.
           if name in ("bash", "run_command"):
@@ -436,6 +449,27 @@ def make_after_tool_callback(cfg: GemCodeConfig):
       else:
         cur = min(1.0, cur + bump)
       object.__setattr__(cfg, "_risk_score", cur)
+    except Exception:
+      pass
+
+    # Persist repo calibration profile (best-effort).
+    try:
+      files = st.get(_RISK_FILES_TOUCHED, []) or []
+      files_n = len(files) if isinstance(files, list) else 0
+      tool_calls = int(st.get(_RISK_TOOL_CALLS, 0) or 0)
+      had_shell = bool(st.get(_RISK_HAD_SHELL, False))
+      had_write = bool(st.get(_RISK_HAD_WRITE, False))
+      had_failure = bool(st.get(_RISK_HAD_FAILURE, False))
+      from gemcode.policy_profile import update_profile
+      prof = update_profile(
+        cfg.project_root,
+        files_touched=files_n,
+        tool_calls=tool_calls,
+        had_shell=had_shell,
+        had_write=had_write,
+        had_failure=had_failure,
+      )
+      object.__setattr__(cfg, "_policy_profile", prof.to_dict())
     except Exception:
       pass
     # ── Shell hooks: post_tool_use ────────────────────────────────────────

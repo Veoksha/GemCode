@@ -395,6 +395,7 @@ async def process_repl_slash(
     try:
       risk = float(getattr(cfg, "_risk_score", 0.0) or 0.0)
       pct = getattr(cfg, "_context_percent_left", None)
+      prof = getattr(cfg, "_policy_profile", None)
       out("  Dynamic policy:")
       out(f"    dynamic_token_policy:  {getattr(cfg, 'dynamic_token_policy', True)}")
       out(f"    dynamic_risk_policy:   {getattr(cfg, 'dynamic_risk_policy', True)}")
@@ -402,6 +403,12 @@ async def process_repl_slash(
       out(f"    risk_score:            {risk:.2f}")
       if isinstance(pct, int):
         out(f"    context_percent_left:  {pct}%")
+      if isinstance(prof, dict):
+        try:
+          out(f"    profile.failure_rate_ema: {float(prof.get('failure_rate_ema', 0.0) or 0.0):.2f}")
+          out(f"    profile.files_touched_ema: {float(prof.get('files_touched_ema', 0.0) or 0.0):.2f}")
+        except Exception:
+          pass
       out()
     except Exception:
       pass
