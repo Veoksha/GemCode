@@ -306,7 +306,7 @@ class GemCodeConfig:
   # False = collapsed one-line excerpt.
   # Toggled at runtime via /thinking verbose|brief.
   show_full_thinking: bool = field(
-    default_factory=lambda: _truthy_env("GEMCODE_SHOW_FULL_THINKING", default=True)
+    default_factory=lambda: _truthy_env("GEMCODE_SHOW_FULL_THINKING", default=False)
   )
 
   # Enable ADK BuiltInCodeExecutor for safe sandboxed Python execution via
