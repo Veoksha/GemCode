@@ -141,6 +141,31 @@ class GemCodeConfig:
     default_factory=lambda: int(os.environ.get("GEMCODE_TOOL_RESULT_GROUP_BUDGET_CHARS", "60000"))
   )
 
+  # ADK App-level event compaction (sliding-window summarization).
+  enable_adk_events_compaction: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_ADK_EVENTS_COMPACTION", default=False)
+  )
+  adk_compaction_interval: int = field(
+    default_factory=lambda: int(os.environ.get("GEMCODE_ADK_COMPACTION_INTERVAL", "6"))
+  )
+  adk_compaction_overlap: int = field(
+    default_factory=lambda: int(os.environ.get("GEMCODE_ADK_COMPACTION_OVERLAP", "1"))
+  )
+  adk_compaction_token_threshold: int | None = field(
+    default_factory=lambda: _opt_positive_int("GEMCODE_ADK_COMPACTION_TOKEN_THRESHOLD")
+  )
+  adk_compaction_event_retention_size: int | None = field(
+    default_factory=lambda: _opt_positive_int("GEMCODE_ADK_COMPACTION_EVENT_RETENTION")
+  )
+  adk_compaction_summarizer_model: str = field(
+    default_factory=lambda: os.environ.get("GEMCODE_ADK_COMPACTION_MODEL", "gemini-2.5-flash")
+  )
+
+  # ADK multi-agent transfer (Explorer/Implementer/Verifier sub-agents).
+  enable_adk_agent_transfer: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_ADK_AGENT_TRANSFER", default=True)
+  )
+
   # When enabled, oversized tool outputs are offloaded to disk under
   # .gemcode/tool-results/ and replaced in history with stable refs + previews.
   # This reduces context bloat and improves prompt-cache stability.

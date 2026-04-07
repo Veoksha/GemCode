@@ -887,7 +887,6 @@ def build_root_agent(
             pre-built list that excludes run_subtask itself, preventing recursion).
             When set, build_function_tools() is NOT called.
   """
-  return (base + tool_guide).strip() + "\n"
   if _tools is not None:
     tools = list(_tools)
   else:
@@ -966,12 +965,51 @@ def build_root_agent(
       tool_config=tool_cfg,
     )
 
+  # ── ADK multi-agent tree (LLM-controlled transfer) ───────────────────────
+  sub_agents = []
+  if getattr(cfg, "enable_adk_agent_transfer", True) and _tools is None:
+    try:
+      # Explorer: read-only, fast, low-risk. Keep instruction short.
+      explorer_tools = build_function_tools(cfg, include_subtask=False)
+      explorer_tools = [t for t in explorer_tools if getattr(t, "__name__", "") not in ("write_file", "search_replace", "delete_file", "move_file", "bash", "run_command")]
+      explorer = LlmAgent(
+        name="explorer",
+        model=getattr(cfg, "model_alt", None) or cfg.model,
+        instruction=(
+          "You are Explorer. Your job is to quickly map the codebase and answer: "
+          "what files/symbols matter and where to look next. Use read-only tools only. "
+          "Return concise findings with file paths and symbol names."
+        ),
+        tools=explorer_tools,
+        generate_content_config=gen_cfg,
+        **cb_kwargs,
+      )
+      # Verifier: focuses on checking, tests, and consistency.
+      verifier_tools = build_function_tools(cfg, include_subtask=False)
+      verifier_tools = [t for t in verifier_tools if getattr(t, "__name__", "") not in ("write_file", "search_replace", "delete_file", "move_file")]
+      verifier = LlmAgent(
+        name="verifier",
+        model=getattr(cfg, "model_alt", None) or cfg.model,
+        instruction=(
+          "You are Verifier. Your job is to verify changes: run checks/tests when needed, "
+          "spot inconsistencies, and report PASS/FAIL with concrete evidence. "
+          "Prefer minimal commands and short outputs."
+        ),
+        tools=verifier_tools,
+        generate_content_config=gen_cfg,
+        **cb_kwargs,
+      )
+      sub_agents = [explorer, verifier]
+    except Exception:
+      sub_agents = []
+
   agent_kwargs: dict = dict(
       model=cfg.model,
       name="gemcode",
       instruction=build_instruction(cfg),
       tools=tools,
       generate_content_config=gen_cfg,
+      sub_agents=sub_agents or None,
       **cb_kwargs,
   )
 

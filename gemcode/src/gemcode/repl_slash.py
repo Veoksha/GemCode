@@ -400,6 +400,14 @@ async def process_repl_slash(
       out(f"    dynamic_token_policy:  {getattr(cfg, 'dynamic_token_policy', True)}")
       out(f"    dynamic_risk_policy:   {getattr(cfg, 'dynamic_risk_policy', True)}")
       out(f"    dynamic_risk_boost:    {getattr(cfg, 'dynamic_risk_boost', 0.6)}")
+      out()
+      out("  ADK advanced:")
+      out(f"    adk_agent_transfer:    {getattr(cfg, 'enable_adk_agent_transfer', True)}")
+      out(f"    adk_events_compaction: {getattr(cfg, 'enable_adk_events_compaction', False)}")
+      if getattr(cfg, "enable_adk_events_compaction", False):
+        out(f"    compaction_interval:   {getattr(cfg, 'adk_compaction_interval', 6)}")
+        out(f"    compaction_overlap:    {getattr(cfg, 'adk_compaction_overlap', 1)}")
+        out(f"    compaction_model:      {getattr(cfg, 'adk_compaction_summarizer_model', 'gemini-2.5-flash')}")
       out(f"    risk_score:            {risk:.2f}")
       if isinstance(pct, int):
         out(f"    context_percent_left:  {pct}%")

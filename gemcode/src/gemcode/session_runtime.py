@@ -66,11 +66,39 @@ def _build_app(agent, plugins, cfg: GemCodeConfig):
   """
   try:
     from google.adk.apps.app import App
+    events_compaction_config = None
+    if getattr(cfg, "enable_adk_events_compaction", False):
+      try:
+        from google.adk.apps.app import EventsCompactionConfig
+        summarizer = None
+        try:
+          from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
+          from google.adk.models import Gemini
+          summarizer_llm = Gemini(model=getattr(cfg, "adk_compaction_summarizer_model", "gemini-2.5-flash"))
+          summarizer = LlmEventSummarizer(llm=summarizer_llm)
+        except Exception:
+          summarizer = None
+
+        kw = dict(
+          compaction_interval=max(2, int(getattr(cfg, "adk_compaction_interval", 6) or 6)),
+          overlap_size=max(0, int(getattr(cfg, "adk_compaction_overlap", 1) or 1)),
+        )
+        tt = getattr(cfg, "adk_compaction_token_threshold", None)
+        rs = getattr(cfg, "adk_compaction_event_retention_size", None)
+        if tt is not None and rs is not None:
+          kw["token_threshold"] = int(tt)
+          kw["event_retention_size"] = int(rs)
+        if summarizer is not None:
+          kw["summarizer"] = summarizer
+        events_compaction_config = EventsCompactionConfig(**kw)
+      except Exception:
+        events_compaction_config = None
     return App(
       name="gemcode",
       root_agent=agent,
       plugins=plugins,
       context_cache_config=_build_context_cache_config(),
+      events_compaction_config=events_compaction_config,
     )
   except Exception:
     # Fall back silently — Runner still accepts the legacy kwargs.

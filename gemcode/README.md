@@ -57,6 +57,11 @@ GemCode keeps project-local state under `.gemcode/`:
   - `gemcode tools smoke` fails non-zero if any tool’s declaration compilation fails
   - Optional inspection flags: `--deep-research`, `--maps-grounding`, `--embeddings`, `--memory`
 - **Optional compaction**: set `GEMCODE_ENABLE_COMPACT=1` to trim old `Content` entries before each model call (MVP sliding window; can break complex tool chains if too aggressive—tune `GEMCODE_MAX_CONTENT_ITEMS`).
+- **ADK multi-agent transfer (recommended)**: enabled by default; GemCode builds an ADK sub-agent tree (Explorer/Verifier) and allows the model to transfer with `transfer_to_agent` when specialization helps.
+  - Disable: `GEMCODE_ADK_AGENT_TRANSFER=0`
+- **ADK event compaction (new)**: optional ADK-native summarization of older events to keep long sessions coherent without exploding context.
+  - Enable: `GEMCODE_ADK_EVENTS_COMPACTION=1`
+  - Tune: `GEMCODE_ADK_COMPACTION_INTERVAL`, `GEMCODE_ADK_COMPACTION_OVERLAP`, `GEMCODE_ADK_COMPACTION_MODEL`
 - **Session token ceiling**: set `GEMCODE_MAX_SESSION_TOKENS` to stop the next LLM call when cumulative `usage_metadata.total_token_count` exceeds the limit.
 - **Token budget tracking**: set `GEMCODE_TOKEN_BUDGET` to enforce continuation/stop decisions per user turn (token-budget audit in `.gemcode/audit.log`).
 - **Stop-the-loop hooks**: set `GEMCODE_POST_TURN_HOOK=/path/to/hook.sh` (or place an executable at `.gemcode/hooks/post_turn`) to run after each user message.
