@@ -37,6 +37,14 @@ def make_run_command(cfg: GemCodeConfig):
   root = cfg.project_root
   trusted = is_trusted_root(root)
 
+  def _emit(msg: dict) -> None:
+    em = getattr(cfg, "_ide_emitter", None)
+    if em is not None:
+      try:
+        em.send(msg)
+      except Exception:
+        pass
+
   def run_command(
     command: str,
     args: list[str] | None = None,
@@ -61,6 +69,22 @@ def make_run_command(cfg: GemCodeConfig):
     merged into the child environment (e.g. keys ["CI"], values ["1"] for
     non-interactive scaffolding tools). Omit both to use the default environment.
     """
+    if getattr(cfg, "ide_proposal_mode", False):
+      exe = str(command or "").strip()
+      args2 = list(args or [])
+      if not getattr(cfg, "ide_allow_shell", False):
+        _emit({"type": "permission_request", "kind": "shell", "detail": f"run_command({exe})"})
+        return {"error": "shell_not_allowed"}
+      _emit(
+        {
+          "type": "command_suggestion",
+          "cmd": " ".join([exe, *args2]).strip(),
+          "cwd_subdir": cwd_subdir,
+          "background": bool(background),
+        }
+      )
+      return {"suggested": True, "command": [exe, *args2], "cwd_subdir": cwd_subdir, "background": bool(background)}
+
     if not trusted:
       return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
     if not (cwd_subdir or "").strip():

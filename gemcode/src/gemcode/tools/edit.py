@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import time
 from pathlib import Path
 
 from gemcode.config import GemCodeConfig
@@ -10,6 +12,20 @@ from gemcode.paths import PathEscapeError, resolve_under_root
 
 def make_edit_tools(cfg: GemCodeConfig):
   root = cfg.project_root
+
+  def _sha256_text(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8", errors="strict")).hexdigest()
+
+  def _emit(msg: dict) -> None:
+    em = getattr(cfg, "_ide_emitter", None)
+    if em is not None:
+      try:
+        em.send(msg)
+      except Exception:
+        pass
+
+  def _proposal_id(prefix: str) -> str:
+    return f"{prefix}_{int(time.time()*1000)}"
 
   def write_file(path: str, content: str) -> dict:
     """
@@ -25,6 +41,47 @@ def make_edit_tools(cfg: GemCodeConfig):
     Never write non-textual content (binary, base64 blobs) — those belong in
     artifacts, not in source files.
     """
+    if getattr(cfg, "ide_proposal_mode", False):
+      if not getattr(cfg, "ide_allow_write", False):
+        _emit(
+          {
+            "type": "permission_request",
+            "kind": "write",
+            "detail": f"write_file({path})",
+          }
+        )
+        return {"error": "write_not_allowed"}
+      # Propose instead of executing.
+      try:
+        p = resolve_under_root(root, path)
+      except PathEscapeError as e:
+        return {"error": str(e)}
+      old_text = ""
+      existed = p.is_file()
+      if existed:
+        try:
+          old_text = p.read_text(encoding="utf-8", errors="strict")
+        except Exception:
+          old_text = ""
+      pid = _proposal_id("edit")
+      _emit(
+        {
+          "type": "edit_proposal",
+          "id": pid,
+          "files": [
+            {
+              "path": path,
+              "existed": existed,
+              "original_sha256": _sha256_text(old_text) if existed else None,
+              "new_sha256": _sha256_text(content),
+              "old_text": old_text,
+              "new_text": content,
+            }
+          ],
+        }
+      )
+      return {"proposal_id": pid, "path": path, "bytes": len(content.encode("utf-8"))}
+
     try:
       p = resolve_under_root(root, path)
     except PathEscapeError as e:
@@ -60,6 +117,16 @@ def make_edit_tools(cfg: GemCodeConfig):
       comments that explain non-obvious intent or trade-offs.
     - NEVER propose edits before reading. Read first. Edit second.
     """
+    if getattr(cfg, "ide_proposal_mode", False):
+      if not getattr(cfg, "ide_allow_write", False):
+        _emit(
+          {
+            "type": "permission_request",
+            "kind": "write",
+            "detail": f"search_replace({path})",
+          }
+        )
+        return {"error": "write_not_allowed"}
     try:
       p = resolve_under_root(root, path)
     except PathEscapeError as e:
@@ -76,6 +143,25 @@ def make_edit_tools(cfg: GemCodeConfig):
       new_text = text.replace(old_string, new_string)
     else:
       new_text = text.replace(old_string, new_string, 1)
+    if getattr(cfg, "ide_proposal_mode", False):
+      pid = _proposal_id("edit")
+      _emit(
+        {
+          "type": "edit_proposal",
+          "id": pid,
+          "files": [
+            {
+              "path": path,
+              "existed": True,
+              "original_sha256": _sha256_text(text),
+              "new_sha256": _sha256_text(new_text),
+              "old_text": text,
+              "new_text": new_text,
+            }
+          ],
+        }
+      )
+      return {"proposal_id": pid, "path": path, "replacements": count if replace_all else 1}
     p.write_text(new_text, encoding="utf-8")
     return {"path": path, "replacements": count if replace_all else 1}
 

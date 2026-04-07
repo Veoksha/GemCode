@@ -19,6 +19,7 @@ from gemcode.capability_routing import apply_capability_routing
 from gemcode.session_runtime import create_runner
 from gemcode.trust import is_trusted_root, trust_root
 from gemcode.repl_slash import process_repl_slash
+from gemcode.ide_stdio import main as ide_stdio_main
 
 
 def _events_to_text(events) -> str:
@@ -338,6 +339,20 @@ def main() -> None:
       "On macOS: System Settings → Privacy & Security → Files and Folders, "
       "enable Terminal for Desktop Folder (or grant Full Disk Access)."
     )
+
+  # Hidden IDE engine mode: `gemcode ide --stdio`
+  if len(sys.argv) >= 2 and sys.argv[1] == "ide":
+    ide_parser = argparse.ArgumentParser(prog="gemcode ide")
+    ide_parser.add_argument(
+      "--stdio",
+      action="store_true",
+      help="Run IDE engine over stdin/stdout (JSONL)",
+    )
+    ide_args = ide_parser.parse_args(sys.argv[2:])
+    if ide_args.stdio:
+      ide_stdio_main()
+      return
+    raise SystemExit("Usage: gemcode ide --stdio")
 
   # Persist or rotate API key (Claude Code–style `claude login`).
   if len(sys.argv) > 1 and sys.argv[1] == "login":

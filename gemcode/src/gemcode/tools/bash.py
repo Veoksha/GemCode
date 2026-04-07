@@ -30,6 +30,14 @@ def make_bash_tool(cfg: GemCodeConfig):
     root = cfg.project_root
     trusted = is_trusted_root(root)
 
+    def _emit(msg: dict) -> None:
+        em = getattr(cfg, "_ide_emitter", None)
+        if em is not None:
+            try:
+                em.send(msg)
+            except Exception:
+                pass
+
     def bash(
         command: str,
         timeout_seconds: int = 120,
@@ -95,6 +103,20 @@ def make_bash_tool(cfg: GemCodeConfig):
         explicit user approval. Quote file paths that contain spaces.
         cwd_subdir is relative to the project root.
         """
+        if getattr(cfg, "ide_proposal_mode", False):
+            if not getattr(cfg, "ide_allow_shell", False):
+                _emit({"type": "permission_request", "kind": "shell", "detail": "bash(...)"} )
+                return {"error": "shell_not_allowed"}
+            _emit(
+                {
+                    "type": "command_suggestion",
+                    "cmd": command,
+                    "cwd_subdir": cwd_subdir,
+                    "background": bool(background),
+                    "via": "bash",
+                }
+            )
+            return {"suggested": True, "via": "bash", "cmd": command, "cwd_subdir": cwd_subdir, "background": bool(background)}
         if not trusted:
             return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
 

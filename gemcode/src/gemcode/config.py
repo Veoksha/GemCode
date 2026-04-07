@@ -340,6 +340,12 @@ class GemCodeConfig:
     default_factory=lambda: _truthy_env("GEMCODE_ENABLE_WEB_SEARCH", default=False)
   )
 
+  # IDE mode (VS Code extension): the engine should *propose* writes/commands,
+  # and the IDE applies them (WorkspaceEdit / terminal task) after user approval.
+  ide_proposal_mode: bool = False
+  ide_allow_write: bool = False
+  ide_allow_shell: bool = False
+
   def __post_init__(self) -> None:
     self.project_root = self.project_root.resolve()
     # Default agentic depth when env omits GEMCODE_MAX_LLM_CALLS (was: None → SDK default).
