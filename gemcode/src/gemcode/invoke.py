@@ -68,6 +68,32 @@ async def run_turn(
     cfg: "GemCodeConfig | None" = None,
 ) -> list:
   """Execute one user message; collect all Events (caller aggregates text)."""
+  # Dynamic risk score: updated each user message; later refined by tool outcomes.
+  # This is intentionally heuristic but configurable via env knobs.
+  if cfg is not None:
+    try:
+      import re
+      p = (prompt or "")[:20_000]
+      risk = 0.0
+      # Complexity signals
+      if len(p) > 600:
+        risk += 0.15
+      if len(p) > 2000:
+        risk += 0.15
+      if re.search(r"\\b(refactor|migrate|rewrite|optimi[sz]e|architecture)\\b", p, re.I):
+        risk += 0.2
+      if re.search(r"\\b(bug|fix|regression|error|traceback|failing)\\b", p, re.I):
+        risk += 0.2
+      if re.search(r"\\b(test|pytest|ci|build|deploy|release)\\b", p, re.I):
+        risk += 0.1
+      # Multi-file hints
+      if p.count(\"/\") >= 6 or p.count(\".py\") + p.count(\".ts\") + p.count(\".tsx\") >= 3:
+        risk += 0.1
+      # Clamp 0..1
+      risk = max(0.0, min(1.0, float(risk)))
+      object.__setattr__(cfg, \"_risk_score\", risk)
+    except Exception:
+      pass
   run_config = (
     RunConfig(max_llm_calls=max_llm_calls) if max_llm_calls is not None else None
   )

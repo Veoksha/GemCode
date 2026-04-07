@@ -384,6 +384,25 @@ def make_after_tool_callback(cfg: GemCodeConfig):
         st[_STATE_FAILURE_KEY] = 0
     else:
       st[_STATE_FAILURE_KEY] = 0
+
+    # Risk feedback: if tools are failing or commands return non-zero, treat the
+    # task as higher-risk and allow more evidence in subsequent tool outputs.
+    try:
+      cur = float(getattr(cfg, "_risk_score", 0.0) or 0.0)
+      bump = 0.0
+      if err:
+        bump += 0.15
+      if isinstance(tool_response, dict) and isinstance(tool_response.get("exit_code"), int):
+        if int(tool_response["exit_code"]) != 0:
+          bump += 0.10
+      # decay slowly when things are healthy
+      if bump == 0.0:
+        cur = max(0.0, cur * 0.90)
+      else:
+        cur = min(1.0, cur + bump)
+      object.__setattr__(cfg, "_risk_score", cur)
+    except Exception:
+      pass
     # ── Shell hooks: post_tool_use ────────────────────────────────────────
     try:
       from gemcode.hooks import run_post_tool_use_hook

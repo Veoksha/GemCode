@@ -143,6 +143,16 @@ class GemCodeConfig:
   dynamic_token_policy: bool = field(
     default_factory=lambda: _truthy_env("GEMCODE_DYNAMIC_TOKEN_POLICY", default=True)
   )
+
+  # Dynamic risk policy: boosts caps when the current task appears risky/complex.
+  dynamic_risk_policy: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_DYNAMIC_RISK_POLICY", default=True)
+  )
+
+  # How much the risk score can expand caps (0.0-1.5 reasonable).
+  dynamic_risk_boost: float = field(
+    default_factory=lambda: float(os.environ.get("GEMCODE_DYNAMIC_RISK_BOOST", "0.6"))
+  )
   # Trim oldest text in llm_request.contents when over budget (see context_budget.py).
   context_shrink_enabled: bool = field(
     default_factory=lambda: _truthy_env("GEMCODE_CONTEXT_SHRINK", default=True)
