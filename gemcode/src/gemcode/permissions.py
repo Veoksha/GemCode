@@ -45,6 +45,9 @@ Reloaded on every tool call (file is stat-cached to avoid repeated disk reads).
 
 from __future__ import annotations
 
+# Compatibility shim: older code/tests import make_before_tool_callback from here.
+from gemcode.callbacks import make_before_tool_callback  # noqa: F401
+
 import fnmatch
 import json
 import os

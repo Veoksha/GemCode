@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 
 def _now_ms() -> int:
@@ -55,4 +55,17 @@ def parse_json_line(line: str) -> dict[str, Any]:
   if not isinstance(obj, dict):
     return {"type": "invalid", "error": "message must be a JSON object"}
   return obj
+
+
+def make_event(*, event: str, **payload: Any) -> dict[str, Any]:
+  msg: dict[str, Any] = {"type": "event", "event": event}
+  msg.update(payload)
+  return msg
+
+
+def make_response(*, id: str, ok: bool, **payload: Any) -> dict[str, Any]:
+  msg: dict[str, Any] = {"type": "response", "id": id, "ok": bool(ok)}
+  msg.update(payload)
+  return msg
+
 

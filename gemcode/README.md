@@ -56,6 +56,19 @@ GemCode keeps project-local state under `.gemcode/`:
   - `gemcode tools list` prints the exact tool inventory and whether each tool can build a Gemini tool declaration
   - `gemcode tools smoke` fails non-zero if any tool’s declaration compilation fails
   - Optional inspection flags: `--deep-research`, `--maps-grounding`, `--embeddings`, `--memory`
+- **Eval harness (AutoResearch-style gates)**:
+  - `gemcode eval -C /path/to/repo` runs fixed gates (currently: tool smoke + `pytest` if `tests/` exists)
+  - Writes the latest record to `.gemcode/evals/last_eval.json`
+  - Exit code is non-zero if gates fail
+  - Optional: `--llm` includes a tiny set of “golden prompts” (costs tokens) and affects the reported `score`
+- **Autotune scaffolding (AutoResearch-inspired)**:
+  - `gemcode autotune init --tag <name> -C /path/to/repo` creates/checks out `autotune/<name>`
+  - `gemcode autotune eval -C /path/to/repo` runs the eval suite and appends a JSONL row to `.gemcode/evals/autotune_ledger.jsonl` (includes `git_sha`/`git_branch`)
+- **GemSkills (reusable playbooks)**:
+  - Create skills under `.gemcode/skills/<name>/SKILL.md` (project) or `~/.gemcode/skills/<name>/SKILL.md` (personal).
+  - List: `/skills` in the REPL.
+  - Invoke: `/skill <name> [args…]` or directly `/name [args…]`.
+  - GemCode preloads only **skill metadata** (name + description) into the system prompt; full skill text is loaded only when invoked (token-efficient).
 - **Optional compaction**: set `GEMCODE_ENABLE_COMPACT=1` to trim old `Content` entries before each model call (MVP sliding window; can break complex tool chains if too aggressive—tune `GEMCODE_MAX_CONTENT_ITEMS`).
 - **ADK multi-agent transfer (recommended)**: enabled by default; GemCode builds an ADK sub-agent tree (Explorer/Verifier) and allows the model to transfer with `transfer_to_agent` when specialization helps.
   - Disable: `GEMCODE_ADK_AGENT_TRANSFER=0`

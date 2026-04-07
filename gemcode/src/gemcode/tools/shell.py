@@ -117,7 +117,8 @@ def make_run_command(cfg: GemCodeConfig):
         "error": (
           f"Command {exe!r} not in allowlist. Add it to GEMCODE_ALLOW_COMMANDS "
           f"(comma-separated), or approve the command when GemCode prompts you."
-        )
+        ),
+        "error_kind": "permission_denied",
       }
 
     resolved = shutil.which(exe)

@@ -21,7 +21,7 @@ import sys
 from typing import Any
 
 from gemcode.config import GemCodeConfig, load_cli_environment
-from gemcode.ide_protocol import IdeEmitter, parse_json_line
+from gemcode.ide_protocol import IdeEmitter, make_event, make_response, parse_json_line
 from gemcode.invoke import run_turn
 from gemcode.session_runtime import create_runner
 
@@ -69,8 +69,36 @@ async def run_stdio_loop() -> int:
     sys.stdout = sys.stderr  # type: ignore[assignment]
   except Exception:
     pass
+  # Avoid google-genai printing a precedence warning that would corrupt stdout.
+  try:
+    if os.environ.get("GOOGLE_API_KEY") and os.environ.get("GEMINI_API_KEY"):
+      os.environ.pop("GEMINI_API_KEY", None)
+  except Exception:
+    pass
+  # Also silence noisy library warnings that would corrupt stdout parsing.
+  try:
+    import logging
+    _msg = "Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY."
+
+    class _DropNoisyApiKeyWarning(logging.Filter):
+      def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+        try:
+          return _msg not in str(record.getMessage() or "")
+        except Exception:
+          return True
+
+    root_logger = logging.getLogger()
+    root_logger.addFilter(_DropNoisyApiKeyWarning())
+    for name in ("google", "google.genai", "google.genai._api_client"):
+      try:
+        logging.getLogger(name).addFilter(_DropNoisyApiKeyWarning())
+        logging.getLogger(name).setLevel(logging.ERROR)
+      except Exception:
+        pass
+  except Exception:
+    pass
   emitter = IdeEmitter(stream=proto_out)
-  emitter.send({"type": "hello", "protocol": 1})
+  emitter.send(make_event(event="hello", protocol=2))
 
   runner = None
   cfg: GemCodeConfig | None = None
@@ -85,11 +113,26 @@ async def run_stdio_loop() -> int:
         continue
 
       if mtype == "shutdown":
-        emitter.send({"type": "bye"})
+        emitter.send(make_event(event="bye"))
         return 0
 
-      if mtype != "turn":
-        emitter.send({"type": "error", "error": f"unknown_type:{mtype}"})
+      if mtype != "request":
+        emitter.send(make_event(event="error", error=f"unknown_type:{mtype}"))
+        continue
+
+      req_id = str(msg.get("id") or "")
+      action = str(msg.get("action") or "")
+      if not req_id:
+        emitter.send(make_event(event="error", error="missing_id"))
+        continue
+
+      if action == "cancel":
+        # Best-effort: we don't yet interrupt ADK mid-flight; we just ack.
+        emitter.send(make_response(id=req_id, ok=True, cancelled=True))
+        continue
+
+      if action != "turn":
+        emitter.send(make_response(id=req_id, ok=False, error=f"unknown_action:{action}"))
         continue
 
       # Lazily initialize runner on first turn (needs project root).
@@ -116,7 +159,7 @@ async def run_stdio_loop() -> int:
       object.__setattr__(cfg, "ide_allow_write", bool(allow_write))
       object.__setattr__(cfg, "ide_allow_shell", bool(allow_shell))
 
-      emitter.send({"type": "turn_start", "session": session_id})
+      emitter.send(make_event(event="turn_start", id=req_id, session=session_id))
       try:
         events = await run_turn(
           runner,
@@ -127,8 +170,7 @@ async def run_stdio_loop() -> int:
           cfg=cfg,
         )
       except Exception as e:
-        emitter.send({"type": "error", "error": f"{type(e).__name__}: {e}"})
-        emitter.send({"type": "turn_done", "session": session_id, "ok": False})
+        emitter.send(make_response(id=req_id, ok=False, error=f"{type(e).__name__}: {e}", session=session_id))
         continue
 
       # Emit assistant text as a single message for now (delta streaming can be added later).
@@ -147,8 +189,8 @@ async def run_stdio_loop() -> int:
           continue
       out_text = "".join(txt_parts).strip()
       if out_text:
-        emitter.send({"type": "text", "text": out_text})
-      emitter.send({"type": "turn_done", "session": session_id, "ok": True})
+        emitter.send(make_event(event="text", id=req_id, text=out_text))
+      emitter.send(make_response(id=req_id, ok=True, session=session_id))
 
   finally:
     if runner is not None:

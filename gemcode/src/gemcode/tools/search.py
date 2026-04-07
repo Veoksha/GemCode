@@ -28,7 +28,18 @@ def _find_rg() -> str | None:
 
 def make_grep_tool(cfg: GemCodeConfig):
     root = cfg.project_root
+    extra_roots = getattr(cfg, "_added_dirs", None) or {}
     rg_bin = _find_rg()
+
+    def _touch(rel_path: str) -> None:
+        try:
+            s = getattr(cfg, "_touched_paths", None)
+            if s is None:
+                s = set()
+                setattr(cfg, "_touched_paths", s)
+            s.add(str(rel_path).lstrip("./"))
+        except Exception:
+            pass
 
     def grep_content(
         pattern: str,
@@ -108,6 +119,15 @@ def make_grep_tool(cfg: GemCodeConfig):
                 )
                 lines = proc.stdout.splitlines()[:max_matches * (1 + 2 * context_lines + 2)]
                 # Re-cap to max_matches counting only match lines (not context)
+                try:
+                    # Mark files that matched as "touched" for rules gating.
+                    for ln in lines:
+                        if ":" in ln and not ln.startswith("-"):
+                            fp = ln.split(":", 1)[0]
+                            if fp:
+                                _touch(fp)
+                except Exception:
+                    pass
                 return {
                     "pattern": pattern,
                     "matches": lines[:max_matches * max(1, 1 + 2 * context_lines)],
@@ -116,36 +136,51 @@ def make_grep_tool(cfg: GemCodeConfig):
             except (subprocess.TimeoutExpired, OSError):
                 pass
 
+        # If ripgrep isn't available, we can still support searching the added dirs
+        # by running the Python fallback separately per root.
+        roots = [root] + list(extra_roots.values())
+
         # Python fallback
         flags = 0 if case_sensitive else re.IGNORECASE
         rx = re.compile(pattern, flags)
         matches: list[str] = []
-        for fp in root.glob(path_glob):
-            if not fp.is_file():
-                continue
-            if fp.stat().st_size > 2_000_000:
-                continue
-            try:
-                text = fp.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            file_lines = text.splitlines()
-            for i, line in enumerate(file_lines):
-                if rx.search(line):
+        for base in roots:
+            for fp in base.glob(path_glob):
+                if not fp.is_file():
+                    continue
+                if fp.stat().st_size > 2_000_000:
+                    continue
+                try:
+                    text = fp.read_text(encoding="utf-8", errors="ignore")
+                except OSError:
+                    continue
+                file_lines = text.splitlines()
+                for i, line in enumerate(file_lines):
+                    if not rx.search(line):
+                        continue
+
+                    # Convert to a stable "path string" for output.
                     try:
-                        rel = fp.resolve().relative_to(root)
+                        rel_s = str(fp.resolve().relative_to(root))
                     except ValueError:
-                        rel = fp
+                        rel_s = str(fp)
+                        for nm, base2 in extra_roots.items():
+                            try:
+                                rel2 = fp.resolve().relative_to(base2.resolve())
+                                rel_s = f"{nm}/{rel2}"
+                                break
+                            except ValueError:
+                                continue
+
                     if context_lines > 0:
-                        # Add separator and context block
                         matches.append("--")
                         for ci in range(max(0, i - context_lines), i):
-                            matches.append(f"{rel}:{ci + 1}-{file_lines[ci][:400]}")
-                        matches.append(f"{rel}:{i + 1}:{line[:500]}")
+                            matches.append(f"{rel_s}:{ci + 1}-{file_lines[ci][:400]}")
+                        matches.append(f"{rel_s}:{i + 1}:{line[:500]}")
                         for ci in range(i + 1, min(len(file_lines), i + 1 + context_lines)):
-                            matches.append(f"{rel}:{ci + 1}-{file_lines[ci][:400]}")
+                            matches.append(f"{rel_s}:{ci + 1}-{file_lines[ci][:400]}")
                     else:
-                        matches.append(f"{rel}:{i + 1}:{line[:500]}")
+                        matches.append(f"{rel_s}:{i + 1}:{line[:500]}")
 
                     if len(matches) >= max_matches * max(1, 1 + 2 * context_lines):
                         return {
@@ -154,6 +189,15 @@ def make_grep_tool(cfg: GemCodeConfig):
                             "truncated": True,
                             "backend": "python",
                         }
+        try:
+            # Mark files that matched as "touched" for rules gating.
+            for ln in matches:
+                if isinstance(ln, str) and ":" in ln and not ln.startswith("--"):
+                    fp = ln.split(":", 1)[0]
+                    if fp:
+                        _touch(fp)
+        except Exception:
+            pass
         return {"pattern": pattern, "matches": matches, "backend": "python"}
 
     return grep_content

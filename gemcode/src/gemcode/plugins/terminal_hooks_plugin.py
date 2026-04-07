@@ -164,6 +164,18 @@ class GemCodeTerminalHooksPlugin(BasePlugin):
           {"phase": "memory_ingest", "ok": False, "error": str(e)},
         )
 
+    # Hermes-style evolving: run a bounded, cheap post-turn learner that writes
+    # durable insights to curated memory / notes (opt-in).
+    if getattr(self.cfg, "enable_background_learner", False):
+      try:
+        from gemcode.learning import run_background_learner
+        await run_background_learner(cfg=self.cfg, callback_context=callback_context)
+      except Exception as e:
+        append_audit(
+          self.cfg.project_root,
+          {"phase": "background_learner", "ok": False, "error": str(e)},
+        )
+
     # Execute stopHooks-like script hook at the end of the invocation.
     try:
       run_post_turn_hooks(

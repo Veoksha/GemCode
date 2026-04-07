@@ -13,6 +13,30 @@ from gemcode.paths import PathEscapeError, resolve_under_root
 def make_edit_tools(cfg: GemCodeConfig):
   root = cfg.project_root
 
+  def _touch(rel_path: str) -> None:
+    try:
+      s = getattr(cfg, "_touched_paths", None)
+      if s is None:
+        s = set()
+        setattr(cfg, "_touched_paths", s)
+      s.add(str(rel_path).lstrip("./"))
+    except Exception:
+      pass
+
+  _BLOCKED_SPECIAL_FILES = {
+    "claude.md",
+    "agents.md",
+  }
+
+  def _blocked_special_path(path: str) -> str | None:
+    try:
+      name = Path(path).name.lower()
+    except Exception:
+      name = (path or "").strip().lower()
+    if name in _BLOCKED_SPECIAL_FILES:
+      return name
+    return None
+
   def _sha256_text(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8", errors="strict")).hexdigest()
 
@@ -41,6 +65,14 @@ def make_edit_tools(cfg: GemCodeConfig):
     Never write non-textual content (binary, base64 blobs) — those belong in
     artifacts, not in source files.
     """
+    blocked = _blocked_special_path(path)
+    if blocked is not None:
+      return {
+        "error": f"Refusing to create/overwrite special file: {Path(path).name}",
+        "error_kind": "blocked_special_file",
+        "hint": "GemCode does not use CLAUDE.md or AGENTS.md. Prefer GEMINI.md for project instructions and .gemcode/* for agent state.",
+      }
+    _touch(path)
     if getattr(cfg, "ide_proposal_mode", False):
       if not getattr(cfg, "ide_allow_write", False):
         _emit(
@@ -86,6 +118,17 @@ def make_edit_tools(cfg: GemCodeConfig):
       p = resolve_under_root(root, path)
     except PathEscapeError as e:
       return {"error": str(e)}
+    # Checkpoint previous state (Hermes-style self-healing).
+    try:
+      if getattr(cfg, "enable_checkpoints", True):
+        from gemcode.checkpoints import create_checkpoint
+        create_checkpoint(
+          project_root=root,
+          op="write_file",
+          file_snapshots=[(p, p.is_file())],
+        )
+    except Exception:
+      pass
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
     return {"path": path, "bytes_written": len(content.encode("utf-8"))}
@@ -117,6 +160,14 @@ def make_edit_tools(cfg: GemCodeConfig):
       comments that explain non-obvious intent or trade-offs.
     - NEVER propose edits before reading. Read first. Edit second.
     """
+    blocked = _blocked_special_path(path)
+    if blocked is not None:
+      return {
+        "error": f"Refusing to edit special file: {Path(path).name}",
+        "error_kind": "blocked_special_file",
+        "hint": "GemCode does not use CLAUDE.md or AGENTS.md. Prefer GEMINI.md for project instructions and .gemcode/* for agent state.",
+      }
+    _touch(path)
     if getattr(cfg, "ide_proposal_mode", False):
       if not getattr(cfg, "ide_allow_write", False):
         _emit(
@@ -134,11 +185,22 @@ def make_edit_tools(cfg: GemCodeConfig):
     if not p.is_file():
       return {"error": f"Not a file: {path}"}
     text = p.read_text(encoding="utf-8", errors="strict")
+    # Checkpoint previous state before mutation.
+    try:
+      if getattr(cfg, "enable_checkpoints", True):
+        from gemcode.checkpoints import create_checkpoint
+        create_checkpoint(
+          project_root=root,
+          op="search_replace",
+          file_snapshots=[(p, True)],
+        )
+    except Exception:
+      pass
     count = text.count(old_string)
     if count == 0:
-      return {"error": "old_string not found"}
+      return {"error": "old_string not found", "error_kind": "edit_not_found"}
     if count > 1 and not replace_all:
-      return {"error": f"old_string appears {count} times; set replace_all=true or narrow snippet"}
+      return {"error": f"old_string appears {count} times; set replace_all=true or narrow snippet", "error_kind": "edit_ambiguous"}
     if replace_all:
       new_text = text.replace(old_string, new_string)
     else:

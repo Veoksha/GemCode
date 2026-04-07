@@ -8,7 +8,7 @@ from typing import Any
 
 from gemcode.config import GemCodeConfig
 from gemcode.session_runtime import create_runner
-from gemcode.web.claude_sse_adapter import _extract_text_from_event
+from gemcode.web.sse_adapter import extract_text_from_event
 
 
 def _truthy_env(name: str, *, default: bool = False) -> bool:
@@ -53,11 +53,11 @@ async def run_single_turn(
     kwargs["run_config"] = run_config
 
   async for event in runner.run_async(**kwargs):
-    text = _extract_text_from_event(event)
+    text = extract_text_from_event(event)
     if not text:
       continue
 
-    # Match the delta logic from the Claude SSE adapter so the UI can
+    # Match the delta logic from the SSE adapter so the UI can
     # render incremental output without repeating content.
     if text.startswith(emitted_text):
       delta = text[len(emitted_text) :]

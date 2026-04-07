@@ -359,6 +359,15 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
   else:
     merged_extra_tools = modality_tools or None
 
+  # Curated memory snapshot (Hermes-style): load once per session and keep stable
+  # to avoid cache-breaking prompt drift.
+  try:
+    from gemcode.curated_memory import load_snapshot
+    snap = load_snapshot(cfg.project_root, max_chars=6000)
+    object.__setattr__(cfg, "_curated_memory_snapshot", snap if snap.get("exists") else None)
+  except Exception:
+    pass
+
   # ── MCP toolsets from .gemcode/mcp.json ─────────────────────────────────
   # Supports stdio, http (Streamable HTTP), and sse connection types.
   try:

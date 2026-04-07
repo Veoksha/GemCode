@@ -27,6 +27,9 @@ from gemcode.limits import make_before_model_limits_callback, make_before_model_
 from gemcode.thinking import build_thinking_config
 from gemcode.tools import build_function_tools
 from gemcode.tool_prompt_manifest import build_tool_manifest
+from gemcode.skills import build_skill_manifest_text
+from gemcode.output_styles import build_output_style_section
+from gemcode.rules import build_rules_section
 
 
 def build_global_instruction() -> str:
@@ -248,6 +251,19 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
   git_ctx = _get_git_context(root)
   git_section = f"\n\n## Git context (snapshot at session start)\n{git_ctx}" if git_ctx else ""
 
+  # ── Curated memory (safe-to-inject) ───────────────────────────────────────
+  curated_section = ""
+  try:
+    snap = getattr(cfg, "_curated_memory_snapshot", None)
+    if isinstance(snap, dict) and (snap.get("text") or "").strip():
+      curated_section = (
+        "\n\n## Curated memory (safe, persistent)\n"
+        "This is small, curated memory that should be treated as durable project/user facts.\n"
+        f"{snap.get('text')}\n"
+      )
+  except Exception:
+    curated_section = ""
+
   return f"""## Runtime facts (authoritative for this session)
 - **Today's date:** {today}
 - **Project root** — every filesystem tool path is relative to: `{root}`
@@ -261,7 +277,7 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
 {kairos_section}
 - **UI banner** phrases like "GemCode Pro" are terminal marketing, not a separate API tier.
 - **Env toggles** (`GEMCODE_ENABLE_COMPUTER_USE`, `GEMCODE_MODEL`, etc.) affect only the OS process that launched gemcode. Pasting `VAR=1` in chat does NOT reconfigure a running session—tell the user to export in their shell, use project `.env`, or restart the CLI.
-- **Working in subfolders** — call `list_directory("Desktop")`, `glob_files("**/query.ts")`, `read_file("testing/ai-edtech-app/src/app/page.tsx")` directly. Never claim access is blocked unless a tool returned an explicit error.{git_section}"""
+- **Working in subfolders** — call `list_directory(\"Desktop\")`, `glob_files(\"**/query.ts\")`, `read_file(\"testing/ai-edtech-app/src/app/page.tsx\")` directly. Never claim access is blocked unless a tool returned an explicit error.{git_section}{curated_section}"""
 
 
 def _build_memory_section(cfg: GemCodeConfig) -> str:
@@ -840,7 +856,12 @@ You have two tools to persist project insights across sessions, like Claude Code
   Call this **immediately** when you discover something useful — not just at the end of tasks.
   Notes are loaded at session start so future sessions inherit this knowledge.
 
-- **`read_project_notes()`** — read current notes **only when starting a real engineering task** (editing, debugging, building). Do NOT call this for greetings or general questions. If notes exist and you're about to work on a task, read them once to avoid re-discovering known information."""
+- **`read_project_notes()`** — read current notes **only when starting a real engineering task** (editing, debugging, building). Do NOT call this for greetings or general questions. If notes exist and you're about to work on a task, read them once to avoid re-discovering known information.
+
+## Do not create vendor-specific instruction files
+- Do NOT create or modify `CLAUDE.md` or `AGENTS.md`. GemCode does not use these.
+- If project instructions are needed and the user asked for it, use `GEMINI.md` (repo root).
+"""
 
   # Inject capability-specific strategy sections only when those caps are on.
   if getattr(cfg, "enable_computer_use", False):
@@ -855,6 +876,18 @@ You have two tools to persist project insights across sessions, like Claude Code
   tool_manifest = build_tool_manifest(cfg)
   if tool_manifest:
     base = f"{base}\n\n{tool_manifest}"
+  # Output style: small, user-selected formatting layer.
+  style_section = build_output_style_section(cfg.project_root, getattr(cfg, "output_style", None))
+  if style_section:
+    base = f"{base}\n\n{style_section}"
+  # Rules: project conventions (path-gated based on files the agent/user touched this session).
+  touched = sorted(getattr(cfg, "_touched_paths", set()) or set())
+  rules_section = build_rules_section(cfg.project_root, touched_paths=touched or None)
+  if rules_section:
+    base = f"{base}\n\n{rules_section}"
+  skill_manifest = build_skill_manifest_text(cfg.project_root)
+  if skill_manifest:
+    base = f"{base}\n\n{skill_manifest}"
   extra = _load_gemini_md(cfg.project_root)
   if extra.strip():
     return f"{base}\n\n## Project instructions (GEMINI.md)\n{extra}"

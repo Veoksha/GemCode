@@ -1,4 +1,4 @@
-# Claude Web UI Contract (GemCode-Mirroring)
+# Web UI Contract (GemCode backend)
 
 This document captures the HTTP/WebSocket contract used by `claude-code-leaked/web` so we can implement a GemCode-backed backend that behaves the same way.
 
@@ -20,7 +20,7 @@ This document captures the HTTP/WebSocket contract used by `claude-code-leaked/w
 
 Any non-5xx response is treated as “backend up”.
 
-### 2.2 Concrete health response (Claude backend)
+### 2.2 Concrete health response (reference implementation)
 
 The backend implementation in `claude-code-leaked/src/server/api/index.ts` provides:
 
@@ -29,7 +29,7 @@ The backend implementation in `claude-code-leaked/src/server/api/index.ts` provi
 - `GET /health/ready`
 - `GET /health/startup`
 
-Note: the Claude UI’s reachability check targets `/api/health` (or other `/api/*` fallbacks). If your GemCode backend doesn’t implement `/api/health`, the UI will keep showing “Backend unreachable”.
+Note: the UI’s reachability check targets `/api/health` (or other `/api/*` fallbacks). If your GemCode backend doesn’t implement `/api/health`, the UI will keep showing “Backend unreachable”.
 
 ## 3. Chat: Streaming Contract
 
@@ -105,63 +105,4 @@ For best compatibility, the GemCode backend can either:
 - emit only StreamChunk frames (works for `ChatInput`)
 - or emit the full StreamEvent set (works for `useChat`)
 - ideally emit both (so all consumers work)
-
-## 4. Files / Exec (web shims)
-
-The Claude web frontend also provides a large file-system shim layer that calls various endpoints.
-
-Examples used by the browser FS shim (`claude-code-leaked/web/lib/platform/web/fs.ts`):
-
-- `GET /api/fs/read?path=<path>&encoding=utf-8`
-- `POST /api/fs/write`
-- `GET /api/fs/list?path=<path>&withTypes=1`
-- `POST /api/exec`
-- `GET /api/fs/watch?path=<path>` (SSE watching)
-
-Additionally, there are Next.js “proxy” endpoints under `claude-code-leaked/web/app/api/fs/*` and `claude-code-leaked/web/app/api/exec/*` that enforce sandboxing/security on the web side.
-
-For an initial GemCode MVP, these can be implemented later; the required minimal endpoint set for chat streaming is `/api/chat` (+ whatever `/api/health` maps to).
-
-## 5. Terminal WebSocket (`/ws`)
-
-The Claude terminal UI uses a WebSocket at:
-
-- WebSocket path: `/ws` (implemented in `claude-code-leaked/src/server/web/pty-server.ts`)
-
-The backend performs:
-
-- origin checks using `ALLOWED_ORIGINS` (optional)
-- auth during `verifyClient` (implementation depends on `AUTH_PROVIDER`)
-- rate limiting and session capacity checks
-
-Connection query params include:
-
-- `cols` and `rows` (terminal dimensions)
-- optional `resume` token for reattaching to existing sessions
-
-Message:
-
-- on successful session creation, the server sends `{ type: "session", token: <token> }`
-
-GemCode MVP scope decision:
-
-- If you only need chat and file editing, you can defer `/ws`.
-- If you want the in-browser terminal experience, you must implement `/ws` with the same session creation/resume semantics.
-
-## 6. Permission and “auto-approve”
-
-The Claude backend model/tool loop includes an `autoApprove` map for tool permission gating.
-
-In the Claude backend’s legacy `/api/chat` handler (`claude-code-leaked/src/server/api/index.ts`), the default auto-approve passed to `streamMessage` is:
-
-- `autoApprove: { file_read: true, file_write: false, bash: false }`
-
-The UI may also require tool approval events for collaborative flows (see `tool_approval_needed` in the Claude backend SSE stream).
-
-For GemCode:
-
-- map your internal `GEMCODE_PERMISSION_MODE` / `--yes` to what the UI needs to allow.
-- for an MVP, it is easiest to either:
-  - auto-approve safe read-only operations and deny mutating ops until explicit confirmation, or
-  - auto-approve everything in a local dev mode.
 

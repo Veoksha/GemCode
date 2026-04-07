@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
+import json
 import os
 import sys
 import uuid
@@ -20,6 +21,7 @@ from gemcode.session_runtime import create_runner
 from gemcode.trust import is_trusted_root, trust_root
 from gemcode.repl_slash import process_repl_slash
 from gemcode.ide_stdio import main as ide_stdio_main
+from gemcode.autotune import init_autotune, run_autotune_eval
 
 
 def _events_to_text(events) -> str:
@@ -474,6 +476,39 @@ def main() -> None:
       raise SystemExit(1)
 
     print(f"smoke ok: {len(inspections)} tools validated")
+    return
+
+  # Eval harness (AutoResearch-style gates).
+  if len(sys.argv) > 1 and sys.argv[1] == "eval":
+    eval_parser = argparse.ArgumentParser(prog="gemcode eval")
+    eval_parser.add_argument("-C", "--directory", type=Path, default=Path.cwd(), help="Project root")
+    eval_parser.add_argument("--llm", action="store_true", help="Include LLM golden prompts (costs tokens)")
+    eval_parser.add_argument("--model", default=None, help="Override model for LLM evals")
+    args = eval_parser.parse_args(sys.argv[2:])
+    from gemcode.evals.harness import run_eval_suite, write_eval_record
+    res = run_eval_suite(project_root=args.directory.resolve(), include_llm=bool(args.llm), model=args.model)
+    p = write_eval_record(args.directory.resolve(), res)
+    print(json.dumps(res, ensure_ascii=False, indent=2))
+    print(f"\n[gemcode eval] wrote {p}", file=sys.stderr)
+    raise SystemExit(0 if res.get("ok") else 1)
+
+  # Autotune scaffolding (AutoResearch-inspired).
+  if len(sys.argv) > 1 and sys.argv[1] == "autotune":
+    at_parser = argparse.ArgumentParser(prog="gemcode autotune")
+    at_parser.add_argument("subcommand", choices=("init", "eval"))
+    at_parser.add_argument("-C", "--directory", type=Path, default=Path.cwd(), help="Project root")
+    at_parser.add_argument("--tag", default=None, help="Run tag (e.g. apr7)")
+    at_parser.add_argument("--llm", action="store_true", help="Include LLM golden prompts (costs tokens)")
+    at_parser.add_argument("--model", default=None, help="Override model for LLM evals")
+    args = at_parser.parse_args(sys.argv[2:])
+    root = args.directory.resolve()
+    if args.subcommand == "init":
+      if not args.tag:
+        raise SystemExit("autotune init requires --tag")
+      print(json.dumps(init_autotune(project_root=root, tag=str(args.tag)), ensure_ascii=False, indent=2))
+      return
+    # eval
+    print(json.dumps(run_autotune_eval(project_root=root, include_llm=bool(args.llm), model=args.model), ensure_ascii=False, indent=2))
     return
 
   # Live audio mode (Gemini Live API via ADK run_live()).

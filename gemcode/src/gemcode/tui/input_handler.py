@@ -45,6 +45,10 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("init",        "Analyze project and generate GEMINI.md project instructions"),
     ("cost",        "Show session token usage and estimated USD cost breakdown"),
     ("notes",       "View agent auto-generated project notes (.gemcode/notes.md)"),
+    ("diff",        "Show git diff (or checkpoint diff fallback)"),
+    ("rewind",      "Restore files to a previous checkpoint  ·  alias: /checkpoint"),
+    ("add-dir",     "Add extra directory for read/search access  ·  /add-dir list"),
+    ("batch",       "Parallel large-change orchestrator (built-in GemSkill)"),
     ("review",      "Parallel code review: security + style + correctness simultaneously"),
     ("compact",     "Compact conversation history to free context window"),
     ("clear",       "Start a fresh session (clears history)  ·  alias: /session new"),
@@ -97,7 +101,8 @@ if _PT_AVAILABLE:
                     yield Completion(
                         "/" + name,
                         start_position=-len(text),
-                        display=HTML(f"<ansiblue>/<b>{name}</b></ansiblue>"),
+                        # Use GemCode's prompt blue, not the terminal "ansiblue" alias.
+                        display=HTML(f'<style fg="#5fafd7">/<b>{name}</b></style>'),
                         display_meta=desc,
                     )
 
@@ -138,7 +143,7 @@ class GemCodeInputHandler:
                 # The ❯ prompt glyph
                 "prompt":                               "#5fafd7 bold",
                 # Completion popup rows
-                "completion-menu.completion":           "bg:#0d2035 fg:#87cefa",
+                "completion-menu.completion":           "bg:#0d2035 fg:#5fafd7",
                 "completion-menu.completion.current":   "bg:#0087d7 fg:#ffffff bold",
                 # Meta (description) column
                 "completion-menu.meta.completion":      "bg:#0d2035 fg:#5a7a9a",

@@ -6,13 +6,34 @@ import shutil
 from pathlib import Path
 
 from gemcode.config import GemCodeConfig
-from gemcode.paths import PathEscapeError, resolve_under_root
+from gemcode.paths import PathEscapeError, resolve_under_root, resolve_under_allowed_roots
 from gemcode.trust import is_trusted_root
 
 
 def make_filesystem_tools(cfg: GemCodeConfig):
   root = cfg.project_root
   trusted = is_trusted_root(root)
+  extra_roots = getattr(cfg, "_added_dirs", None) or {}
+
+  def _touch(rel_path: str) -> None:
+    try:
+      s = getattr(cfg, "_touched_paths", None)
+      if s is None:
+        s = set()
+        setattr(cfg, "_touched_paths", s)
+      s.add(str(rel_path).lstrip("./"))
+    except Exception:
+      pass
+
+  def _checkpoint(op: str, paths: list[Path]) -> None:
+    try:
+      if not getattr(cfg, "enable_checkpoints", True):
+        return
+      from gemcode.checkpoints import create_checkpoint
+      snaps = [(p, p.is_file()) for p in paths]
+      create_checkpoint(project_root=root, op=op, file_snapshots=snaps)
+    except Exception:
+      return
 
   def read_file(
     path: str,
@@ -38,11 +59,12 @@ def make_filesystem_tools(cfg: GemCodeConfig):
     if not trusted:
       return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
     try:
-      p = resolve_under_root(root, path)
+      p, scope = resolve_under_allowed_roots(root, path, extra_roots=extra_roots)
     except PathEscapeError as e:
       return {"error": str(e)}
     if not p.is_file():
-      return {"error": f"Not a file: {path}"}
+      return {"error": f"Not a file: {path}", "error_kind": "not_found"}
+    _touch(path)
 
     # Dynamic caps: allow bigger reads when context is healthy, tighten when tight.
     try:
@@ -71,6 +93,7 @@ def make_filesystem_tools(cfg: GemCodeConfig):
       text = text_full[:max_bytes]
       return {
         "path": path,
+        "scope": scope,
         "content": text,
         "start_line": s + 1,
         "end_line": min(e, s + len(sliced)),
@@ -83,6 +106,7 @@ def make_filesystem_tools(cfg: GemCodeConfig):
     text = data[:max_bytes].decode("utf-8", errors="replace")
     return {
       "path": path,
+      "scope": scope,
       "content": text,
       "truncated": truncated,
       "total_bytes": total_bytes,
@@ -104,9 +128,13 @@ def make_filesystem_tools(cfg: GemCodeConfig):
     except PathEscapeError as e:
       return {"error": str(e)}
     if not src_p.exists():
-      return {"error": f"Source does not exist: {src}"}
+      return {"error": f"Source does not exist: {src}", "error_kind": "not_found"}
     if dest_p.exists():
-      return {"error": f"Destination already exists: {dest}. Delete it first or choose a different name."}
+      return {"error": f"Destination already exists: {dest}. Delete it first or choose a different name.", "error_kind": "conflict"}
+    _touch(src)
+    _touch(dest)
+    # Checkpoint the source file state (so undo can restore it).
+    _checkpoint("move_file", [src_p])
     dest_p.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src_p), str(dest_p))
     return {"src": src, "dest": dest, "moved": True}
@@ -122,11 +150,12 @@ def make_filesystem_tools(cfg: GemCodeConfig):
     if not trusted:
       return {"error": "Project folder is not trusted. Re-run GemCode and approve folder trust."}
     try:
-      p = resolve_under_root(root, path)
+      p, scope = resolve_under_allowed_roots(root, path, extra_roots=extra_roots)
     except PathEscapeError as e:
       return {"error": str(e)}
     if not p.is_dir():
       return {"error": f"Not a directory: {path}"}
+    _touch(path)
     entries: list[dict] = []
     for child in sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
       entries.append(
@@ -135,7 +164,7 @@ def make_filesystem_tools(cfg: GemCodeConfig):
           "type": "dir" if child.is_dir() else "file",
         }
       )
-    return {"path": path, "entries": entries[:500]}
+    return {"path": path, "scope": scope, "entries": entries[:500]}
 
   def glob_files(pattern: str) -> dict:
     """
@@ -151,15 +180,36 @@ def make_filesystem_tools(cfg: GemCodeConfig):
     if ".." in pattern or pattern.startswith("/"):
       return {"error": "Invalid pattern"}
     matches: list[str] = []
-    for m in root.glob(pattern):
+    base = root
+    scope = "project"
+    # Allow pattern like "<extra_name>/**" to search in that added root.
+    if extra_roots:
+      head = pattern.split("/", 1)[0]
+      if head in extra_roots:
+        base = extra_roots[head]
+        scope = f"extra:{head}"
+        pattern = pattern.split("/", 1)[1] if "/" in pattern else "*"
+    for m in base.glob(pattern):
       try:
-        rel = m.resolve().relative_to(root)
+        rel_path = m.resolve()
+        rel = rel_path.relative_to(root)
+        rel_s = str(rel)
       except ValueError:
-        continue
-      matches.append(str(rel))
+        if scope.startswith("extra:"):
+          name = scope.split(":", 1)[1]
+          try:
+            rel2 = rel_path.relative_to(extra_roots[name].resolve())
+            rel_s = f"{name}/{rel2}"
+          except Exception:
+            continue
+        else:
+          continue
+      matches.append(rel_s)
       if len(matches) >= 200:
         break
-    return {"pattern": pattern, "matches": matches}
+    for rel in matches[:50]:
+      _touch(rel)
+    return {"pattern": pattern, "scope": scope, "matches": matches}
 
   def delete_file(path: str) -> dict:
     """Delete a file relative to the project root (not directories)."""
@@ -170,7 +220,9 @@ def make_filesystem_tools(cfg: GemCodeConfig):
     except PathEscapeError as e:
       return {"error": str(e)}
     if not p.is_file():
-      return {"error": f"Not a file: {path}"}
+      return {"error": f"Not a file: {path}", "error_kind": "not_found"}
+    _touch(path)
+    _checkpoint("delete_file", [p])
     p.unlink()
     return {"path": path, "deleted": True}
 

@@ -20,9 +20,9 @@ def _parse_sse_data_frames(stdout: str) -> list[dict[str, Any]]:
   return out
 
 
-def test_claude_sse_adapter_mock(tmp_path) -> None:
+def test_sse_adapter_mock(tmp_path) -> None:
   """
-  Validates that the web adapter emits a Claude-like SSE stream
+  Validates that the web adapter emits an SSE stream
   in both StreamEvent and StreamChunk formats.
   """
   req = {
@@ -37,7 +37,7 @@ def test_claude_sse_adapter_mock(tmp_path) -> None:
   env["GEMCODE_WEB_MOCK_CHUNK"] = "4"
 
   proc = subprocess.run(
-    [sys.executable, "-m", "gemcode.web.claude_sse_adapter"],
+    [sys.executable, "-m", "gemcode.web.sse_adapter"],
     input=json.dumps(req).encode("utf-8"),
     env=env,
     capture_output=True,

@@ -56,7 +56,8 @@ def test_auto_mode_triggers_on_computer_keywords(tmp_path) -> None:
   cfg.enable_embeddings = False
   cfg.enable_computer_use = False
   apply_capability_routing(cfg, "Open the browser and click the login button.", context="prompt")
-  assert cfg.enable_computer_use is True
+  # Computer-use is intentionally NEVER auto-enabled from prompt heuristics.
+  assert cfg.enable_computer_use is False
 
 
 def test_pick_effective_model_computer_use_override(tmp_path) -> None:

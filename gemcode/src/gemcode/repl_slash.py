@@ -29,6 +29,9 @@ from gemcode.repl_commands import (
   slash_help_lines,
 )
 from gemcode.slash_commands import parse_slash_command
+from gemcode.skills import discover_skill_metas, expand_skill_text, list_supporting_files, load_skill
+from gemcode.output_styles import discover_output_styles, load_output_style
+from gemcode.rules import load_rules as _load_rules
 
 
 @dataclass
@@ -75,6 +78,461 @@ async def process_repl_slash(
     out("\n".join(slash_help_lines()))
     out()
     return ReplSlashResult(skip_model_turn=True)
+
+  # ── /skills and /<skill-name> ──────────────────────────────────────────────
+  if name in ("skills", "skill"):
+    args = (sc.args or "").strip()
+    if not args or args.lower() in ("list", "ls", "show"):
+      metas = discover_skill_metas(cfg.project_root)
+      if not metas:
+        out("No GemSkills found.")
+        out("Create one at `.gemcode/skills/<name>/SKILL.md` or `~/.gemcode/skills/<name>/SKILL.md`.")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out("GemSkills:")
+      for k in sorted(metas.keys()):
+        m, _ = metas[k]
+        inv = "manual-only" if m.disable_model_invocation else "auto-eligible"
+        out(f"  /{m.name} ({inv}) — {m.description}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    parts = args.split()
+    sk = parts[0].strip().lower()
+    sk_args = " ".join(parts[1:]).strip()
+    s = load_skill(cfg.project_root, sk)
+    if s is None:
+      out(f"Unknown skill: {sk}")
+      out("Tip: /skills list")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    expanded = expand_skill_text(s, arguments=sk_args, session_id=session_id)
+    files = list_supporting_files(s)
+    prompt = (
+      f"Apply GemSkill `/{s.meta.name}`.\n\n"
+      f"## Skill instructions\n{expanded}\n\n"
+      + (f"## Skill supporting files\n{', '.join(files)}\n\n" if files else "")
+      + "Now carry out the user's request using the skill instructions."
+    )
+    return ReplSlashResult(model_prompt=prompt)
+
+  # ── /batch (built-in GemSkill) ─────────────────────────────────────────────
+  if name == "batch":
+    goal = (sc.args or "").strip()
+    if not goal:
+      out("Usage: /batch <goal>")
+      out("Example: /batch refactor auth module to use new permissions API")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    s = load_skill(cfg.project_root, "batch")
+    if s is None:
+      out("Batch skill unavailable.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    expanded = expand_skill_text(s, arguments=goal, session_id=session_id)
+    prompt = (
+      "Apply GemSkill `/batch`.\n\n"
+      f"## Goal\n{goal}\n\n"
+      f"## Skill instructions\n{expanded}\n\n"
+      "Now execute the batch workflow end-to-end."
+    )
+    return ReplSlashResult(model_prompt=prompt)
+
+  # ── /create gemskill ──────────────────────────────────────────────────────
+  if name == "create":
+    args = (sc.args or "").strip()
+    if not args:
+      out("Usage: /create gemskill <name> [description]")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    parts = args.split()
+    sub = parts[0].lower()
+    if sub != "gemskill":
+      out(f"Unknown /create subcommand: {sub}")
+      out("Usage: /create gemskill <name> [description]")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if len(parts) < 2:
+      out("Usage: /create gemskill <name> [description]")
+      out("Example: /create gemskill explain-code Explains code with diagrams and analogies")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    skill_name = parts[1].strip().lower()
+    desc = " ".join(parts[2:]).strip() or f"Describe what /{skill_name} does and when to use it."
+
+    import re
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", skill_name):
+      out("Invalid skill name. Use lowercase letters, numbers, hyphens only (max 64 chars).")
+      out("Example: explain-code, test-code, deploy-prod")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    skill_dir = cfg.project_root / ".gemcode" / "skills" / skill_name
+    skill_md = skill_dir / "SKILL.md"
+    if skill_md.exists():
+      out(f"Skill already exists: {skill_md}")
+      out("Tip: edit the SKILL.md file to customize it.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    try:
+      skill_dir.mkdir(parents=True, exist_ok=True)
+      template = (
+        "---\n"
+        f"name: {skill_name}\n"
+        f"description: {desc}\n"
+        "disable-model-invocation: false\n"
+        "---\n\n"
+        f"# GemSkill: /{skill_name}\n\n"
+        "## Purpose\n"
+        f"{desc}\n\n"
+        "## When to use\n"
+        "- Use this skill when the user request matches the Purpose above.\n"
+        "- If the request does not match, do not force the workflow—switch back to normal behavior.\n\n"
+        "## Inputs\n"
+        "- **Arguments**: `$ARGUMENTS` (all args) and `$0`, `$1`, ... (positional).\n"
+        "- **Project context**: use repo tools to read the real codebase instead of guessing.\n\n"
+        "## Output expectations\n"
+        "- Produce an answer that is complete, accurate, and minimal.\n"
+        "- If editing code: provide a tight change set and a clear test plan.\n\n"
+        "## Workflow (world-class default)\n"
+        "1. Clarify the goal from the user's request (1 sentence).\n"
+        "2. Gather evidence with read/search tools before proposing changes.\n"
+        "3. Choose an approach and state constraints/trade-offs briefly.\n"
+        "4. Execute the smallest correct set of steps.\n"
+        "5. Verify (tests/lints/smoke) when applicable.\n"
+        "6. Summarize results and list any follow-ups.\n\n"
+        "## Guardrails\n"
+        "- Never invent APIs, files, or commands—verify with tools.\n"
+        "- Avoid large rewrites unless explicitly requested.\n"
+        "- Do not create vendor-specific files like `CLAUDE.md` or `AGENTS.md`.\n"
+        "- Don’t leak secrets; refuse if the user asks for credentials.\n\n"
+        "## Tooling guidance\n"
+        "- Prefer `read_file`/`grep_content`/`glob_files`/`repo_map` for discovery.\n"
+        "- Prefer `search_replace` for small edits; `write_file` only for new files.\n"
+        "- Use `bash`/`run_command` for tests/builds only when allowed by permissions.\n\n"
+        "## Examples\n"
+        "### Example 1\n"
+        f"User: `/{skill_name} $ARGUMENTS`\n"
+        "Assistant: (apply this workflow; show evidence; then execute)\n\n"
+        "### Example 2\n"
+        f"User: `/{skill_name}`\n"
+        "Assistant: (if missing arguments, proceed with safe defaults or ask a single clarifying question)\n\n"
+        "## Supporting files (optional)\n"
+        "- Put templates, checklists, or scripts next to this SKILL.md and reference them using `${GEMCODE_SKILL_DIR}`.\n"
+      )
+      skill_md.write_text(template, encoding="utf-8")
+    except OSError as e:
+      out(f"Error creating skill: {e}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    out(f"Created GemSkill: /{skill_name}")
+    out(f"Path: {skill_md}")
+    out("Try: /skills   then   /" + skill_name + " <args>")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /style ────────────────────────────────────────────────────────────────
+  if name == "style":
+    args = (sc.args or "").strip()
+    styles = discover_output_styles(cfg.project_root)
+    if not args or args.lower() in ("list", "ls", "show"):
+      active = getattr(cfg, "output_style", None)
+      out(f"output_style: {active if active else '(none)'}")
+      if not styles:
+        out("No output styles found.")
+        out("Create one at `.gemcode/output-styles/<name>.md` or `~/.gemcode/output-styles/<name>.md`.")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out("Available styles:")
+      for k in sorted(styles.keys()):
+        out(f"  {k}\t({styles[k]})")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    choice = args.strip().lower()
+    if choice in ("off", "none", "clear", "reset", "default"):
+      setattr(cfg, "output_style", None)
+      out("output_style: (none)")
+      out("Runner will rebuild on next turn to apply changes.")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+    if choice not in styles:
+      out(f"Unknown style: {choice}")
+      out("Tip: /style to list")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    # Validate it loads.
+    if load_output_style(cfg.project_root, choice) is None:
+      out(f"Could not load style: {choice}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    setattr(cfg, "output_style", choice)
+    out(f"output_style: {choice}")
+    out("Runner will rebuild on next turn to apply changes.")
+    out()
+    return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+  # ── /rules ────────────────────────────────────────────────────────────────
+  if name == "rules":
+    rules = _load_rules(cfg.project_root, touched_paths=None)
+    if not rules:
+      out("No rules loaded.")
+      out("Create rules under `.gemcode/rules/*.md` (optional frontmatter: `paths:`).")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    out("Loaded rules:")
+    for r in rules:
+      gate = f" paths={r.paths}" if r.paths else ""
+      out(f"  - {r.name}\t({r.path}){gate}")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /add-dir (safe multi-root access) ──────────────────────────────────────
+  if name in ("add-dir", "add_dir", "adddir"):
+    import os
+    from pathlib import Path
+
+    args = (sc.args or "").strip()
+    added: dict[str, Path] = getattr(cfg, "_added_dirs", None) or {}
+    setattr(cfg, "_added_dirs", added)
+
+    if not args or args.lower() in ("list", "ls", "show"):
+      if not added:
+        out("No added directories.")
+        out("Add one: /add-dir /path/to/dir")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out("Added directories (read/search only):")
+      for name2, p2 in sorted(added.items()):
+        out(f"  {name2}\t{p2}")
+      out()
+      out("Use paths as: <name>/<relative-path>")
+      out("Example: read_file(\"name/README.md\")")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    parts = args.split()
+    if parts[0].lower() in ("remove", "rm", "del") and len(parts) >= 2:
+      key = parts[1].strip()
+      if key in added:
+        removed = added.pop(key)
+        out(f"Removed: {key} ({removed})")
+      else:
+        out(f"Not found: {key}")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+    # Add path
+    raw = args
+    p = Path(os.path.expanduser(raw)).resolve()
+    if not p.is_dir():
+      out(f"Not a directory: {p}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    # Name = basename, de-dupe by suffix.
+    base = p.name or "dir"
+    name2 = base
+    if name2 in added and added[name2] != p:
+      i = 2
+      while f"{base}{i}" in added and added[f"{base}{i}"] != p:
+        i += 1
+      name2 = f"{base}{i}"
+    added[name2] = p
+
+    out(f"Added directory: {name2}")
+    out(f"Path: {p}")
+    out("Use it as: " + f"{name2}/<path>")
+    out("Note: config (rules/styles/settings) is NOT loaded from added dirs.")
+    out()
+    return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+  # ── /diff ─────────────────────────────────────────────────────────────────
+  if name == "diff":
+    import subprocess
+    import shutil
+    import difflib
+
+    args = (sc.args or "").strip()
+    root = cfg.project_root.resolve()
+
+    def _checkpoint_diff_text(checkpoint_id: str, *, max_chars: int = 60_000) -> str | None:
+      """
+      Unified diff of checkpoint snapshot -> current workspace.
+      """
+      from gemcode.checkpoints import list_checkpoints
+      cps = list_checkpoints(root, limit=200)
+      man = next((c for c in cps if (c.get("id") or "") == checkpoint_id), None)
+      if not man:
+        return None
+      base = root / ".gemcode" / "checkpoints" / checkpoint_id
+      files_dir = base / "files"
+      out_lines: list[str] = []
+      for f in (man.get("files") or []):
+        rel = str(f.get("path") or "")
+        if not rel:
+          continue
+        existed = bool(f.get("existed"))
+        cur_path = (root / rel)
+        old_bytes = b""
+        if existed:
+          snap = files_dir / rel
+          if snap.is_file():
+            try:
+              old_bytes = snap.read_bytes()
+            except Exception:
+              old_bytes = b""
+        old_txt = old_bytes.decode("utf-8", errors="replace").splitlines(keepends=True)
+        try:
+          cur_txt = cur_path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True) if cur_path.is_file() else []
+        except Exception:
+          cur_txt = []
+
+        # If file didn't exist at checkpoint but exists now: treat as add.
+        # If existed at checkpoint but missing now: treat as delete.
+        fromfile = f"{checkpoint_id}:{rel}"
+        tofile = f"WORKSPACE:{rel}"
+        diff = difflib.unified_diff(old_txt, cur_txt, fromfile=fromfile, tofile=tofile, n=3)
+        chunk = "".join(diff)
+        if chunk.strip():
+          out_lines.append(chunk)
+        if sum(len(x) for x in out_lines) > max_chars:
+          out_lines.append("\n… [truncated]\n")
+          break
+      return "".join(out_lines).strip() if out_lines else "(no changes compared to checkpoint)"
+
+    git = shutil.which("git")
+    if git and (root / ".git").exists() and not args.startswith("cp_") and args.lower() not in ("last", "checkpoint"):
+      # Git diff viewer (text).
+      cmd = [git, "--no-pager", "diff"]
+      if args:
+        # allow: /diff --cached, /diff HEAD~1, /diff --stat, etc.
+        cmd = [git, "--no-pager", "diff", *args.split()]
+      try:
+        p = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True, timeout=15)
+        out_txt = (p.stdout or "").strip()
+        if not out_txt:
+          out("(no git diff)")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        # Avoid dumping enormous diffs.
+        if len(out_txt) > 40_000:
+          out(out_txt[:40_000])
+          out("\n… [truncated]  Tip: /diff --stat or narrow the diff.")
+        else:
+          out(out_txt)
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      except Exception as e:
+        out(f"[gemcode] git diff failed: {e}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+
+    # Checkpoint diff mode:
+    # - /diff cp_<id>
+    # - /diff last
+    # - /diff checkpoint <id>
+    try:
+      from gemcode.checkpoints import list_checkpoints
+      cps = list_checkpoints(root, limit=50)
+    except Exception:
+      cps = []
+
+    want = args.strip()
+    cp_id: str | None = None
+    if want.lower() == "last" or want == "":
+      cp_id = (cps[0].get("id") if cps else None)
+    elif want.lower().startswith("checkpoint "):
+      cp_id = want.split(None, 1)[1].strip() if " " in want else None
+    elif want.startswith("cp_"):
+      cp_id = want.split()[0].strip()
+
+    if cp_id:
+      txt = _checkpoint_diff_text(cp_id)
+      if txt is None:
+        out(f"Unknown checkpoint: {cp_id}")
+        out("Tip: /rewind list")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if len(txt) > 60_000:
+        out(txt[:60_000])
+        out("\n… [truncated]")
+      else:
+        out(txt)
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    # Fallback: show recent checkpoints and how to diff.
+    try:
+      from gemcode.checkpoints import list_checkpoints
+      cps = list_checkpoints(root, limit=5)
+    except Exception:
+      cps = []
+    if not cps:
+      out("No git repo and no checkpoints found to diff.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    out("No git repo detected. Recent checkpoints:")
+    for c in cps:
+      cid = c.get("id")
+      op = c.get("op")
+      files = c.get("files") or []
+      out(f"  {cid}\t{op}\tfiles={len(files)}")
+    out("Tip: /diff last  or  /diff <checkpoint_id>  (e.g. /diff cp_123...)")
+    out("Tip: /rewind <checkpoint_id> to restore.")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /rewind (checkpoint restore) ──────────────────────────────────────────
+  if name in ("rewind", "checkpoint"):
+    args = (sc.args or "").strip()
+    from gemcode.checkpoints import list_checkpoints, undo_checkpoint
+
+    if not args or args.lower() in ("list", "ls", "show"):
+      cps = list_checkpoints(cfg.project_root, limit=20)
+      if not cps:
+        out("No checkpoints found.")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out("Checkpoints (newest first):")
+      out("─" * 70)
+      for c in cps:
+        cid = c.get("id") or ""
+        op = c.get("op") or ""
+        ts = c.get("ts_ms") or 0
+        files = c.get("files") or []
+        out(f"  {cid}\t{op}\tfiles={len(files)}\tts_ms={ts}")
+      out()
+      out("Restore: /rewind <checkpoint_id>")
+      out("Undo latest: /rewind")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    # Restore a specific checkpoint id
+    cp_id = args.split()[0].strip()
+    res = undo_checkpoint(cfg.project_root, checkpoint_id=cp_id)
+    if res.get("error"):
+      out(f"rewind error: {res.get('error')}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    restored = res.get("restored") or []
+    out(f"Rewound to checkpoint: {res.get('checkpoint_id')}")
+    if restored:
+      out("Restored paths:")
+      for p in restored[:60]:
+        out(f"  - {p}")
+      if len(restored) > 60:
+        out(f"  … (+{len(restored) - 60} more)")
+    else:
+      out("(No files changed by this rewind.)")
+    out()
+    return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
 
   if name == "doctor":
     out("\n".join(format_doctor_lines(cfg)))
@@ -523,6 +981,37 @@ async def process_repl_slash(
         "(override with GEMCODE_CONTEXT_WINDOW_TOKENS)"
     )
     out(f"autocompact_threshold_tokens≈{aut}")
+
+    # Prompt composition breakdown (chars; token estimate is approximate).
+    try:
+      from gemcode.skills import build_skill_manifest_text
+      from gemcode.output_styles import build_output_style_section
+      from gemcode.rules import build_rules_section
+      from gemcode.agent import _load_gemini_md  # internal helper
+
+      touched = sorted(getattr(cfg, "_touched_paths", set()) or set())
+      style_txt = build_output_style_section(cfg.project_root, getattr(cfg, "output_style", None))
+      rules_txt = build_rules_section(cfg.project_root, touched_paths=touched or None)
+      skills_txt = build_skill_manifest_text(cfg.project_root)
+      gemini_txt = _load_gemini_md(cfg.project_root)
+
+      def _tok(ch: int) -> int:
+        return int(ch / 4)  # rough heuristic
+
+      out("")
+      out("prompt_breakdown (approx):")
+      out(f"  output_style_chars: {len(style_txt)}  (~{_tok(len(style_txt))} tok)")
+      out(f"  rules_chars       : {len(rules_txt)}  (~{_tok(len(rules_txt))} tok)")
+      out(f"  skills_manifest   : {len(skills_txt)}  (~{_tok(len(skills_txt))} tok)")
+      out(f"  GEMINI_md         : {len(gemini_txt)}  (~{_tok(len(gemini_txt))} tok)")
+      if touched:
+        preview = ", ".join(touched[:10]) + ("…" if len(touched) > 10 else "")
+        out(f"  touched_paths     : {len(touched)} ({preview})")
+      else:
+        out("  touched_paths     : 0")
+    except Exception:
+      pass
+
     if isinstance(last_pt, int):
       cw = calculate_context_warning_state(
           prompt_token_count=last_pt, model=cfg.model, cfg=cfg
@@ -1104,6 +1593,21 @@ async def process_repl_slash(
       out("Usage: /thinking [off | on | level <minimal|low|medium|high>]")
     out()
     return ReplSlashResult(skip_model_turn=True)
+
+  # Unknown slash command: if it matches a skill name, invoke it.
+  metas = discover_skill_metas(cfg.project_root)
+  if name in metas:
+    s = load_skill(cfg.project_root, name)
+    if s is not None:
+      expanded = expand_skill_text(s, arguments=(sc.args or ""), session_id=session_id)
+      files = list_supporting_files(s)
+      prompt = (
+        f"Apply GemSkill `/{s.meta.name}`.\n\n"
+        f"## Skill instructions\n{expanded}\n\n"
+        + (f"## Skill supporting files\n{', '.join(files)}\n\n" if files else "")
+        + "Now proceed."
+      )
+      return ReplSlashResult(model_prompt=prompt)
 
   out(f"Unknown command: /{sc.command_name}")
   out("Try /help")

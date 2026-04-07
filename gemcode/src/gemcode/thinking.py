@@ -103,11 +103,6 @@ def build_thinking_config(cfg: GemCodeConfig) -> Optional[types.ThinkingConfig]:
   # Otherwise: Claude-like auto mapping based on model_mode.
   mode = (getattr(cfg, "model_mode", "auto") or "auto").lower()
   if mode == "auto":
-    # Use Gemini's adaptive thinking budget but request thought tokens in the
-    # response so the TUI can display them.  Models that don't support thinking
-    # ignore include_thoughts gracefully; for others we fall back to None.
-    if _supports_thinking(model_id):
-      return types.ThinkingConfig(include_thoughts=True)
     return None
 
   if not is_25:
@@ -115,32 +110,32 @@ def build_thinking_config(cfg: GemCodeConfig) -> Optional[types.ThinkingConfig]:
     if mode == "fast":
       return types.ThinkingConfig(
         thinking_level="low" if _is_gemini_3_pro(model_id) else "minimal",
-        include_thoughts=True,
+        include_thoughts=include or None,
       )
     if mode == "balanced":
       return types.ThinkingConfig(
         thinking_level="medium",
-        include_thoughts=True,
+        include_thoughts=include or None,
       )
     # quality
     return types.ThinkingConfig(
       thinking_level="high",
-      include_thoughts=True,
+      include_thoughts=include or None,
     )
 
   # Gemini 2.5 thinkingBudget mapping.
   if mode == "fast":
     if "2.5-pro" in model_id:
-      return types.ThinkingConfig(thinking_budget=512, include_thoughts=True)
+      return types.ThinkingConfig(thinking_budget=512, include_thoughts=include or None)
     # flash/flash-preview/flash-lite
     return types.ThinkingConfig(
-      thinking_budget=0 if "flash-lite" in model_id else 1024, include_thoughts=True
+      thinking_budget=0 if "flash-lite" in model_id else 1024, include_thoughts=include or None
     )
   if mode == "balanced":
     if "2.5-pro" in model_id:
-      return types.ThinkingConfig(thinking_budget=4096, include_thoughts=True)
-    return types.ThinkingConfig(thinking_budget=2048, include_thoughts=True)
+      return types.ThinkingConfig(thinking_budget=4096, include_thoughts=include or None)
+    return types.ThinkingConfig(thinking_budget=2048, include_thoughts=include or None)
 
   # quality — dynamic budget (model decides how much to think)
-  return types.ThinkingConfig(thinking_budget=-1, include_thoughts=True)
+  return types.ThinkingConfig(thinking_budget=-1, include_thoughts=include or None)
 

@@ -115,9 +115,9 @@ gemcode -C . --session myproj --yes "Continue: implement the refactor"
 Full, detailed documentation (including CLI flags, env vars, and tool
 behavior) lives in [`gemcode/README.md`](gemcode/README.md).
 
-## Web UI (Claude Code compatible)
+## Web UI (SSE chat compatible)
 
-This workspace includes a Claude Code–style web UI in [`claude-code-leaked/web`](claude-code-leaked/web) and a documented backend contract in [`docs/claude-web-contract.md`](docs/claude-web-contract.md).
+This workspace includes a web UI in [`claude-code-leaked/web`](claude-code-leaked/web) and a documented backend contract in [`docs/web-ui-contract.md`](docs/web-ui-contract.md).
 
 Run instructions and environment variables are in [`web-ui/README.md`](web-ui/README.md).
 

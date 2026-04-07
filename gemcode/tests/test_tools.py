@@ -36,7 +36,7 @@ def test_read_file(tmp_path: Path, monkeypatch) -> None:
   trust_root(tmp_path, trusted=True)
   cfg = GemCodeConfig(project_root=tmp_path)
   (tmp_path / "x.txt").write_text("hello", encoding="utf-8")
-  read_file, _, _, _ = make_filesystem_tools(cfg)
+  read_file, _, _, _, _ = make_filesystem_tools(cfg)
   out = read_file("x.txt")
   assert out["content"] == "hello"
 
@@ -56,8 +56,8 @@ def test_run_command_allowlist_bypass_after_shell_gate(tmp_path: Path, monkeypat
   assert not tgt.exists()
   # Gate is not consumed when a different executable runs first (still non-allowlisted).
   arm_confirmed_shell_basename("rm")
-  assert "cat" not in cfg.allow_commands
-  wrong = run_command("cat", ["gone.txt"])
+  assert "uname" not in cfg.allow_commands
+  wrong = run_command("uname", ["-a"])
   assert "not in allowlist" in str(wrong.get("error", ""))
   tgt2 = tmp_path / "y.txt"
   tgt2.write_text("z", encoding="utf-8")
@@ -70,15 +70,13 @@ def test_run_command_sticky_session_bypasses_allowlist(tmp_path: Path, monkeypat
   monkeypatch.setenv("GEMCODE_HOME", str(tmp_path / ".gemstate"))
   trust_root(tmp_path, trusted=True)
   cfg = GemCodeConfig(project_root=tmp_path)
-  assert "mkdir" not in cfg.allow_commands
+  assert "uname" not in cfg.allow_commands
   run_command = make_run_command(cfg)
   ctx = MagicMock()
   ctx.state = {HITL_STICKY_SESSION_KEY: True}
-  sub = tmp_path / "sticky_dir"
-  assert not sub.exists()
-  out = run_command("mkdir", ["sticky_dir"], tool_context=ctx)
+  out = run_command("uname", ["-a"], tool_context=ctx)
   assert out.get("exit_code") == 0
-  assert sub.is_dir()
+  assert (out.get("stdout") or out.get("stderr") or "").strip()
 
 
 def test_run_command_cwd_subdir(tmp_path: Path, monkeypatch) -> None:
@@ -142,7 +140,7 @@ def test_delete_file(tmp_path: Path, monkeypatch) -> None:
   cfg = GemCodeConfig(project_root=tmp_path)
   p = tmp_path / "gone.txt"
   p.write_text("bye", encoding="utf-8")
-  _, _, _, delete_file = make_filesystem_tools(cfg)
+  _, _, _, delete_file, _ = make_filesystem_tools(cfg)
   out = delete_file("gone.txt")
   assert out.get("deleted") is True
   assert not p.exists()

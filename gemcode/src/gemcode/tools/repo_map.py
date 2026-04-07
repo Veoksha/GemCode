@@ -74,6 +74,16 @@ def make_repo_map_tool(cfg: GemCodeConfig):
   root = cfg.project_root
   trusted = is_trusted_root(root)
 
+  def _touch(rel_path: str) -> None:
+    try:
+      s = getattr(cfg, "_touched_paths", None)
+      if s is None:
+        s = set()
+        setattr(cfg, "_touched_paths", s)
+      s.add(str(rel_path).lstrip("./"))
+    except Exception:
+      pass
+
   def repo_map(
     path: str = ".",
     include_glob: str = "**/*.{py,ts,tsx,js,jsx,md,txt,json,yml,yaml}",
@@ -114,6 +124,7 @@ def make_repo_map_tool(cfg: GemCodeConfig):
     for rel in rels:
       if sum(len(x) + 1 for x in lines) >= max_chars:
         break
+      _touch(rel)
       lines.append(rel)
       if include_symbols and rel.endswith((".py", ".ts", ".tsx", ".js", ".jsx")):
         sym = _symbols_for_file(root / rel)

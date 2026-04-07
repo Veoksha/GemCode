@@ -206,6 +206,12 @@ class GemCodeConfig:
     default_factory=lambda: _truthy_env("GEMCODE_ENABLE_MEMORY", default=False)
   )
 
+  # Output style: optional extra system-prompt section loaded from
+  # `.gemcode/output-styles/<name>.md` or `~/.gemcode/output-styles/<name>.md`.
+  output_style: str | None = field(
+    default_factory=lambda: os.environ.get("GEMCODE_OUTPUT_STYLE") or None
+  )
+
   # Modality toggles (tool injection + routing).
   enable_deep_research: bool = field(
     default_factory=lambda: _truthy_env("GEMCODE_ENABLE_DEEP_RESEARCH", default=False)
@@ -345,6 +351,17 @@ class GemCodeConfig:
   ide_proposal_mode: bool = False
   ide_allow_write: bool = False
   ide_allow_shell: bool = False
+
+  # Checkpointing (Hermes-style): snapshot files before mutating tools so users
+  # can undo accidental agent edits.
+  enable_checkpoints: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_CHECKPOINTS", default=True)
+  )
+
+  # Background learner (Hermes-style): post-turn distillation into curated memory/notes.
+  enable_background_learner: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_BACKGROUND_LEARNER", default=False)
+  )
 
   def __post_init__(self) -> None:
     self.project_root = self.project_root.resolve()

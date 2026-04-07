@@ -16,6 +16,9 @@ from gemcode.tools.think import make_think_tool
 from gemcode.tools.todo import make_todo_tool, make_todo_read_tool
 from gemcode.tools.web import make_web_fetch_tool
 from gemcode.tools.web_search import make_web_search_tool
+from gemcode.checkpoints import list_checkpoints as _list_checkpoints, undo_checkpoint as _undo_checkpoint
+from gemcode.tools.curated_memory import make_curated_memory_tools
+from gemcode.tools.skills import make_skill_tools
 
 
 def _get_load_memory_tool():
@@ -83,6 +86,19 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
   list_tasks, kill_task, task_output = make_task_tools(cfg)
   load_tool_result = _make_load_tool_result_tool(cfg)
   repo_map = make_repo_map_tool(cfg)
+  remember_fact, read_curated_memory = make_curated_memory_tools(cfg)
+  list_skills, load_skill, skills_manifest = make_skill_tools(cfg)
+
+  def checkpoints_list(limit: int = 20) -> dict:
+    """List recent checkpoints created by mutating tools."""
+    return {"checkpoints": _list_checkpoints(cfg.project_root, limit=limit)}
+
+  def checkpoint_undo(checkpoint_id: str | None = None) -> dict:
+    """Undo the most recent checkpoint (or a specific checkpoint_id)."""
+    return _undo_checkpoint(cfg.project_root, checkpoint_id=checkpoint_id)
+
+  checkpoints_list.__name__ = "checkpoints_list"
+  checkpoint_undo.__name__ = "checkpoint_undo"
 
   # Attach cfg for dynamic policy inside web_fetch (no cfg param in signature).
   try:
@@ -127,6 +143,16 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
     web_fetch,
     # Tool output offload loader
     load_tool_result,
+    # Self-healing: local checkpoints + undo
+    checkpoints_list,
+    checkpoint_undo,
+    # Evolving: curated memory (safe-to-inject facts)
+    remember_fact,
+    read_curated_memory,
+    # GemSkills (on-demand playbooks)
+    list_skills,
+    load_skill,
+    skills_manifest,
   ]
 
   # ADK load_memory: explicit on-demand memory search (complements preload_memory).
