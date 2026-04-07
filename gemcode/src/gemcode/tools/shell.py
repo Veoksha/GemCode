@@ -157,12 +157,20 @@ def make_run_command(cfg: GemCodeConfig):
           env=child_env,
           check=False,
       )
+      try:
+        from gemcode.dynamic_policy import get_dynamic_caps
+        caps = get_dynamic_caps(cfg)
+        out_cap = caps.run_stdout_chars
+        err_cap = caps.run_stderr_chars
+      except Exception:
+        out_cap = 20_000
+        err_cap = 20_000
       return {
           "command": [exe, *args],
           "cwd": str(exec_cwd.relative_to(root)) if exec_cwd != root else ".",
           "exit_code": proc.returncode,
-          "stdout": proc.stdout[:20_000],
-          "stderr": proc.stderr[:20_000],
+          "stdout": proc.stdout[:out_cap],
+          "stderr": proc.stderr[:err_cap],
       }
     except subprocess.TimeoutExpired:
       return {"error": f"Timeout after {timeout_seconds}s"}

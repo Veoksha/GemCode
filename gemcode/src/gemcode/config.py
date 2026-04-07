@@ -137,6 +137,12 @@ class GemCodeConfig:
   tool_result_offload_enabled: bool = field(
     default_factory=lambda: _truthy_env("GEMCODE_TOOL_RESULT_OFFLOAD", default=True)
   )
+
+  # Dynamic token policy: adapt tool output caps to context pressure so we stay
+  # cheap when context is tight, but remain evidence-rich when there's room.
+  dynamic_token_policy: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_DYNAMIC_TOKEN_POLICY", default=True)
+  )
   # Trim oldest text in llm_request.contents when over budget (see context_budget.py).
   context_shrink_enabled: bool = field(
     default_factory=lambda: _truthy_env("GEMCODE_CONTEXT_SHRINK", default=True)

@@ -43,6 +43,15 @@ def make_filesystem_tools(cfg: GemCodeConfig):
       return {"error": str(e)}
     if not p.is_file():
       return {"error": f"Not a file: {path}"}
+
+    # Dynamic caps: allow bigger reads when context is healthy, tighten when tight.
+    try:
+      from gemcode.dynamic_policy import get_dynamic_caps
+      caps = get_dynamic_caps(cfg)
+      if isinstance(max_bytes, int) and max_bytes > caps.read_file_max_bytes:
+        max_bytes = caps.read_file_max_bytes
+    except Exception:
+      pass
     total_bytes = p.stat().st_size
     data = p.read_bytes()
     text_full = data.decode("utf-8", errors="replace")

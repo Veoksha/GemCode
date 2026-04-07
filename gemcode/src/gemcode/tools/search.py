@@ -61,6 +61,15 @@ def make_grep_tool(cfg: GemCodeConfig):
         Issue multiple grep_content calls in the same turn when searching for
         different patterns — they run in parallel.
         """
+        # Dynamic caps: allow richer search when context is healthy.
+        try:
+            from gemcode.dynamic_policy import get_dynamic_caps
+            caps = get_dynamic_caps(cfg)
+            if isinstance(max_matches, int) and max_matches > caps.grep_max_matches:
+                max_matches = caps.grep_max_matches
+        except Exception:
+            pass
+
         if max_matches < 1:
             max_matches = 1
         if max_matches > 500:

@@ -315,10 +315,18 @@ def make_after_tool_callback(cfg: GemCodeConfig):
     name = getattr(tool, "name", None) or ""
 
     # Offload oversized tool outputs to disk (stable refs) before truncation.
+    # Dynamic caps for tool inline payload size.
+    effective_tool_chars = int(getattr(cfg, "tool_result_max_chars", 0) or 0)
+    try:
+      from gemcode.dynamic_policy import get_dynamic_caps
+      effective_tool_chars = get_dynamic_caps(cfg).tool_inline_chars
+    except Exception:
+      pass
+
     if (
       isinstance(tool_response, dict)
       and getattr(cfg, "tool_result_offload_enabled", False)
-      and getattr(cfg, "tool_result_max_chars", 0) > 0
+      and effective_tool_chars > 0
     ):
       try:
         from gemcode.tool_result_store import maybe_offload_tool_result
@@ -326,7 +334,7 @@ def make_after_tool_callback(cfg: GemCodeConfig):
           project_root=cfg.project_root,
           tool_name=name,
           payload=tool_response,
-          max_inline_chars=int(cfg.tool_result_max_chars),
+          max_inline_chars=int(effective_tool_chars),
         )
         if did and isinstance(new_payload, dict):
           tool_response = new_payload
@@ -334,9 +342,9 @@ def make_after_tool_callback(cfg: GemCodeConfig):
       except Exception:
         pass
 
-    if isinstance(tool_response, dict) and getattr(cfg, "tool_result_max_chars", 0) > 0:
+    if isinstance(tool_response, dict) and effective_tool_chars > 0:
       new_d, did = truncate_tool_result_dict(
-          tool_response, int(cfg.tool_result_max_chars)
+          tool_response, int(effective_tool_chars)
       )
       if did:
         tool_response = new_d
@@ -532,6 +540,14 @@ def make_after_model_callback(cfg: GemCodeConfig):
         st[_LAST_PROMPT_TOKENS] = pt
         st[_LAST_CONTEXT_PCT] = cw.get("percent_left")
         st[_LAST_CONTEXT_LEVEL] = level
+        # Expose to tool layer (dynamic token policy).
+        try:
+          pct = cw.get("percent_left")
+          if isinstance(pct, int):
+            object.__setattr__(cfg, "_context_percent_left", pct)
+          object.__setattr__(cfg, "_context_alert_level", int(level))
+        except Exception:
+          pass
         append_audit(
             cfg.project_root,
             {

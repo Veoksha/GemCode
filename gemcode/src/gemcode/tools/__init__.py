@@ -84,6 +84,12 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
   load_tool_result = _make_load_tool_result_tool(cfg)
   repo_map = make_repo_map_tool(cfg)
 
+  # Attach cfg for dynamic policy inside web_fetch (no cfg param in signature).
+  try:
+    setattr(web_fetch, "_cfg", cfg)
+  except Exception:
+    pass
+
   # bash and run_command are the most common long-running tools (builds, tests,
   # installs). Wrap them with LongRunningFunctionTool so ADK can handle slow
   # processes without hitting streaming timeouts.

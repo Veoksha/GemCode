@@ -182,8 +182,21 @@ def make_bash_tool(cfg: GemCodeConfig):
                 env=env,
                 check=False,
             )
-            stdout = proc.stdout[:20_000]
-            stderr = proc.stderr[:10_000]
+            try:
+                from gemcode.dynamic_policy import get_dynamic_caps
+                caps = get_dynamic_caps(cfg)
+                stdout_cap = caps.bash_stdout_chars
+                stderr_cap = caps.bash_stderr_chars
+            except Exception:
+                stdout_cap = 20_000
+                stderr_cap = 10_000
+
+            # Keep more stderr when failing; it is usually the most informative.
+            if proc.returncode != 0:
+                stderr_cap = max(stderr_cap, 12_000)
+
+            stdout = proc.stdout[:stdout_cap]
+            stderr = proc.stderr[:stderr_cap]
             result: dict = {
                 "command": command,
                 "cwd": str(exec_cwd.relative_to(root)) if exec_cwd != root else ".",

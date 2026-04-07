@@ -71,6 +71,18 @@ def make_web_fetch_tool():
         url = url.strip()
         if not url.startswith(("http://", "https://")):
             return {"error": "Only http:// and https:// URLs are supported"}
+        try:
+            from gemcode.dynamic_policy import get_dynamic_caps
+            caps = get_dynamic_caps(getattr(web_fetch, "_cfg", None) or None)  # type: ignore[arg-type]
+        except Exception:
+            caps = None
+        try:
+            # make_web_fetch_tool() has no cfg, so we attach one in the builder.
+            # If present, apply the dynamic cap.
+            if caps is not None and max_chars > getattr(caps, "web_fetch_max_chars", 20_000):
+                max_chars = int(getattr(caps, "web_fetch_max_chars", 20_000))
+        except Exception:
+            pass
         if max_chars < 1000:
             max_chars = 1000
         if max_chars > 200_000:
