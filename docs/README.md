@@ -2,7 +2,7 @@
 
 ## Primary manual (start here)
 
-- **[`../gemcode/README.md`](../gemcode/README.md)** — Installation, CLI, environment variables, tools, REPL slash commands, `.gemcode/` directory, skills, checkpoints, evals, IDE mode, and more.
+- **[`../gemcode/README.md`](../gemcode/README.md)** — Full manual: what GemCode is (sessions, memory types, GemSkill workflows), architecture, install, CLI and flags, `.gemcode/` layout, **`GEMINI.md`**, function tools catalog, REPL slash commands (including **`/eval`**, **`/gemskill`**, **`/append gemskill`**), curated memory, workspace trust, styles, rules, checkpoints, multi-root, model routing, capabilities, permissions, hooks, token policy, MCP, IDE stdio bridge, eval/autotune, Kaira, live audio, related repos, environment variables, development and PyPI release.
 
 ## Web and HTTP
 

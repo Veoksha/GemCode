@@ -245,6 +245,13 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
               file=sys.stderr,
           )
 
+    try:
+      from gemcode.repl_commands import install_readline_slash_completion
+
+      install_readline_slash_completion()
+    except Exception:
+      pass
+
     print(
       "GemCode CLI is running. Type your prompt and press Enter. (Ctrl+D to exit)",
       file=sys.stderr,
@@ -261,6 +268,7 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
       if prompt_text in (":q", "quit", "exit", "/exit"):
         break
 
+      cfg.session_skill_expand_session_id = session_id
       slash = await process_repl_slash(
           cfg=cfg,
           runner=runner,
@@ -273,7 +281,16 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
           break
         if slash.new_session_id is not None:
           session_id = slash.new_session_id
+          cfg.session_skill_expand_session_id = session_id
         if slash.skip_model_turn:
+          if slash.force_rebuild_runner:
+            try:
+              _c = runner.close()
+              if asyncio.iscoroutine(_c):
+                await _c
+            except Exception:
+              pass
+            runner = create_runner(cfg, extra_tools=None)
           continue
         prompt_text = slash.model_prompt or prompt_text
 

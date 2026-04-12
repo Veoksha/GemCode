@@ -36,48 +36,7 @@ try:
 except ImportError:
     pass
 
-# ---------------------------------------------------------------------------
-# Slash command registry
-# (name without /, description shown in the autocomplete popup)
-# ---------------------------------------------------------------------------
-SLASH_COMMANDS: list[tuple[str, str]] = [
-    ("help",        "List all available commands"),
-    ("init",        "Analyze project and generate GEMINI.md project instructions"),
-    ("cost",        "Show session token usage and estimated USD cost breakdown"),
-    ("notes",       "View agent auto-generated project notes (.gemcode/notes.md)"),
-    ("diff",        "Show git diff (or checkpoint diff fallback)"),
-    ("rewind",      "Restore files to a previous checkpoint  ·  alias: /checkpoint"),
-    ("add-dir",     "Add extra directory for read/search access  ·  /add-dir list"),
-    ("batch",       "Parallel large-change orchestrator (built-in GemSkill)"),
-    ("review",      "Parallel code review: security + style + correctness simultaneously"),
-    ("compact",     "Compact conversation history to free context window"),
-    ("clear",       "Start a fresh session (clears history)  ·  alias: /session new"),
-    ("model",       "View or switch model  ·  /model use <id>  ·  /model list"),
-    ("mode",        "Set model mode  ·  /mode fast|balanced|quality|auto"),
-    ("thinking",    "Thinking config  ·  /thinking verbose  ·  /thinking brief  ·  /thinking budget <N>"),
-    ("status",      "Show full session status: model, capabilities, thinking, limits"),
-    ("context",     "Show context window usage and token counts"),
-    ("compact",     "Summarise conversation history to reclaim context space"),
-    ("research",    "Toggle Google Search + URL Context  ·  /research on|off"),
-    ("embeddings",  "Toggle semantic file search via Embeddings API  ·  /embeddings on|off"),
-    ("computer",    "Browser automation (Playwright Chromium)  ·  /computer on|off|url"),
-    ("caps",        "View/toggle all capabilities  ·  /caps  ·  /caps all  ·  /caps reset"),
-    ("memory",      "Toggle persistent memory  ·  /memory on|off"),
-    ("budget",      "Set per-turn token budget  ·  /budget <N>  ·  /budget off"),
-    ("limits",      "Show/set execution limits (max_llm_calls, context, etc.)"),
-    ("kaira",       "Background parallel job scheduler — how to run gemcode kaira"),
-    ("code",        "Toggle sandboxed Python code executor (ADK BuiltInCodeExecutor)"),
-    ("plan",        "Toggle plan mode — agent writes explicit plan before executing tools"),
-    ("tools",       "List all tools and their permission categories"),
-    ("config",      "Show full active configuration (all fields)"),
-    ("permissions", "Show current permission mode (default / strict / yes)"),
-    ("session",     "Show current session ID  ·  /session new to reset"),
-    ("audit",       "Show recent audit log  ·  /audit [N lines]"),
-    ("doctor",      "Run diagnostics and validate the environment"),
-    ("hooks",       "Show post-turn hook configuration"),
-    ("version",     "Show installed GemCode version"),
-    ("exit",        "Exit GemCode"),
-]
+from gemcode.repl_commands import SLASH_COMMANDS
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +95,13 @@ class GemCodeInputHandler:
 
         if _PT_AVAILABLE and sys.stdin.isatty() and sys.stdout.isatty():
             self._build_session()
+        elif sys.stdin.isatty():
+            try:
+                from gemcode.repl_commands import install_readline_slash_completion
+
+                install_readline_slash_completion()
+            except Exception:
+                pass
 
     def _build_session(self) -> None:
         style = Style.from_dict(

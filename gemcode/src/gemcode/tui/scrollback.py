@@ -530,6 +530,7 @@ async def run_gemcode_scrollback_tui(
     old_model = getattr(cfg, "model", "")
     old_model_overridden = bool(getattr(cfg, "model_overridden", False))
 
+    cfg.session_skill_expand_session_id = current_session_id
     slash = await process_repl_slash(
         cfg=cfg,
         runner=runner,

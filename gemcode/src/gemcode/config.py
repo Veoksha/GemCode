@@ -212,6 +212,12 @@ class GemCodeConfig:
     default_factory=lambda: os.environ.get("GEMCODE_OUTPUT_STYLE") or None
   )
 
+  # GemSkills explicitly loaded via /gemskill — full bodies injected into the
+  # system instruction until cleared or the session is reset/resumed.
+  session_loaded_skill_names: list[str] = field(default_factory=list)
+  # Substitutes ${GEMCODE_SESSION_ID} when expanding loaded skills for prompts.
+  session_skill_expand_session_id: str | None = None
+
   # Modality toggles (tool injection + routing).
   enable_deep_research: bool = field(
     default_factory=lambda: _truthy_env("GEMCODE_ENABLE_DEEP_RESEARCH", default=False)

@@ -27,9 +27,47 @@ from gemcode.limits import make_before_model_limits_callback, make_before_model_
 from gemcode.thinking import build_thinking_config
 from gemcode.tools import build_function_tools
 from gemcode.tool_prompt_manifest import build_tool_manifest
-from gemcode.skills import build_skill_manifest_text
+from gemcode.skills import (
+  build_skill_manifest_text,
+  expand_skill_text,
+  list_supporting_files,
+  load_skill,
+)
 from gemcode.output_styles import build_output_style_section
 from gemcode.rules import build_rules_section
+
+
+def _build_session_loaded_skills_section(cfg: GemCodeConfig) -> str:
+  """Full bodies for GemSkills the user loaded with /gemskill (session-scoped)."""
+  names = list(getattr(cfg, "session_loaded_skill_names", None) or [])
+  if not names:
+    return ""
+  sid = getattr(cfg, "session_skill_expand_session_id", None) or ""
+  chunks: list[str] = []
+  seen: set[str] = set()
+  for raw in names:
+    sk_name = (raw or "").strip().lower()
+    if not sk_name or sk_name in seen:
+      continue
+    seen.add(sk_name)
+    s = load_skill(cfg.project_root, sk_name)
+    if s is None:
+      continue
+    expanded = expand_skill_text(s, arguments="", session_id=sid)
+    files = list_supporting_files(s)
+    head = f"### GemSkill: `/{s.meta.name}` (loaded for this session)\n\n"
+    chunk = head + expanded
+    if files:
+      chunk += f"\n\nSupporting files: {', '.join(files)}"
+    chunks.append(chunk)
+  if not chunks:
+    return ""
+  return (
+      "## Loaded GemSkills (this session)\n"
+      "The user explicitly loaded these skills with `/gemskill`. Follow their workflows "
+      "when the task matches their purpose; do not force them on unrelated requests.\n\n"
+      + "\n\n---\n\n".join(chunks)
+  )
 
 
 def build_global_instruction() -> str:
@@ -888,6 +926,9 @@ You have two tools to persist project insights across sessions (auto-memory styl
   skill_manifest = build_skill_manifest_text(cfg.project_root)
   if skill_manifest:
     base = f"{base}\n\n{skill_manifest}"
+  loaded_skills = _build_session_loaded_skills_section(cfg)
+  if loaded_skills:
+    base = f"{base}\n\n{loaded_skills}"
   extra = _load_gemini_md(cfg.project_root)
   if extra.strip():
     return f"{base}\n\n## Project instructions (GEMINI.md)\n{extra}"

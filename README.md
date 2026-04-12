@@ -1,21 +1,70 @@
 # GemCode
 
-**Local-first coding agent** built on **Google Gemini** and the **[Agent Development Kit (ADK)](https://google.github.io/adk-docs/)**. GemCode runs an agent loop over your repository: read and edit files, run allowlisted shell commands, search the web, optionally use deep research, embeddings, browser automation, and live audio — with explicit permissions, session persistence, checkpoints, and audit trails.
+**GemCode** is a **local-first coding agent** that runs on your machine against **your repositories**. It uses **Google Gemini** and Google’s **[Agent Development Kit (ADK)](https://google.github.io/adk-docs/)** to read and edit files, run allowlisted shell commands, search code and (optionally) the web, and coordinate multi-step work—with **explicit permissions**, **session persistence**, **checkpoints**, **audit logs**, and optional modalities such as **deep research**, **embeddings**, **browser automation**, and **live audio**.
 
-GemCode is implemented as an independent **clean-room** design on top of Gemini and ADK.
+GemCode is an independent **clean-room** design on Gemini + ADK, not a thin wrapper around a hosted IDE agent.
 
 ---
 
-## What GemCode is
+## What GemCode is (whole picture)
+
+### Problem it solves
+
+You want an agent that:
+
+- Works **in the repo** (not only in a chat box with pasted snippets).
+- Respects **your** rules: which folders, which commands, when to ask before writing.
+- Leaves a **trail** you can inspect (audit log, diffs, checkpoints).
+- Can be extended with **project-local** instructions (`GEMINI.md`), **skills** (markdown playbooks), **output styles**, and **rules**.
+
+### How it works (high level)
+
+```mermaid
+flowchart LR
+  subgraph user [You]
+    CLI[CLI / REPL / TUI]
+    IDE[VS Code / ide stdio]
+  end
+  subgraph gemcode [GemCode]
+    Runner[ADK Runner]
+    Agent[LlmAgent + tools]
+    Session[(sessions.sqlite)]
+    State[.gemcode state]
+  end
+  subgraph google [Google]
+    Gemini[Gemini API]
+  end
+  CLI --> Runner
+  IDE --> Runner
+  Runner --> Agent
+  Agent --> Gemini
+  Agent --> Session
+  Agent --> State
+```
+
+1. You pick a **project root** (`gemcode -C /path/to/repo`).
+2. GemCode builds an ADK **Runner** with an **LlmAgent** and a **tool set** driven by flags and environment (filesystem, edit, shell, search, optional web/MCP/computer-use, etc.).
+3. Each **turn**: the model may call tools; results return until the turn finishes or **limits** (e.g. `max_llm_calls`, token budgets) apply.
+4. **History** is stored in **SQLite** under `.gemcode/` (keyed by session id). **Policy**, **tool-result offload**, **notes**, **evals**, **skills**, and more live beside it.
+
+### What GemCode is not
+
+- **Not** a hosted SaaS that owns your code path—you run the process locally.
+- **Not** tied to a single editor—CLI-first, plus optional **VS Code** and **web** integrations.
+- **Not** a guarantee of “safe” arbitrary shell: execution is **allowlisted** and **permission-gated** by design.
+
+---
+
+## Layers (reference)
 
 | Layer | Role |
 |--------|------|
-| **Model** | Gemini (configurable family, mode, and per-capability routing). |
+| **Model** | Gemini (configurable ids, **model mode** `fast`/`balanced`/`quality`/`auto`, optional **family** routing, per-capability models). |
 | **Orchestration** | ADK `Runner` / `LlmAgent`: model ↔ tools until the turn completes or limits hit. |
-| **Tools** | Function tools for filesystem, grep, repo map, edit, shell, web, notebooks, skills, memory, checkpoints, subtasks, etc. |
-| **Session** | SQLite-backed history under `.gemcode/sessions.sqlite`; reusable `--session` ids. |
-| **Safety** | Permission modes, optional in-run approval (HITL), allowlists, circuit breaker, recovery retries. |
-| **UX** | CLI one-shot prompts, interactive REPL with slash commands, optional scrollback TUI, VS Code extension, `gemcode ide --stdio` for editor bridges, optional web backends. |
+| **Tools** | Function tools: filesystem, grep, repo map, edit, shell (`bash` / `run_command`), notebooks, web helpers, **skills**, **memory**, **checkpoints**, **subtasks**, optional **MCP**, **computer use**, **deep research** built-ins, etc. |
+| **Session** | SQLite-backed history under `.gemcode/sessions.sqlite`; reuse with `--session`. |
+| **Safety** | Workspace **trust**, permission modes, optional **HITL** approval per sensitive tool, command allowlists, circuit breaker, recovery. |
+| **UX** | One-shot CLI prompts, interactive **REPL**, optional **scrollback TUI** (`GEMCODE_TUI`), **slash commands** + **readline Tab completion**, VS Code extension, **`gemcode ide --stdio`**, example web API. |
 
 ---
 
@@ -23,10 +72,10 @@ GemCode is implemented as an independent **clean-room** design on top of Gemini 
 
 | Document | Contents |
 |----------|----------|
-| **[`gemcode/README.md`](gemcode/README.md)** | **Primary manual**: install, CLI, flags, `.gemcode/` layout, tools, slash commands, skills, styles, rules, checkpoints, evals, hooks, IDE mode, Kaira, live audio, env vars. |
-| **[`docs/README.md`](docs/README.md)** | Index of repo docs (web UI contract, etc.). |
-| **[`docs/web-ui-contract.md`](docs/web-ui-contract.md)** | HTTP/SSE shapes for web frontends compatible with the reference UI. |
-| **[`gemcode-vscode/README.md`](gemcode-vscode/README.md)** | VS Code extension: commands, settings, Chat + diff apply + `gemcode ide --stdio`. |
+| **[`gemcode/README.md`](gemcode/README.md)** | **Primary manual**: install, CLI, flags, `.gemcode/` layout, tools catalog, slash commands, GemSkills (create / load / append), curated memory, styles, rules, checkpoints, evals, hooks, IDE, Kaira, live audio, env vars, release. |
+| **[`docs/README.md`](docs/README.md)** | Index of repo docs. |
+| **[`docs/web-ui-contract.md`](docs/web-ui-contract.md)** | HTTP/SSE shapes for compatible web frontends. |
+| **[`gemcode-vscode/README.md`](gemcode-vscode/README.md)** | VS Code extension: commands, settings, Chat, diff apply, stdio bridge. |
 
 ---
 
@@ -41,7 +90,7 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-Copy `gemcode/.env.example` to `.env` and set `GOOGLE_API_KEY`, or run once:
+Copy `gemcode/.env.example` to `.env` and set `GOOGLE_API_KEY`, or run:
 
 ```bash
 gemcode login
@@ -60,21 +109,22 @@ gemcode -C /path/to/repo --yes "Fix the failing test in tests/test_foo.py"
 gemcode -C /path/to/repo
 ```
 
-Type natural language, or slash commands (`/help`, `/status`, `/diff`, …). Exit with `/exit` or Ctrl+D.
+Use natural language, or **slash commands** (`/help`, `/status`, `/gemskill`, …). Exit with `/exit` or Ctrl+D.
 
 ---
 
-## Feature highlights (short)
+## Feature highlights
 
-- **Dynamic token policy** — Tool output caps and risk-aware budgets; self-tuning `.gemcode/policy.json`.
-- **Tool output offloading** — Large outputs stored under `.gemcode/tool-results/` as stable `tool_result:<sha>` references.
+- **Dynamic token policy** — Tool output caps and risk-aware budgets; optional self-tuning `.gemcode/policy.json`.
+- **Tool output offloading** — Large outputs under `.gemcode/tool-results/` as stable `tool_result:<sha>` references.
 - **Repo map** — Compact symbol-oriented overview; read full files on demand.
-- **GemSkills** — `.gemcode/skills/<name>/SKILL.md` (and `~/.gemcode/skills/`); `/skills`, `/skill`, tools `list_skills` / `load_skill`; built-in `/batch` orchestrator.
-- **Output styles & rules** — `.gemcode/output-styles/*.md`, `.gemcode/rules/*.md` (optional path gating); `/style`, `/rules`.
-- **Checkpoints** — Mutations can be tracked; `/diff`, `/rewind` (or `/checkpoint`).
-- **Multi-root** — `/add-dir` for extra read/search roots with path safety.
-- **Eval & autotune** — `gemcode eval`, `gemcode autotune init|eval` with ledger under `.gemcode/evals/`.
-- **Optional powers** — Deep research (`google_search`, `url_context`), embeddings + memory, Playwright computer use, MCP (`.gemcode/mcp.json`), Kaira job daemon, `gemcode live-audio`.
+- **GemSkills** — Markdown playbooks in `.gemcode/skills/` (and `~/.gemcode/skills/`): **`/create gemskill`**, **`/gemskill`** (session load), **`/append gemskill`** (iterate file), **`/skill`**, **`/<skill-name>`**, tools `list_skills` / `load_skill`; built-in **`/batch`** orchestrator.
+- **Curated memory** — Human/agent curated facts (`GEMCODE_MEMORY.md`, `GEMCODE_USER.md`); tools + **`/curated`**.
+- **Output styles & rules** — `.gemcode/output-styles/*.md`, `.gemcode/rules/*.md` (optional path gating); **`/style`**, **`/rules`**.
+- **Checkpoints** — **`/diff`**, **`/rewind`** (alias **`/checkpoint`**).
+- **Multi-root** — **`/add-dir`** for extra read/search roots.
+- **Eval & autotune** — `gemcode eval`, `gemcode autotune`, REPL **`/eval`**, **`/autotune`**; artifacts under `.gemcode/evals/`.
+- **Optional powers** — Deep research, embeddings + memory, Playwright computer use, MCP (`.gemcode/mcp.json`), **Kaira** job daemon, **`gemcode live-audio`**.
 
 ---
 
@@ -82,16 +132,16 @@ Type natural language, or slash commands (`/help`, `/status`, `/diff`, …). Exi
 
 | Path | Purpose |
 |------|---------|
-| `gemcode/` | Python package (`pip install -e .`), CLI entry `gemcode`. |
-| `gemcode-vscode/` | VS Code extension (launch CLI, Chat, stdio bridge). |
-| `gemcode-web-api/` | Example Node HTTP/WebSocket server wiring terminals and chat. |
+| `gemcode/` | Python package (`pip install -e .`), CLI entry **`gemcode`**. |
+| `gemcode-vscode/` | VS Code extension. |
+| `gemcode-web-api/` | Example Node server (terminals, chat wiring). |
 | `docs/` | Contracts and doc indexes. |
 
 ---
 
 ## PyPI releases
 
-Tags matching `v*` can drive publishing (see `.github/workflows/` and **`gemcode/README.md` → Release workflow**).
+Tags matching **`v*`** can drive publishing (see `.github/workflows/` and **`gemcode/README.md` → Development and release**).
 
 ---
 

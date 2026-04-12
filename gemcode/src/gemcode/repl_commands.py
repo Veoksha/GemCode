@@ -196,6 +196,123 @@ def format_tools_lines(
   return lines
 
 
+# ---------------------------------------------------------------------------
+# Slash command registry for TUI (prompt_toolkit) + plain REPL (readline Tab).
+# One canonical name per feature where possible; a few shortcuts (e.g.
+# ``gemskill``) stay as their own row so Tab/TUI shows them. Other aliases
+# still work in ``process_repl_slash`` but are omitted here (see descriptions).
+# ---------------------------------------------------------------------------
+SLASH_COMMANDS: list[tuple[str, str]] = [
+    ("add-dir",     "Extra read/search roots  ·  /add_dir works too"),
+    ("append",      "Iterate a file  ·  /append gemskill <name> <request>"),
+    ("audit",       "Tail audit.log  ·  /logs same"),
+    ("autotune",    "Branch + eval ledger  ·  /autotune init <tag>  ·  /autotune eval"),
+    ("batch",       "Built-in batch GemSkill (large parallel changes)"),
+    ("budget",      "Per-turn token budget  ·  /token-budget same"),
+    ("caps",        "Capabilities  ·  /capabilities /capability same"),
+    ("clear",       "Fresh session  ·  same as /session new"),
+    ("code",        "Toggle ADK BuiltInCodeExecutor (sandboxed Python)"),
+    ("compact",     "Context compaction / summarization"),
+    ("computer",    "Browser automation  ·  /browser same"),
+    ("config",      "Dump active configuration"),
+    ("context",     "Context pressure + token breakdown"),
+    ("cost",        "Session token usage + estimated cost"),
+    ("create",      "New GemSkill file  ·  /create gemskill <name> [description]"),
+    ("gemskill",    "Load skill into session prompt  ·  /gemskill <name>  ·  list  ·  clear"),
+    ("curated",     "Curated memory snapshot  ·  /memory-files /memoryfiles same"),
+    ("diff",        "Git diff or checkpoint diff"),
+    ("doctor",      "Environment sanity check"),
+    ("embeddings",  "Semantic file search  ·  /embed same"),
+    ("eval",        "Eval gates (tools + pytest)  ·  /eval llm optional"),
+    ("exit",        "Leave the REPL  ·  /quit same"),
+    ("help",        "Short help  ·  /? same"),
+    ("hooks",       "Post-turn hook configuration"),
+    ("init",        "Generate GEMINI.md project instructions"),
+    ("kaira",       "Background job scheduler — how to run gemcode kaira"),
+    ("limits",      "Execution limits (calls, context, …)"),
+    ("live-audio",  "How to run gemcode live-audio  ·  /liveaudio same"),
+    ("login",       "How to run gemcode login (API key)"),
+    ("maps",        "Maps grounding  ·  /maps on|off  ·  /map same"),
+    ("memory",      "Persistent memory  ·  /memory on|off"),
+    ("mode",        "Model mode: fast|balanced|quality|auto"),
+    ("model",       "Model info / override  ·  /models same"),
+    ("notes",       ".gemcode/notes.md  ·  /notes clear  ·  /notes edit"),
+    ("permissions", "Permission + HITL  ·  /perm /permission same"),
+    ("plan",        "Plan-before-act mode"),
+    ("research",    "Deep research tools  ·  /research on|off"),
+    ("review",      "Parallel code review"),
+    ("rewind",      "Checkpoints  ·  /checkpoint same"),
+    ("rules",       "Rule files from .gemcode/rules/"),
+    ("session",     "Session id / list / resume / new"),
+    ("skill",       "Load or show a GemSkill"),
+    ("skills",      "List GemSkills"),
+    ("status",      "Model, capabilities, thinking, limits"),
+    ("style",       "Output styles  ·  /style <name>|off"),
+    ("thinking",    "Thinking verbose/brief/off, budget, level"),
+    ("tools",       "Tool inventory  ·  /tools smoke"),
+    ("trust",       "Workspace trust  ·  /trust on|off"),
+    ("version",     "GemCode version"),
+]
+
+
+def install_readline_slash_completion() -> bool:
+  """
+  Enable Tab completion for slash commands in the plain REPL (``input("> ")``).
+
+  Returns False if readline is unavailable or stdin is not a TTY.
+  """
+  try:
+    import readline
+  except ImportError:
+    return False
+  if not hasattr(sys.stdin, "isatty") or not sys.stdin.isatty():
+    return False
+
+  # Treat ``/foo`` as one word so Tab completes after ``/``.
+  try:
+    delims = readline.get_completer_delims()
+    if "/" in delims:
+      readline.set_completer_delims(delims.replace("/", ""))
+  except Exception:
+    pass
+
+  ordered = [name for name, _ in SLASH_COMMANDS]
+  _matches: list[str] = []
+
+  def completer(text: str, state: int) -> str | None:
+    nonlocal _matches
+    if state == 0:
+      _matches = []
+      if not text.startswith("/"):
+        return None
+      # Only complete the first token (/command …); skip when typing args.
+      if " " in text[1:]:
+        return None
+      frag = text[1:].lower()
+      for n in ordered:
+        if not frag or n.startswith(frag) or frag in n:
+          _matches.append(f"/{n} ")
+      if not _matches:
+        return None
+    try:
+      return _matches[state]
+    except IndexError:
+      return None
+
+  readline.set_completer(completer)
+  # GNU readline: double-Tab lists matches. libedit (macOS) may ignore unknown "set" directives.
+  for spec in (
+      "set show-all-if-ambiguous on",
+      "set completion-ignore-case on",
+      "tab: complete",
+  ):
+    try:
+      readline.parse_and_bind(spec)
+    except Exception:
+      pass
+  return True
+
+
 def slash_help_lines() -> list[str]:
   return [
       "Slash commands:",
@@ -203,13 +320,18 @@ def slash_help_lines() -> list[str]:
       "  (CLI) gemcode login   Save or change API key (~/.gemcode/credentials.json)",
       "",
       "  Project setup:",
+      "  /trust                Show workspace trust status (file/shell tools)",
+      "  /trust on|off         Trust or revoke trust for this project root (~/.gemcode/trust.json)",
       "  /init                 Analyze project structure and generate GEMINI.md",
       "  /init force           Regenerate GEMINI.md even if it already exists",
       "  /cost                 Show token usage and estimated cost for this session",
       "  /notes                Show agent auto-notes (.gemcode/notes.md)",
       "  /notes clear          Delete all notes",
       "  /notes edit           Open notes in $EDITOR",
-      "  /create gemskill <name> [description]  Create a GemSkill scaffold under .gemcode/skills/",
+      "  /create gemskill <name> [description]  Create a new GemSkill (SKILL.md scaffold)",
+      "  /gemskill <name>        Load an existing GemSkill into this session (system prompt)",
+      "  /gemskill list|clear    List skills or unload all session-loaded skills",
+      "  /append gemskill <name> <request>  Ask the agent to edit that skill file",
       "  /style                List available output styles",
       "  /style <name>|off     Activate an output style for this session",
       "  /rules                Show loaded rule files (from .gemcode/rules/)",
@@ -237,6 +359,13 @@ def slash_help_lines() -> list[str]:
       "  /context              Show context pressure + last prompt tokens",
       "  /audit [N]            Tail of .gemcode/audit.log (default 40 lines)",
       "  /tools                List tool inventory for this config",
+      "  /tools smoke          Declaration compile check only (failures listed)",
+      "  /eval [llm]           Run tools_smoke (+ pytest if tests/ exist); optional LLM goldens",
+      "  /autotune init <tag>  Git branch autotune/<tag> for experiment tracking",
+      "  /autotune eval [llm]  Eval + append .gemcode/evals/autotune_ledger.jsonl",
+      "  /curated              Show GEMCODE_MEMORY.md / GEMCODE_USER.md snapshot",
+      "  /login                How to run gemcode login (API key outside REPL)",
+      "  /live-audio           How to run gemcode live-audio (mic → Gemini Live)",
       "  /doctor               Environment sanity check",
       "  /version              Print GemCode version hint",
       "  /exit                 Exit the REPL",
@@ -254,6 +383,7 @@ def slash_help_lines() -> list[str]:
       "  /computer url         Show current browser URL",
       "  /research             Show deep-research status",
       "  /research on|off      Enable/disable Google Search + URL Context tools",
+      "  /maps on|off          Enable/disable Maps grounding (runner rebuild)",
       "  /embeddings on|off    Enable/disable semantic file search (Embeddings API)",
       "  /caps                 View all capability flags",
       "  /caps <research|embeddings|all|reset>  Bulk capability control",

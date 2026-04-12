@@ -8,32 +8,82 @@ This document is the **authoritative reference** for CLI behavior, configuration
 
 ## Table of contents
 
-1. [Architecture](#architecture)
-2. [Requirements and install](#requirements-and-install)
-3. [First run](#first-run)
-4. [CLI commands](#cli-commands)
-5. [Main CLI flags](#main-cli-flags)
-6. [The `.gemcode/` directory](#the-gemcode-directory)
-7. [Project context: `GEMINI.md`](#project-context-geminimd)
-8. [Function tools (catalog)](#function-tools-catalog)
-9. [REPL: slash commands](#repl-slash-commands)
-10. [GemSkills](#gemskills)
-11. [Output styles and rules](#output-styles-and-rules)
-12. [Checkpoints, diff, and rewind](#checkpoints-diff-and-rewind)
-13. [Multi-root workspaces (`/add-dir`)](#multi-root-workspaces-add-dir)
-14. [Model routing and thinking](#model-routing-and-thinking)
-15. [Capabilities](#capabilities)
-16. [Permissions and interactive approval](#permissions-and-interactive-approval)
-17. [Hooks](#hooks)
-18. [Token budget, context, and compaction](#token-budget-context-and-compaction)
-19. [MCP](#mcp)
-20. [IDE bridge: `gemcode ide --stdio`](#ide-bridge-gemcode-ide-stdio)
-21. [Eval harness and autotune](#eval-harness-and-autotune)
-22. [Kaira scheduler](#kaira-scheduler)
-23. [Live audio](#live-audio)
-24. [Related components](#related-components)
-25. [Environment variables](#environment-variables)
-26. [Development and release](#development-and-release)
+1. [What GemCode is (detailed)](#what-gemcode-is-detailed)
+2. [Architecture](#architecture)
+3. [Requirements and install](#requirements-and-install)
+4. [First run](#first-run)
+5. [CLI commands](#cli-commands)
+6. [Main CLI flags](#main-cli-flags)
+7. [The `.gemcode/` directory](#the-gemcode-directory)
+8. [Project context: `GEMINI.md`](#project-context-geminimd)
+9. [Function tools (catalog)](#function-tools-catalog)
+10. [REPL: slash commands](#repl-slash-commands)
+11. [GemSkills](#gemskills)
+12. [Curated memory](#curated-memory)
+13. [Workspace trust](#workspace-trust)
+14. [Output styles and rules](#output-styles-and-rules)
+15. [Checkpoints, diff, and rewind](#checkpoints-diff-and-rewind)
+16. [Multi-root workspaces (`/add-dir`)](#multi-root-workspaces-add-dir)
+17. [Model routing and thinking](#model-routing-and-thinking)
+18. [Capabilities](#capabilities)
+19. [Permissions and interactive approval](#permissions-and-interactive-approval)
+20. [Hooks](#hooks)
+21. [Token budget, context, and compaction](#token-budget-context-and-compaction)
+22. [MCP](#mcp)
+23. [IDE bridge: `gemcode ide --stdio`](#ide-bridge-gemcode-ide-stdio)
+24. [Eval harness and autotune](#eval-harness-and-autotune)
+25. [Kaira scheduler](#kaira-scheduler)
+26. [Live audio](#live-audio)
+27. [Related components](#related-components)
+28. [Environment variables](#environment-variables)
+29. [Development and release](#development-and-release)
+
+---
+
+## What GemCode is (detailed)
+
+**GemCode** is a single Python package that exposes a **`gemcode`** CLI. Every invocation is anchored to a **project root** (`-C`, default current directory). From there it:
+
+- Builds a **GemCodeConfig** (model, capabilities, permissions, limits, paths).
+- Optionally loads **MCP** toolsets from `.gemcode/mcp.json`.
+- Constructs an ADK **Runner** with a root **LlmAgent** whose **system instruction** aggregates: global behavior, `GEMINI.md`, capability sections, tool manifest, optional **output style** and **rules**, the **skills manifest** (metadata only), and any **session-loaded GemSkills** (full bodies after `/gemskill`).
+- Persists conversation state in **SQLite** (`.gemcode/sessions.sqlite`) keyed by **`--session`** / REPL session id.
+
+### Modes of use
+
+| Mode | How | Best for |
+|------|-----|----------|
+| **One-shot CLI** | `gemcode -C repo "prompt"` | Scripts, CI-style runs, quick questions. |
+| **REPL** | `gemcode -C repo` (TTY, no prompt arg) | Long sessions, slash commands, exploration. |
+| **TUI** | Same as REPL with `GEMCODE_TUI=1` (default when supported) | Scrollback, styled output, slash **completion menu**. |
+| **IDE** | VS Code extension → `gemcode ide --stdio` | Editor-native Chat, diff apply, proposals. |
+| **Kaira** | `gemcode kaira` | Background queue of independent agent jobs. |
+| **Live audio** | `gemcode live-audio` | Voice → Gemini Live (separate from file-editing REPL). |
+
+### “Memory” in GemCode (three different things)
+
+| Mechanism | Where | Purpose |
+|-----------|--------|---------|
+| **Session history** | `sessions.sqlite` | Full turn-by-turn chat for a session id. |
+| **Curated memory** | `GEMCODE_MEMORY.md`, `GEMCODE_USER.md` (under `.gemcode/`) | Small, **human-approved** facts injected when memory features are on; distinct from noisy auto-memory. |
+| **Embedding memory** | `memories.jsonl` + ADK hooks (when enabled) | Retrieval-oriented storage when **`GEMCODE_ENABLE_MEMORY`** (and related) are on. |
+
+Use **`/curated`** in the REPL to preview the curated snapshot; tools such as **`read_curated_memory`** / **`remember_fact`** operate on that layer.
+
+### GemSkills at a glance (four ways)
+
+| Mechanism | Effect |
+|-----------|--------|
+| **`/create gemskill <name> [description]`** | Creates **`.gemcode/skills/<name>/SKILL.md`** scaffold (new skill on disk). |
+| **`/gemskill <name>`** | **Pins** the skill’s **full body** into the **system instruction** for the **current session** (until `/gemskill clear`, new session, or resume). Rebuilds the runner. |
+| **`/append gemskill <name> <request>`** | One model turn instructed to **edit** that skill file according to `<request>`. |
+| **`/skill <name>`**, **`/<name>`**, or tools **`load_skill`** | **One-shot** turn: inject expanded skill into the **user message** for that turn only (does not pin to system prompt). |
+
+The built-in **`batch`** skill is manual-only (`disable_model_invocation`); use **`/batch <goal>`** to run it.
+
+### Slash completion
+
+The REPL and TUI use a **canonical** command list for Tab completion (`repl_commands.SLASH_COMMANDS`). Some spellings (e.g. `/quit`, `/logs`, `/embed`) still work in **`process_repl_slash`** but may not appear as separate menu rows—see descriptions in **`/help`**.
 
 ---
 
@@ -122,6 +172,7 @@ State is **project-local** (unless noted).
 | Path / artifact | Purpose |
 |-----------------|---------|
 | `sessions.sqlite` | ADK session service: conversation history for `--session` ids. |
+| `GEMCODE_MEMORY.md`, `GEMCODE_USER.md` | **Curated memory** (see [Curated memory](#curated-memory)). |
 | `audit.log` | JSONL audit: tool usage, model usage, terminal reasons, optional tool-use summaries. |
 | `tool-results/` | Offloaded large tool outputs; references like `tool_result:<sha256>`. |
 | `artifacts/` | File artifacts (ADK `FileArtifactService`). |
@@ -232,10 +283,15 @@ In interactive mode, lines starting with `/` are **slash commands** (see `repl_c
 
 | Command | Purpose |
 |---------|---------|
+| `/trust`, `/trust on`, `/trust off` | Show, grant, or revoke **workspace trust** for the project root (stored in `~/.gemcode/trust.json`; required for file/shell/git tools). |
 | `/init` \| `/init force` | Analyze the repo and generate or overwrite `GEMINI.md`. |
 | `/cost` | Token usage and estimated cost for the session. |
 | `/notes`, `/notes clear`, `/notes edit` | View, clear, or edit `.gemcode/notes.md`. |
-| `/create gemskill <name> [description]` | Scaffold `.gemcode/skills/<name>/SKILL.md`. |
+| `/create gemskill <name> [description]` | **Create** a new GemSkill (scaffold `SKILL.md`). |
+| `/gemskill <name>` | **Load** an existing skill into the **session system prompt** (until `/gemskill clear` or new session). |
+| `/gemskill list` \| `/gemskill clear` | List skills or unload all session-loaded skills. |
+| `/append gemskill <name> <request>` | **Iterate** the skill file: model edits `SKILL.md` per your request. |
+| `/curated` | Show **curated memory** snapshot (`.gemcode/GEMCODE_MEMORY.md`, `GEMCODE_USER.md`). |
 | `/style`, `/style <name>\|off` | List or activate **output styles** (`.gemcode/output-styles/*.md`). |
 | `/rules` | Show **rule** files from `.gemcode/rules/` (with path gating). |
 | `/diff`, `/diff last`, `/diff cp_…` | Git diff, or **checkpoint → workspace** diff. |
@@ -248,7 +304,7 @@ In interactive mode, lines starting with `/` are **slash commands** (see `repl_c
 | Command | Purpose |
 |---------|---------|
 | `/help` | Short help. |
-| `/status` | Model, capabilities, thinking, limits, risk/context telemetry. |
+| `/status` | Model, capabilities, thinking, limits, risk/context telemetry; **`loaded_skills`** (session-pinned GemSkills from `/gemskill`). |
 | `/config` | Dump active config fields. |
 | `/session`, `/session list`, `/session name`, `/session resume`, `/session new` | Session management; `/clear` aliases `/session new`. |
 | `/compact`, `/compact <focus>` | Force context compaction / summarization. |
@@ -256,6 +312,12 @@ In interactive mode, lines starting with `/` are **slash commands** (see `repl_c
 | `/context` | Context pressure and token breakdown (includes styles, rules, skills manifest, touched paths). |
 | `/audit [N]` | Tail of `audit.log`. |
 | `/tools` | Tool inventory for current config. |
+| `/tools smoke` | Declaration compile check only (lists failures). |
+| `/eval`, `/eval llm` | **Eval harness**: tool smoke + `pytest` if a `tests/` tree exists; optional LLM golden prompts (costs tokens). Writes `.gemcode/evals/last_eval.json`. |
+| `/autotune init <tag>` | Create git branch `autotune/<tag>` (requires a git repo). |
+| `/autotune eval`, `… llm` | Run eval and append `.gemcode/evals/autotune_ledger.jsonl`. |
+| `/login` | How to run **`gemcode login`** (API key is set outside the REPL). |
+| `/live-audio` | How to run **`gemcode live-audio`** (mic → Gemini Live). |
 | `/doctor` | Environment sanity check. |
 | `/version` | Version string. |
 | `/exit` | Leave the REPL. |
@@ -273,6 +335,7 @@ In interactive mode, lines starting with `/` are **slash commands** (see `repl_c
 |---------|---------|
 | `/computer`, `/computer on\|off`, `/computer url` | Browser automation (Playwright). |
 | `/research`, `/research on\|off` | Deep research tools. |
+| `/maps`, `/maps on\|off` | Maps **grounding** toggle (runner rebuild). |
 | `/embeddings on\|off` | Semantic search tool. |
 | `/caps`, `/caps …` | View or bulk-toggle capabilities. |
 | `/memory`, `/memory on\|off` | Persistent memory. |
@@ -307,7 +370,33 @@ The TUI (when `GEMCODE_TUI=1` and terminal supports it) provides **slash complet
 - **Discovery:** Only **metadata** (name + description) is preloaded into context for token efficiency. Full body loads **on demand** via `/skill <name>`, `/<name>`, or tools `load_skill` / `list_skills`.
 - **Built-in:** **`batch`** — parallel large-change workflow (map → units → `run_subtask` → verify). Exposed as `/batch <goal>`; not auto-invoked by the model (`disable_model_invocation`).
 
-Use **`/create gemskill <name>`** to scaffold a new skill directory.
+- **`/create gemskill <name>`** — create a new skill directory.
+- **`/gemskill <name>`** — pin the full skill body into the system prompt for this session.
+- **`/append gemskill <name> <text>`** — one-shot turn for the model to revise that skill on disk.
+
+---
+
+## Curated memory
+
+**Curated memory** is a small, **intentional** text layer separate from raw session logs or embedding retrieval:
+
+- **Project facts:** `.gemcode/GEMCODE_MEMORY.md` (conventions, commands, architecture notes the team wants the agent to see).
+- **User preferences (per project):** `.gemcode/GEMCODE_USER.md`.
+
+Legacy filenames **`.gemcode/MEMORY.md`** and **`.gemcode/USER.md`** are still read if the new names are absent.
+
+Content is **sanitized** before append (length and sensitivity heuristics). The REPL command **`/curated`** prints a bounded snapshot of what would be injected. When the **memory** capability is enabled, curated material can be combined with broader memory tools—see **`remember_fact`**, **`read_curated_memory`** in the [function tools](#function-tools-catalog) table.
+
+---
+
+## Workspace trust
+
+File, shell, and related tools require the **project root** to be **trusted**. Trust is stored in **`~/.gemcode/trust.json`** (path configurable via **`GEMCODE_HOME`**), not inside the repo.
+
+- **`/trust`** — show whether the current root is trusted.
+- **`/trust on`** / **`/trust off`** — grant or revoke trust for **`cfg.project_root`**.
+
+Without trust, mutating and shell tools remain blocked even if **`--yes`** is set—this reduces accidental execution when the cwd is wrong (e.g. home directory).
 
 ---
 

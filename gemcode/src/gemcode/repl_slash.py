@@ -28,10 +28,12 @@ from gemcode.repl_commands import (
   format_tools_lines,
   slash_help_lines,
 )
+from gemcode.curated_memory import load_snapshot as _curated_load_snapshot
 from gemcode.slash_commands import parse_slash_command
 from gemcode.skills import discover_skill_metas, expand_skill_text, list_supporting_files, load_skill
 from gemcode.output_styles import discover_output_styles, load_output_style
 from gemcode.rules import load_rules as _load_rules
+from gemcode.trust import is_trusted_root, trust_json_path, trust_root
 
 
 @dataclass
@@ -43,6 +45,12 @@ class ReplSlashResult:
   skip_model_turn: bool = False
   model_prompt: str | None = None
   force_rebuild_runner: bool = False  # True when agent config changed (thinking, etc.)
+
+
+def _clear_session_loaded_skills(cfg: GemCodeConfig) -> None:
+  raw = getattr(cfg, "session_loaded_skill_names", None)
+  if isinstance(raw, list):
+    raw.clear()
 
 
 def _parse_tail_n(args: str, *, default: int = 40) -> int:
@@ -115,6 +123,61 @@ async def process_repl_slash(
       + "Now carry out the user's request using the skill instructions."
     )
     return ReplSlashResult(model_prompt=prompt)
+
+  # ── /gemskill (load full skill into session system prompt) ────────────────
+  if name == "gemskill":
+    args_gs = (sc.args or "").strip()
+    if not args_gs or args_gs.lower() in ("help", "?"):
+      out("Usage:")
+      out("  /gemskill <name>   Load an existing GemSkill into this session (system prompt).")
+      out("  /gemskill list     List skills you can load")
+      out("  /gemskill clear    Unload all session-loaded skills")
+      out()
+      out("Create a new skill:  /create gemskill <name> [description]")
+      out("Edit an existing one: /append gemskill <name> <what to change>")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    al = args_gs.lower()
+    if al in ("list", "ls", "show"):
+      metas_gs = discover_skill_metas(cfg.project_root)
+      if not metas_gs:
+        out("No GemSkills found.")
+        out("Create one: /create gemskill <name> [description]")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out("GemSkills (load with /gemskill <name>):")
+      for k in sorted(metas_gs.keys()):
+        m, _ = metas_gs[k]
+        inv = "manual-only" if m.disable_model_invocation else "auto-eligible"
+        out(f"  {m.name} ({inv}) — {m.description}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if al == "clear":
+      _clear_session_loaded_skills(cfg)
+      cfg.session_skill_expand_session_id = session_id
+      out("Session-loaded GemSkills cleared.")
+      out("Runner will rebuild on the next turn.")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    sk_part = args_gs.split()[0].strip().lower()
+    s_gs = load_skill(cfg.project_root, sk_part)
+    if s_gs is None:
+      out(f"Unknown skill: {sk_part}")
+      out("Tip: /gemskill list  ·  Create: /create gemskill <name>")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    loaded = cfg.session_loaded_skill_names
+    if sk_part in loaded:
+      out(f"GemSkill `/{sk_part}` is already loaded for this session.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    loaded.append(sk_part)
+    cfg.session_skill_expand_session_id = session_id
+    out(f"Loaded GemSkill into session: /{sk_part}")
+    out("Full skill body is now in the system prompt until /gemskill clear or a new session.")
+    out("Runner will rebuild on the next turn.")
+    out()
+    return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
 
   # ── /batch (built-in GemSkill) ─────────────────────────────────────────────
   if name == "batch":
@@ -230,9 +293,41 @@ async def process_repl_slash(
 
     out(f"Created GemSkill: /{skill_name}")
     out(f"Path: {skill_md}")
-    out("Try: /skills   then   /" + skill_name + " <args>")
+    out("Try: /gemskill " + skill_name + "   or   /" + skill_name + " <args> for a one-shot turn")
     out()
     return ReplSlashResult(skip_model_turn=True)
+
+  # ── /append gemskill (iterate existing SKILL.md) ───────────────────────────
+  if name == "append":
+    raw_ap = (sc.args or "").strip()
+    parts_ap = raw_ap.split(None, 2)
+    if len(parts_ap) < 3 or parts_ap[0].lower() != "gemskill":
+      out("Usage: /append gemskill <name> <what to add or change>")
+      out("Example: /append gemskill review-code Add a checklist for API security")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    sk_ap = parts_ap[1].strip().lower()
+    instruction_ap = parts_ap[2].strip()
+    s_ap = load_skill(cfg.project_root, sk_ap)
+    if s_ap is None:
+      out(f"Unknown skill: {sk_ap}")
+      out("Tip: /gemskill list")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    files_ap = list_supporting_files(s_ap)
+    prompt_ap = (
+        f"The user wants to **iterate** on an existing GemSkill ({sk_ap!r}).\n\n"
+        f"## Skill file (primary edit target)\n`{s_ap.skill_md}`\n\n"
+        f"## User request\n{instruction_ap}\n\n"
+        "## Instructions\n"
+        "1. Read the full SKILL.md (and supporting files only if needed).\n"
+        "2. Apply the user's request: clarify steps, add sections, improve examples, fix mistakes.\n"
+        "3. Preserve valid YAML frontmatter (`name`, `description`, etc.) unless the user asked to rename.\n"
+        "4. Save changes with `search_replace` or `write_file`.\n"
+        "5. Summarize what you changed.\n\n"
+        + (f"## Supporting files (optional)\n{', '.join(files_ap)}\n\n" if files_ap else "")
+    )
+    return ReplSlashResult(model_prompt=prompt_ap)
 
   # ── /style ────────────────────────────────────────────────────────────────
   if name == "style":
@@ -290,6 +385,44 @@ async def process_repl_slash(
     for r in rules:
       gate = f" paths={r.paths}" if r.paths else ""
       out(f"  - {r.name}\t({r.path}){gate}")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /trust (workspace permission for tools) ─────────────────────────────────
+  if name == "trust":
+    args_s = (sc.args or "").strip().lower()
+    root = cfg.project_root.resolve()
+    tpath = trust_json_path()
+
+    if args_s in ("", "status", "show"):
+      if is_trusted_root(root):
+        out(f"Workspace is trusted:\n  {root}")
+      else:
+        out(f"Workspace is NOT trusted:\n  {root}")
+        out("File, shell, and git tools require trust. Use: /trust on")
+      out(f"Trust database: {tpath}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if args_s in ("on", "yes", "y", "1", "true", "enable"):
+      trust_root(root, trusted=True)
+      out(f"Trusted:\n  {root}")
+      out(f"Saved to {tpath}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if args_s in ("off", "no", "n", "0", "false", "disable", "revoke"):
+      trust_root(root, trusted=False)
+      out(f"Removed trust for:\n  {root}")
+      out("Tools will refuse until you run /trust on (or approve on next CLI start).")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    out("Usage:")
+    out("  /trust           Show whether this project root is trusted")
+    out("  /trust on        Trust this workspace (required for file/shell/git tools)")
+    out("  /trust off       Stop trusting this workspace")
+    out(f"  (stored under {tpath.parent}/)")
     out()
     return ReplSlashResult(skip_model_turn=True)
 
@@ -539,6 +672,141 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True)
 
+  # ── /eval ─────────────────────────────────────────────────────────────────
+  if name == "eval":
+    raw_args = (sc.args or "").strip().lower()
+    include_llm = "llm" in raw_args or "--llm" in raw_args
+    from gemcode.evals.harness import run_eval_suite, write_eval_record
+
+    try:
+      res = run_eval_suite(
+        project_root=cfg.project_root,
+        include_llm=include_llm,
+        model=None,
+        session_cfg=cfg,
+        extra_tools=extra_tools,
+      )
+    except Exception as e:
+      out(f"eval failed: {type(e).__name__}: {e}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    try:
+      rec_path = write_eval_record(cfg.project_root, res)
+      out(f"eval: ok={res.get('ok')}  score={float(res.get('score', 0)):.2f}  elapsed_s={float(res.get('elapsed_s', 0)):.1f}  → {rec_path}")
+    except OSError:
+      out(f"eval: ok={res.get('ok')}  score={float(res.get('score', 0)):.2f}  elapsed_s={float(res.get('elapsed_s', 0)):.1f}")
+    for row in res.get("results") or []:
+      nm = row.get("name", "?")
+      ok = row.get("ok", False)
+      out(f"  {nm}: {'ok' if ok else 'FAIL'}")
+      if not ok and row.get("details"):
+        det = str(row["details"]).strip()
+        if det:
+          snippet = det[-600:] if len(det) > 600 else det
+          out(f"    {snippet}")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /autotune ───────────────────────────────────────────────────────────────
+  if name == "autotune":
+    parts = (sc.args or "").strip().split()
+    if not parts:
+      out("Usage:")
+      out("  /autotune init <tag>   Create git branch autotune/<tag> (requires git repo)")
+      out("  /autotune eval [llm]   Run eval suite and append .gemcode/evals/autotune_ledger.jsonl")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    sub = parts[0].lower()
+    if sub == "init":
+      if len(parts) < 2:
+        out("Usage: /autotune init <tag>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      tag = parts[1].strip()
+      from gemcode.autotune import init_autotune
+
+      r = init_autotune(project_root=cfg.project_root, tag=tag)
+      if r.get("error"):
+        out(f"autotune init: {r.get('error')}")
+        if r.get("output"):
+          out(str(r["output"])[-800:])
+      else:
+        out(f"autotune init: {r.get('status')}  branch={r.get('branch')}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if sub == "eval":
+      include_llm = any(p.lower() in ("llm", "--llm") for p in parts[1:])
+      from gemcode.autotune import run_autotune_eval
+
+      try:
+        r = run_autotune_eval(
+          project_root=cfg.project_root,
+          include_llm=include_llm,
+          model=None,
+          session_cfg=cfg,
+          extra_tools=extra_tools,
+        )
+      except Exception as e:
+        out(f"autotune eval failed: {type(e).__name__}: {e}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out(f"autotune eval: ok={r.get('ok')}  score={float(r.get('score', 0)):.2f}")
+      if r.get("record_path"):
+        out(f"  record: {r['record_path']}")
+      if r.get("ledger_path"):
+        out(f"  ledger: {r['ledger_path']}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    out(f"Unknown /autotune subcommand: {sub}")
+    out("Usage: /autotune init <tag>  ·  /autotune eval [llm]")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /curated (curated memory files) ────────────────────────────────────────
+  if name in ("curated", "memory-files", "memoryfiles"):
+    snap = _curated_load_snapshot(cfg.project_root, max_chars=8000)
+    out("Curated memory (injected when memory is on):")
+    out(f"  project: {snap.get('memory_path')}")
+    out(f"  user:    {snap.get('user_path')}")
+    out(f"  loaded:  {snap.get('chars', 0)} chars  exists={snap.get('exists')}")
+    out()
+    txt = (snap.get("text") or "").strip()
+    if txt:
+      out("--- snapshot ---")
+      out(txt)
+      out("--- end ---")
+    else:
+      out("(empty — create .gemcode/GEMCODE_MEMORY.md and GEMCODE_USER.md)")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /login ─────────────────────────────────────────────────────────────────
+  if name == "login":
+    from gemcode.credentials import credentials_path
+
+    out("API keys are not stored inside the REPL. Use a separate terminal:")
+    out()
+    out("  gemcode login")
+    out()
+    out("Creates or updates your key at:")
+    out(f"  {credentials_path()}")
+    out()
+    out("Get a key: https://aistudio.google.com/app/apikey")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /live-audio ────────────────────────────────────────────────────────────
+  if name in ("live-audio", "liveaudio"):
+    out("Live audio (microphone → Gemini Live) runs as a dedicated CLI, not inside this REPL.")
+    out()
+    out("Example:")
+    out(f"  gemcode live-audio -C {cfg.project_root}")
+    out()
+    out("Flags: --seconds N  --rate 24000  --language en-US  --model <id>")
+    out("       --yes  --deep-research  --embeddings  --session <uuid>")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
   if name in ("model", "models"):
     args = (sc.args or "").strip()
     if not args:
@@ -772,6 +1040,22 @@ async def process_repl_slash(
     return ReplSlashResult(skip_model_turn=True)
 
   if name == "tools":
+    args_t = (sc.args or "").strip().lower()
+    if args_t in ("smoke", "decl", "declarations"):
+      from gemcode.tools_inspector import inspect_tools, smoke_tools
+
+      inspections = inspect_tools(cfg, extra_tools=extra_tools)
+      bad = smoke_tools(inspections)
+      if not bad:
+        out(f"tools smoke: OK ({len(inspections)} tools, declarations compile)")
+      else:
+        out(f"tools smoke: {len(bad)} failure(s) of {len(inspections)} tools")
+        for i in bad[:60]:
+          out(f"  {i.name}: {i.declaration_error}")
+        if len(bad) > 60:
+          out(f"  … ({len(bad) - 60} more)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
     out("\n".join(format_tools_lines(cfg, extra_tools=extra_tools)))
     out()
     return ReplSlashResult(skip_model_turn=True)
@@ -787,6 +1071,8 @@ async def process_repl_slash(
     out(f"model_mode:     {cfg.model_mode}")
     out(f"session_id:     {session_id}")
     out(f"project_root:   {cfg.project_root}")
+    _lg = getattr(cfg, "session_loaded_skill_names", None) or []
+    out(f"loaded_skills:  {', '.join(_lg) if _lg else '(none)'}  (/gemskill)")
     out()
     out("Capabilities:")
     out(f"  deep_research:  {'on  ✓' if cfg.enable_deep_research else 'off'}")
@@ -891,10 +1177,15 @@ async def process_repl_slash(
 
     # /clear or /session new — start fresh session
     if name == "clear" or args_lower in ("new", "reset"):
+      _clear_session_loaded_skills(cfg)
       new_id = str(uuid.uuid4())
       out(f"new session_id: {new_id}")
       out()
-      return ReplSlashResult(skip_model_turn=True, new_session_id=new_id)
+      return ReplSlashResult(
+          skip_model_turn=True,
+          new_session_id=new_id,
+          force_rebuild_runner=True,
+      )
 
     # /session list — show recent sessions
     if args_lower in ("list", "ls", "history"):
@@ -940,9 +1231,14 @@ async def process_repl_slash(
         out(f"Already in session {found[:8]}.")
         out()
         return ReplSlashResult(skip_model_turn=True)
+      _clear_session_loaded_skills(cfg)
       out(f"Resuming session {found[:8]}…")
       out()
-      return ReplSlashResult(skip_model_turn=True, new_session_id=found)
+      return ReplSlashResult(
+          skip_model_turn=True,
+          new_session_id=found,
+          force_rebuild_runner=True,
+      )
 
     # Default: show current session info
     from gemcode.session_store import get_session_name, touch_session
@@ -1324,6 +1620,33 @@ async def process_repl_slash(
       return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
     out(f"Unknown /embeddings subcommand: '{args_s}'")
     out("Usage: /embeddings [on|off]")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /maps (Maps grounding, deep-research stack) ────────────────────────────
+  if name in ("maps", "map"):
+    args_s = (sc.args or "").strip().lower()
+    if not args_s or args_s in ("status", "show"):
+      status = "on  ✓" if cfg.enable_maps_grounding else "off"
+      out(f"maps_grounding: {status}")
+      out()
+      out("Commands: /maps on  ·  /maps off")
+      out("When on: Maps-backed grounding is available alongside deep-research tools (if enabled).")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if args_s == "on":
+      cfg.enable_maps_grounding = True
+      out("maps_grounding: on")
+      out("  Runner will rebuild on next turn.")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    if args_s == "off":
+      cfg.enable_maps_grounding = False
+      out("maps_grounding: off")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    out(f"Unknown /maps subcommand: '{args_s}'")
+    out("Usage: /maps [on|off]")
     out()
     return ReplSlashResult(skip_model_turn=True)
 

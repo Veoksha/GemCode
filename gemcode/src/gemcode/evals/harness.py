@@ -3,14 +3,17 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
+import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Iterable
 
 from gemcode.config import GemCodeConfig, load_cli_environment
 from gemcode.invoke import run_turn
 from gemcode.session_runtime import create_runner
+from gemcode.tools_inspector import inspect_tools, smoke_tools
 
 
 @dataclass
@@ -21,11 +24,25 @@ class EvalResult:
   details: str = ""
 
 
-def _run_cmd(cmd: str, *, cwd: Path) -> tuple[int, str]:
-  import subprocess
-  p = subprocess.run(cmd, cwd=str(cwd), shell=True, capture_output=True, text=True)
-  out = (p.stdout or "") + (p.stderr or "")
-  return int(p.returncode), out
+def _discover_pytest_cwd(project_root: Path) -> tuple[Path, dict[str, str] | None] | None:
+  """
+  Return (cwd, env) for running pytest, or None if no tests tree found.
+
+  ``env`` is ``None`` to inherit the process environment; otherwise a full env dict.
+
+  Supports:
+  - Monorepo layout: <root>/gemcode/tests → cwd gemcode, PYTHONPATH=src
+  - Single-package layout: <root>/tests → cwd root
+  """
+  if (project_root / "tests").is_dir():
+    return project_root, None
+  gc = project_root / "gemcode"
+  if (gc / "tests").is_dir():
+    env = os.environ.copy()
+    prev = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = "src" + (os.pathsep + prev if prev else "")
+    return gc, env
+  return None
 
 
 def _events_to_text(events: list) -> str:
@@ -72,28 +89,65 @@ def run_eval_suite(
   project_root: Path,
   include_llm: bool,
   model: str | None = None,
+  session_cfg: GemCodeConfig | None = None,
+  extra_tools: Iterable[Any] | None = None,
 ) -> dict[str, Any]:
   """
   Fixed evaluation harness (AutoResearch-style): deterministic gates + optional LLM golden prompts.
+
+  When ``session_cfg`` is set (e.g. from the REPL), tool smoke uses that config so flags match the live session.
   """
   t0 = time.time()
   load_cli_environment()
-  cfg = GemCodeConfig(project_root=project_root)
-  if model:
-    cfg.model = model
-    cfg.model_overridden = True
+  root = session_cfg.project_root if session_cfg is not None else project_root.resolve()
+  if session_cfg is not None:
+    cfg = replace(session_cfg, model=model, model_overridden=True) if model else session_cfg
+  else:
+    cfg = GemCodeConfig(project_root=project_root.resolve())
+    if model:
+      cfg.model = model
+      cfg.model_overridden = True
 
   results: list[EvalResult] = []
 
-  # Gate 1: tool schema smoke
-  rc, out = _run_cmd("PYTHONPATH=src python3 -m gemcode tools smoke", cwd=project_root / "gemcode")
-  results.append(EvalResult(name="tools_smoke", ok=(rc == 0), score=1.0 if rc == 0 else 0.0, details=out[-800:]))
+  # Gate 1: tool declaration smoke (in-process; matches REPL config when session_cfg is passed)
+  inspections = inspect_tools(cfg, extra_tools=extra_tools)
+  failures = smoke_tools(inspections)
+  ok_smoke = len(failures) == 0
+  smoke_details = ""
+  if failures:
+    smoke_details = "\n".join(
+      f"{f.name}: {f.declaration_error}" for f in failures[:40]
+    )
+  results.append(
+    EvalResult(
+      name="tools_smoke",
+      ok=ok_smoke,
+      score=1.0 if ok_smoke else 0.0,
+      details=smoke_details[-1200:],
+    )
+  )
 
-  # Gate 2: pytest if present
-  tests_dir = project_root / "gemcode" / "tests"
-  if tests_dir.is_dir():
-    rc2, out2 = _run_cmd("PYTHONPATH=src python3 -m pytest -q", cwd=project_root / "gemcode")
-    results.append(EvalResult(name="pytest", ok=(rc2 == 0), score=1.0 if rc2 == 0 else 0.0, details=out2[-1200:]))
+  # Gate 2: pytest if a tests/ tree exists under root or root/gemcode
+  pytest_target = _discover_pytest_cwd(root)
+  if pytest_target is not None:
+    cwd, env = pytest_target
+    p = subprocess.run(
+      [sys.executable, "-m", "pytest", "-q"],
+      cwd=str(cwd),
+      env=env,
+      capture_output=True,
+      text=True,
+    )
+    out2 = (p.stdout or "") + (p.stderr or "")
+    results.append(
+      EvalResult(
+        name="pytest",
+        ok=(p.returncode == 0),
+        score=1.0 if p.returncode == 0 else 0.0,
+        details=out2[-1200:],
+      )
+    )
 
   if include_llm:
     goldens = [

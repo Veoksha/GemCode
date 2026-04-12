@@ -10,6 +10,11 @@ def _trust_file_path() -> Path:
   return base / "trust.json"
 
 
+def trust_json_path() -> Path:
+  """Path to the trust database (respects GEMCODE_HOME)."""
+  return _trust_file_path()
+
+
 def load_trusted_roots() -> set[str]:
   """
   Returns a set of resolved absolute paths (as strings) that are trusted.

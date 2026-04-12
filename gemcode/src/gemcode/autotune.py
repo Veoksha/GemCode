@@ -3,8 +3,9 @@ from __future__ import annotations
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
+from gemcode.config import GemCodeConfig
 from gemcode.evals.harness import run_eval_suite, write_eval_record
 
 
@@ -47,11 +48,24 @@ def init_autotune(*, project_root: Path, tag: str) -> dict[str, Any]:
   return {"status": "created", "branch": branch}
 
 
-def run_autotune_eval(*, project_root: Path, include_llm: bool, model: str | None = None) -> dict[str, Any]:
+def run_autotune_eval(
+  *,
+  project_root: Path,
+  include_llm: bool,
+  model: str | None = None,
+  session_cfg: GemCodeConfig | None = None,
+  extra_tools: Iterable[Any] | None = None,
+) -> dict[str, Any]:
   """
   Run eval suite and persist last result to .gemcode/evals/last_eval.json.
   """
-  res = run_eval_suite(project_root=project_root, include_llm=include_llm, model=model)
+  res = run_eval_suite(
+    project_root=project_root,
+    include_llm=include_llm,
+    model=model,
+    session_cfg=session_cfg,
+    extra_tools=extra_tools,
+  )
   meta = {
     "ts": time.time(),
     "git_sha": _git_head_sha(project_root),
