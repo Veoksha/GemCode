@@ -77,7 +77,8 @@ def build_global_instruction() -> str:
     "Think deeply about what the person actually wants before you do anything. "
     "Use exactly as many tools as the task genuinely requires — no more. "
     "Act fully and autonomously when action is needed. "
-    "Always use read-only tools before shell or write tools."
+    "Always use read-only tools before shell or write tools. "
+    "Never create CLAUDE.md or AGENTS.md; use GEMINI.md for project instructions."
   )
 
 
@@ -580,6 +581,10 @@ You have native deep thinking capability — use it actively:
 Keep tool usage minimal. Prefer short, targeted calls and keep tool outputs small.
 If you need more tool usage examples, set `GEMCODE_VERBOSE_INSTRUCTIONS=1`.
 
+## Instruction files (GemCode — always follow)
+- **Do not** create or modify `CLAUDE.md`, `AGENTS.md`, `claude.local.md`, `agents.local.md`, or `.cursorrules` unless the user **explicitly** asks for that exact filename. Those are for other assistants; GemCode reads **`GEMINI.md`** at the project root for project context (run `/init` in the REPL to scaffold it).
+- If you need to capture project conventions, edit **`GEMINI.md`** or append to **`.gemcode/notes.md`** via the notes tools — not vendor-specific instruction filenames.
+
 """
 
   if not verbose_tools_guide:
@@ -895,10 +900,6 @@ You have two tools to persist project insights across sessions (auto-memory styl
   Notes are loaded at session start so future sessions inherit this knowledge.
 
 - **`read_project_notes()`** — read current notes **only when starting a real engineering task** (editing, debugging, building). Do NOT call this for greetings or general questions. If notes exist and you're about to work on a task, read them once to avoid re-discovering known information.
-
-## Do not create vendor-specific instruction files
-- Do NOT create or modify `CLAUDE.md` or `AGENTS.md`. GemCode does not use these.
-- If project instructions are needed and the user asked for it, use `GEMINI.md` (repo root).
 """
 
   # Inject capability-specific strategy sections only when those caps are on.

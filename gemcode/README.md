@@ -284,7 +284,7 @@ Tools are registered in `gemcode/tools/` and exposed to the model as ADK functio
 - **Computer use:** ADK `ComputerUseToolset` + Playwright (separate install and flags).
 - **MCP:** Tools loaded from configured servers.
 
-**Vendor file policy:** Writes to certain vendor-specific instruction filenames (e.g. `CLAUDE.md`, `AGENTS.md`) are blocked; use project conventions like `GEMINI.md` and curated memory files instead.
+**Vendor file policy:** Writes to certain third-party instruction filenames (`CLAUDE.md`, `AGENTS.md`, `*.local` variants, `.cursorrules`, …) are blocked; use `GEMINI.md` and `.gemcode/notes.md` instead. The agent instruction always states this; `write_file` / `search_replace` enforce it.
 
 ---
 

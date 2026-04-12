@@ -23,11 +23,16 @@ def make_edit_tools(cfg: GemCodeConfig):
     except Exception:
       pass
 
-  # Block writes to common non-GemCode agent instruction filenames.
-  _BLOCKED_SPECIAL_FILES = {
-    "claude.md",
-    "agents.md",
-  }
+  # Block writes to common non-GemCode / third-party agent instruction filenames.
+  _BLOCKED_SPECIAL_FILES = frozenset(
+      {
+          "claude.md",
+          "agents.md",
+          "claude.local.md",
+          "agents.local.md",
+          ".cursorrules",
+      }
+  )
 
   def _blocked_special_path(path: str) -> str | None:
     try:

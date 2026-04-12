@@ -1045,6 +1045,8 @@ async def process_repl_slash(
       "3. Look at the source directory structure (src/, lib/, app/, etc.)\n"
       "4. Check for test directories and test runner config\n"
       "5. Look for linting/formatting config files (.eslintrc, .prettierrc, ruff.toml, etc.)\n\n"
+      "Write **only** to `GEMINI.md` at the project root. Do **not** create "
+      "`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, or similar.\n\n"
       "Then write a GEMINI.md file at the project root containing:\n"
       "# Project Name\n"
       "One-sentence description.\n\n"
