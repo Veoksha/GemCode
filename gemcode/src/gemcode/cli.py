@@ -147,7 +147,12 @@ def _initialize_gemcode_project(cfg: GemCodeConfig) -> None:
 
 
 async def _run_prompt(
-  cfg: GemCodeConfig, prompt: str, session_id: str, *, use_mcp: bool
+  cfg: GemCodeConfig,
+  prompt: str,
+  session_id: str,
+  *,
+  use_mcp: bool,
+  attachment_paths: list[Path] | None = None,
 ) -> str:
   load_cli_environment()
   _maybe_prompt_trust(cfg)
@@ -164,6 +169,7 @@ async def _run_prompt(
         prompt=prompt,
         max_llm_calls=cfg.max_llm_calls,
         cfg=cfg,
+        attachment_paths=attachment_paths,
     )
     return _events_to_text(collected)
   finally:
@@ -296,6 +302,8 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
 
       apply_capability_routing(cfg, prompt_text, context="prompt")
       cfg.model = pick_effective_model(cfg, prompt_text)
+      _repl_attach = list(cfg.pending_attachment_paths)
+      cfg.pending_attachment_paths.clear()
       collected = await run_turn(
         runner,
         user_id="local",
@@ -303,6 +311,7 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
         prompt=prompt_text,
         max_llm_calls=cfg.max_llm_calls,
         cfg=cfg,
+        attachment_paths=_repl_attach if _repl_attach else None,
       )
       out = _events_to_text(collected)
       if out:
@@ -795,6 +804,17 @@ def main() -> None:
       metavar="N",
       help="Cap model↔tool iterations for this message (maps to ADK RunConfig.max_llm_calls)",
   )
+  parser.add_argument(
+      "--attach",
+      "--image",
+      dest="attachments",
+      action="append",
+      default=[],
+      metavar="PATH",
+      help="Attach file(s) for this message (repeatable): images, PDF, audio, video, text, etc. "
+      "(Gemini-supported MIME). Default max ~20 MiB each (GEMCODE_MAX_ATTACHMENT_BYTES). "
+      "REPL: /attach or /image <path>.",
+  )
   args = parser.parse_args()
 
   load_cli_environment()
@@ -846,7 +866,16 @@ def main() -> None:
   prompt_text = prompt.strip()
   apply_capability_routing(cfg, prompt_text, context="prompt")
   cfg.model = pick_effective_model(cfg, prompt_text)
-  out = asyncio.run(_run_prompt(cfg, prompt_text, session_id, use_mcp=args.mcp))
+  _cli_attach = list(args.attachments) if getattr(args, "attachments", None) else []
+  out = asyncio.run(
+      _run_prompt(
+          cfg,
+          prompt_text,
+          session_id,
+          use_mcp=args.mcp,
+          attachment_paths=_cli_attach if _cli_attach else None,
+      )
+  )
   if out:
     print(out)
   print(f"\n[gemcode] session_id={session_id}", file=sys.stderr)

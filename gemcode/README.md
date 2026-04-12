@@ -141,6 +141,18 @@ Non-interactive environments (CI, pipes) must set `GOOGLE_API_KEY` explicitly an
 | `gemcode kaira` | Stdin-line → queued jobs scheduler (see [Kaira](#kaira-scheduler)). |
 | `gemcode ide --stdio` | **JSONL IDE protocol** on stdin/stdout for editor extensions (hidden entry; used by VS Code). |
 
+**Files with a prompt (multimodal):** attach one or more files Gemini can read (images, **PDF**, audio, video, plain text, etc.) for that message only:
+
+```bash
+gemcode -C . --attach ./screenshot.png "Why does this UI look wrong?"
+gemcode -C . --attach ./report.pdf "What are the main conclusions?"
+gemcode -C . --image a.png --image b.png "Compare these two layouts"
+```
+
+(`--image` is an alias of `--attach`.)
+
+In the **REPL / TUI**, queue files for the **next** message: `/attach path/to.pdf` (repeat for multiple), then type your question. Use `/attach list`, `/attach clear`. Aliases: `/image`, `/img`, `/file`.
+
 ---
 
 ## Main CLI flags
@@ -160,6 +172,7 @@ Non-interactive environments (CI, pipes) must set `GOOGLE_API_KEY` explicitly an
 | `--tool-combination-mode` | Gemini 3 **tool context circulation**: `deep_research\|always\|never\|auto`. |
 | `--mcp` | Load MCP toolsets from `.gemcode/mcp.json` (requires `pip install -e ".[mcp]"`). |
 | `--max-llm-calls` | Cap model↔tool iterations (`RunConfig.max_llm_calls`). |
+| `--attach PATH` | Attach file(s) for **this** CLI message only (repeat flag). Gemini-supported MIME (e.g. images, PDF, audio, video). Default max ~20 MiB each (`GEMCODE_MAX_ATTACHMENT_BYTES`). Alias: `--image`. |
 
 Kaira and `live-audio` accept overlapping options (project root, `--yes`, research/embeddings, etc.); run `gemcode kaira -h` / `gemcode live-audio -h` for full lists.
 
@@ -283,6 +296,7 @@ In interactive mode, lines starting with `/` are **slash commands** (see `repl_c
 
 | Command | Purpose |
 |---------|---------|
+| `/attach <path>`, `/attach list`, `/attach clear` | Queue file(s) for the **next** message (Gemini multimodal). Aliases: **`/image`**, **`/img`**, **`/file`**. |
 | `/trust`, `/trust on`, `/trust off` | Show, grant, or revoke **workspace trust** for the project root (stored in `~/.gemcode/trust.json`; required for file/shell/git tools). |
 | `/init` \| `/init force` | Analyze the repo and generate or overwrite `GEMINI.md`. |
 | `/cost` | Token usage and estimated cost for the session. |

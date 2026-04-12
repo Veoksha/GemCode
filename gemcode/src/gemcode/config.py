@@ -218,6 +218,9 @@ class GemCodeConfig:
   # Substitutes ${GEMCODE_SESSION_ID} when expanding loaded skills for prompts.
   session_skill_expand_session_id: str | None = None
 
+  # REPL/TUI: paths queued with /attach (or /image …), sent on the next message then cleared.
+  pending_attachment_paths: list[Path] = field(default_factory=list)
+
   # Modality toggles (tool injection + routing).
   enable_deep_research: bool = field(
     default_factory=lambda: _truthy_env("GEMCODE_ENABLE_DEEP_RESEARCH", default=False)

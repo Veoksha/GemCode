@@ -20,6 +20,7 @@ def test_slash_commands_registry_covers_new_commands() -> None:
       "style",
       "rules",
       "help",
+      "attach",
   ):
     assert required in names, f"missing slash completion entry: {required}"
 

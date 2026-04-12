@@ -29,6 +29,7 @@ from gemcode.repl_commands import (
   slash_help_lines,
 )
 from gemcode.curated_memory import load_snapshot as _curated_load_snapshot
+from gemcode.multimodal_input import resolve_attachment_path
 from gemcode.slash_commands import parse_slash_command
 from gemcode.skills import discover_skill_metas, expand_skill_text, list_supporting_files, load_skill
 from gemcode.output_styles import discover_output_styles, load_output_style
@@ -84,6 +85,51 @@ async def process_repl_slash(
 
   if name in ("help", "?"):
     out("\n".join(slash_help_lines()))
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /attach (queue files for the next user message: PDF, images, audio, …) ─
+  if name in ("attach", "file", "image", "img"):
+    raw_i = (sc.args or "").strip()
+    if not raw_i or raw_i.lower() in ("help", "?"):
+      out("Usage:")
+      out("  /attach <path>   Queue a file for the **next** message (repeat for multiple, max 16).")
+      out("  /attach list     Show queued paths")
+      out("  /attach clear    Clear the queue")
+      out("Aliases: /file, /image, /img — same queue.")
+      out("Types: Gemini-supported MIME (e.g. images, PDF, audio, video, text). Default max ~20 MiB each.")
+      out("CLI:  gemcode -C . --attach ./doc.pdf \"Summarize this\"")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    low_i = raw_i.lower()
+    if low_i == "list":
+      pend = cfg.pending_attachment_paths
+      if not pend:
+        out("(no attachments queued)")
+      else:
+        out("Queued for next message:")
+        for i, p in enumerate(pend, 1):
+          out(f"  {i}. {p}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if low_i == "clear":
+      cfg.pending_attachment_paths.clear()
+      out("Attachment queue cleared.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    resolved = resolve_attachment_path(raw_i, project_root=cfg.project_root)
+    if not resolved.is_file():
+      out(f"Not a file: {raw_i}")
+      out("(Resolved relative to cwd, then project root.)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if len(cfg.pending_attachment_paths) >= 16:
+      out("Queue full (16 files max). Use /attach clear first.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    cfg.pending_attachment_paths.append(resolved)
+    out(f"Queued: {resolved}")
+    out(f"  ({len(cfg.pending_attachment_paths)} file(s) — send your next message to attach)")
     out()
     return ReplSlashResult(skip_model_turn=True)
 
@@ -1073,6 +1119,8 @@ async def process_repl_slash(
     out(f"project_root:   {cfg.project_root}")
     _lg = getattr(cfg, "session_loaded_skill_names", None) or []
     out(f"loaded_skills:  {', '.join(_lg) if _lg else '(none)'}  (/gemskill)")
+    _pq = getattr(cfg, "pending_attachment_paths", None) or []
+    out(f"queued_attachments: {len(_pq)}  (/attach list)")
     out()
     out("Capabilities:")
     out(f"  deep_research:  {'on  ✓' if cfg.enable_deep_research else 'off'}")
@@ -1178,6 +1226,7 @@ async def process_repl_slash(
     # /clear or /session new — start fresh session
     if name == "clear" or args_lower in ("new", "reset"):
       _clear_session_loaded_skills(cfg)
+      cfg.pending_attachment_paths.clear()
       new_id = str(uuid.uuid4())
       out(f"new session_id: {new_id}")
       out()
@@ -1232,6 +1281,7 @@ async def process_repl_slash(
         out()
         return ReplSlashResult(skip_model_turn=True)
       _clear_session_loaded_skills(cfg)
+      cfg.pending_attachment_paths.clear()
       out(f"Resuming session {found[:8]}…")
       out()
       return ReplSlashResult(

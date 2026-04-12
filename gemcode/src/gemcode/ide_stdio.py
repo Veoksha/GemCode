@@ -16,8 +16,13 @@ GemCode is responsible for:
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import mimetypes
 import os
 import sys
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from gemcode.config import GemCodeConfig, load_cli_environment
@@ -38,6 +43,107 @@ def _truthy(v: Any, default: bool = False) -> bool:
   return default
 
 
+def _max_ide_inline_bytes() -> int:
+  raw = os.environ.get("GEMCODE_MAX_ATTACHMENT_BYTES")
+  if raw:
+    try:
+      v = int(raw, 10)
+      if v > 0:
+        return v
+    except ValueError:
+      pass
+  return 20 * 1024 * 1024
+
+
+def _suffix_for_inline_attachment(name: str, mime: str) -> str:
+  p = Path(name or "")
+  if p.suffix and len(p.suffix) <= 12:
+    return p.suffix
+  m = (mime or "").strip().lower().split(";")[0].strip()
+  if m:
+    ext = mimetypes.guess_extension(m, strict=False)
+    if ext == ".jpe":
+      ext = ".jpeg"
+    if ext:
+      return ext
+  return ".bin"
+
+
+def prepare_inline_attachment_paths(
+  attachments: list[Any] | None,
+  *,
+  max_bytes: int | None = None,
+  max_count: int = 16,
+) -> tuple[list[Path], list[str]]:
+  """
+  Materialize IDE ``inline`` / ``binary`` / ``blob`` attachment dicts as temp files.
+
+  Expected keys (camelCase accepted): ``data`` or ``base64``, optional ``name`` /
+  ``filename``, ``mime_type`` / ``mimeType``.
+
+  Returns ``(paths, errors)``. Caller must unlink paths when done.
+  """
+  cap = max_bytes if max_bytes is not None else _max_ide_inline_bytes()
+  max_b64 = int(cap * 4 / 3) + 32
+  paths: list[Path] = []
+  errors: list[str] = []
+  if not attachments:
+    return paths, errors
+
+  for a in attachments:
+    if len(paths) >= max_count:
+      errors.append(f"inline attachments: max {max_count} files")
+      break
+    if not isinstance(a, dict):
+      continue
+    at = str(a.get("type") or "").strip().lower()
+    if at not in ("inline", "binary", "blob"):
+      continue
+    b64 = a.get("data") if isinstance(a.get("data"), str) else None
+    if b64 is None:
+      b64 = a.get("base64") if isinstance(a.get("base64"), str) else None
+    if not b64:
+      errors.append("inline attachment missing base64 data")
+      continue
+    if len(b64) > max_b64:
+      errors.append("inline attachment too large (base64)")
+      continue
+    try:
+      raw = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError) as e:
+      errors.append(f"inline attachment: invalid base64 ({e})")
+      continue
+    if len(raw) > cap:
+      errors.append(f"inline attachment exceeds max {cap} bytes")
+      continue
+    name = str(a.get("name") or a.get("filename") or "attachment")
+    mime = str(a.get("mime_type") or a.get("mimeType") or "")
+    suffix = _suffix_for_inline_attachment(name, mime)
+    try:
+      fd, fspath = tempfile.mkstemp(prefix="gemcode_ide_", suffix=suffix)
+      with os.fdopen(fd, "wb") as f:
+        f.write(raw)
+      paths.append(Path(fspath))
+    except OSError as e:
+      errors.append(f"inline attachment temp file failed: {e}")
+
+  return paths, errors
+
+
+def _textual_attachments_only(attachments: list[dict] | None) -> list[dict]:
+  if not attachments:
+    return []
+  out: list[dict] = []
+  for a in attachments:
+    if not isinstance(a, dict):
+      continue
+    at = str(a.get("type") or "").strip().lower()
+    if at in ("inline", "binary", "blob"):
+      continue
+    out.append(a)
+  return out
+
+
 def _build_prompt(prompt: str, attachments: list[dict] | None) -> str:
   # Keep it simple: attachments are appended as fenced blocks.
   if not attachments:
@@ -47,6 +153,8 @@ def _build_prompt(prompt: str, attachments: list[dict] | None) -> str:
     if not isinstance(a, dict):
       continue
     at = (a.get("type") or "").strip().lower()
+    if at in ("inline", "binary", "blob"):
+      continue
     if at == "selection":
       txt = a.get("text") or ""
       path = a.get("path") or ""
@@ -139,7 +247,6 @@ async def run_stdio_loop() -> int:
       if cfg is None:
         root = msg.get("project_root") or os.getcwd()
         model = msg.get("model") or os.environ.get("GEMCODE_MODEL") or ""
-        from pathlib import Path
         cfg = GemCodeConfig(project_root=Path(str(root)), model=str(model))
         # Attach emitter + proposal mode flags (used by tool wrappers).
         object.__setattr__(cfg, "_ide_emitter", emitter)
@@ -151,7 +258,25 @@ async def run_stdio_loop() -> int:
 
       prompt = str(msg.get("prompt") or "")
       attachments = msg.get("attachments") if isinstance(msg.get("attachments"), list) else None
-      full_prompt = _build_prompt(prompt, attachments)
+      att_dicts = [a for a in (attachments or []) if isinstance(a, dict)]
+      inline_paths, inline_err = prepare_inline_attachment_paths(attachments)
+      if inline_err:
+        for p in inline_paths:
+          try:
+            p.unlink()
+          except OSError:
+            pass
+        emitter.send(
+            make_response(
+                id=req_id,
+                ok=False,
+                error="; ".join(inline_err),
+                session=session_id,
+            )
+        )
+        continue
+
+      full_prompt = _build_prompt(prompt, _textual_attachments_only(att_dicts))
 
       # Per-turn allow flags (the engine still only proposes in IDE mode; the IDE applies).
       allow_write = _truthy(msg.get("allowWrite"), default=False)
@@ -161,14 +286,22 @@ async def run_stdio_loop() -> int:
 
       emitter.send(make_event(event="turn_start", id=req_id, session=session_id))
       try:
-        events = await run_turn(
-          runner,
-          user_id="local",
-          session_id=session_id,
-          prompt=full_prompt,
-          max_llm_calls=cfg.max_llm_calls,
-          cfg=cfg,
-        )
+        try:
+          events = await run_turn(
+              runner,
+              user_id="local",
+              session_id=session_id,
+              prompt=full_prompt,
+              max_llm_calls=cfg.max_llm_calls,
+              cfg=cfg,
+              attachment_paths=inline_paths if inline_paths else None,
+          )
+        finally:
+          for p in inline_paths:
+            try:
+              p.unlink()
+            except OSError:
+              pass
       except Exception as e:
         emitter.send(make_response(id=req_id, ok=False, error=f"{type(e).__name__}: {e}", session=session_id))
         continue

@@ -12,6 +12,8 @@ from rich.console import Console
 from rich.markdown import Markdown as _RichMarkdown
 from rich.padding import Padding as _RichPadding
 
+from gemcode.multimodal_input import build_user_content
+
 from gemcode.capability_routing import apply_capability_routing
 from gemcode.config import load_cli_environment
 from gemcode.model_routing import pick_effective_model
@@ -613,7 +615,18 @@ async def run_gemcode_scrollback_tui(
         from gemcode.session_runtime import create_runner as _create_runner_rt
         runner = _create_runner_rt(cfg, extra_tools=extra_tools)
 
-    current_message = types.Content(role="user", parts=[types.Part(text=prompt)])
+    _attach = list(cfg.pending_attachment_paths)
+    cfg.pending_attachment_paths.clear()
+    if _attach:
+      current_message, _attach_warn = build_user_content(
+          prompt,
+          _attach,
+          project_root=cfg.project_root,
+      )
+      for w in _attach_warn:
+        print(f"[gemcode] {w}", file=sys.stderr)
+    else:
+      current_message = types.Content(role="user", parts=[types.Part(text=prompt)])
     do_reset = True
     def _normalize_ws(s: str) -> str:
       # Gemini can sometimes return identical content for both "thinking" and

@@ -9,8 +9,9 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from typing import Any
+from pathlib import Path
 from threading import Lock
+from typing import Any, Sequence
 
 from google.adk.agents.run_config import RunConfig
 from google.adk.runners import Runner
@@ -66,6 +67,7 @@ async def run_turn(
     prompt: str,
     max_llm_calls: int | None = None,
     cfg: "GemCodeConfig | None" = None,
+    attachment_paths: Sequence[Path | str] | None = None,
 ) -> list:
   """Execute one user message; collect all Events (caller aggregates text)."""
   # Dynamic risk score: updated each user message; later refined by tool outcomes.
@@ -86,6 +88,8 @@ async def run_turn(
         risk += 0.2
       if re.search(r"\\b(test|pytest|ci|build|deploy|release)\\b", p, re.I):
         risk += 0.1
+      if attachment_paths:
+        risk = min(1.0, risk + 0.12)
       # Multi-file hints
       if p.count("/") >= 6 or p.count(".py") + p.count(".ts") + p.count(".tsx") >= 3:
         risk += 0.1
@@ -167,10 +171,22 @@ async def run_turn(
 
         state_delta = token_budget_invocation_reset()
 
-      # The first message is plain user text.
-      current_message = types.Content(
-        role="user", parts=[types.Part(text=prompt)]
-      )
+      # First message: optional inline files + text (Gemini multimodal).
+      if attachment_paths:
+        from gemcode.multimodal_input import build_user_content
+
+        root = cfg.project_root if cfg is not None else Path.cwd()
+        current_message, attach_warn = build_user_content(
+            prompt,
+            attachment_paths,
+            project_root=root,
+        )
+        for w in attach_warn:
+          print(f"[gemcode] {w}", file=sys.stderr)
+      else:
+        current_message = types.Content(
+            role="user", parts=[types.Part(text=prompt)]
+        )
 
       async def _await_runner_events(
         *, next_message: types.Content, do_reset: bool

@@ -8,6 +8,14 @@ Design goals:
 - Human-readable JSONL (easy to debug)
 - Streaming (token deltas + progress)
 - Safe editing (engine proposes; IDE applies via WorkspaceEdit)
+
+Attachments on ``action: turn`` may include:
+
+- Textual: ``type: selection`` / ``file`` (appended into the prompt as fenced blocks).
+- Binary / multimodal: ``type: inline`` | ``binary`` | ``blob`` with ``data`` or ``base64``
+  (standard base64), plus optional ``filename`` / ``name`` and ``mimeType`` / ``mime_type``.
+  The engine writes bytes to a temp file and passes them to Gemini as inline parts
+  (same limits as CLI ``--attach``).
 """
 
 from __future__ import annotations
