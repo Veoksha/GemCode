@@ -192,6 +192,7 @@ State is **project-local** (unless noted).
 | `policy.json` | Self-tuning profile for dynamic token / evidence budgets. |
 | `memories.jsonl` | Embedding-backed memory when `GEMCODE_ENABLE_MEMORY=1`. |
 | `notes.md` | Agent notes surfaced via `/notes`. |
+| `wal.jsonl` | Write-ahead log for curated memory + compression actions (metadata only). |
 | `evals/last_eval.json` | Latest `gemcode eval` record. |
 | `evals/autotune_ledger.jsonl` | Rows from `gemcode autotune eval`. |
 | `skills/<name>/SKILL.md` | **GemSkills** (project-scoped; see [GemSkills](#gemskills)). |
@@ -400,6 +401,13 @@ The TUI (when `GEMCODE_TUI=1` and terminal supports it) provides **slash complet
 Legacy filenames **`.gemcode/MEMORY.md`** and **`.gemcode/USER.md`** are still read if the new names are absent.
 
 Content is **sanitized** before append (length and sensitivity heuristics). The REPL command **`/curated`** prints a bounded snapshot of what would be injected. When the **memory** capability is enabled, curated material can be combined with broader memory tools—see **`remember_fact`**, **`read_curated_memory`** in the [function tools](#function-tools-catalog) table.
+
+### Query sanitization (tooling)
+
+Some tools sanitize long “contaminated” queries (e.g. accidental system-prompt prefixes) down to a short, likely-intended query. This currently applies to:
+
+- `web_search(query=...)`
+- `semantic_search_files(query=...)` (when `--embeddings` is on)
 
 ---
 

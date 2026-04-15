@@ -18,6 +18,7 @@ from gemcode.tools.web import make_web_fetch_tool
 from gemcode.tools.web_search import make_web_search_tool
 from gemcode.checkpoints import list_checkpoints as _list_checkpoints, undo_checkpoint as _undo_checkpoint
 from gemcode.tools.curated_memory import make_curated_memory_tools
+from gemcode.tools.compress_memory import make_compress_memory_tool
 from gemcode.tools.skills import make_skill_tools
 
 
@@ -87,6 +88,7 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
   load_tool_result = _make_load_tool_result_tool(cfg)
   repo_map = make_repo_map_tool(cfg)
   remember_fact, read_curated_memory = make_curated_memory_tools(cfg)
+  compress_memory_file = make_compress_memory_tool(cfg)
   list_skills, load_skill, skills_manifest = make_skill_tools(cfg)
 
   def checkpoints_list(limit: int = 20) -> dict:
@@ -149,6 +151,8 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
     # Evolving: curated memory (safe-to-inject facts)
     remember_fact,
     read_curated_memory,
+    # Optional: compress memory files (markdown only; safe guards apply)
+    compress_memory_file,
     # GemSkills (on-demand playbooks)
     list_skills,
     load_skill,

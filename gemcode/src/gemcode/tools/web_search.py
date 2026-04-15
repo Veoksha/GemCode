@@ -18,6 +18,8 @@ import urllib.request
 from html.parser import HTMLParser
 from typing import Any
 
+from gemcode.query_sanitizer import sanitize_tool_query
+
 
 class _DDGResultParser(HTMLParser):
     """Parse DuckDuckGo HTML search results page into a list of hits."""
@@ -222,7 +224,11 @@ def make_web_search_tool():
         """
         if not query or not query.strip():
             return {"error": "query must not be empty"}
-        query = query.strip()
+        raw = query.strip()
+        s = sanitize_tool_query(raw)
+        query = str(s.get("clean_query") or "").strip()
+        if not query:
+            return {"error": "query must not be empty"}
         max_results = max(1, min(int(max_results), 20))
 
         # Try the richer duckduckgo_search package first
@@ -239,6 +245,8 @@ def make_web_search_tool():
 
         return {
             "query": query,
+            "query_sanitized": bool(s.get("was_sanitized")),
+            "query_sanitizer_method": str(s.get("method")),
             "results": results,
             "count": len(results),
             "tip": "Use web_fetch(url) to read the full content of any result.",

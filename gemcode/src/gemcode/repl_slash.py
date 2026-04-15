@@ -419,6 +419,91 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
 
+  # ── /caveman (shortcut to built-in output styles) ─────────────────────────
+  if name == "caveman":
+    args = (sc.args or "").strip().lower()
+    # Levels map to built-in output styles (still overridable by project/user styles).
+    mapping = {
+      "": "caveman",
+      "full": "caveman",
+      "lite": "caveman-lite",
+      "ultra": "caveman-ultra",
+      "wenyan": "caveman-wenyan",
+      "wenyan-full": "caveman-wenyan",
+      "wenyan-lite": "caveman-wenyan-lite",
+      "wenyan-ultra": "caveman-wenyan-ultra",
+    }
+    if args in ("off", "stop", "normal", "none", "clear", "reset", "default"):
+      setattr(cfg, "output_style", None)
+      out("caveman: off (output_style cleared)")
+      out("Runner will rebuild on next turn to apply changes.")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+    if args not in mapping:
+      out("Usage:")
+      out("  /caveman                (full)")
+      out("  /caveman lite|full|ultra")
+      out("  /caveman wenyan-lite|wenyan|wenyan-ultra")
+      out("  /caveman off")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    choice = mapping[args]
+    styles = discover_output_styles(cfg.project_root)
+    if choice not in styles or load_output_style(cfg.project_root, choice) is None:
+      out(f"caveman: style unavailable: {choice}")
+      out("Tip: update GemCode, or create a custom style at .gemcode/output-styles/")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    setattr(cfg, "output_style", choice)
+    out(f"caveman: on — output_style: {choice}")
+    out("Runner will rebuild on next turn to apply changes.")
+    out()
+    return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+  # ── /caveman:compress (alias for /compress-memory) ────────────────────────
+  if name in ("caveman:compress", "caveman-compress", "caveman:compress-memory"):
+    args = (sc.args or "").strip()
+    parts = args.split()
+    if not parts:
+      out("Usage:")
+      out("  /caveman:compress <path> [lite|full|ultra]")
+      out("Note: mode defaults based on active /caveman level (or full).")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    target = parts[0]
+    mode = (parts[1].strip().lower() if len(parts) >= 2 else "")
+    if mode and mode not in ("lite", "full", "ultra"):
+      out(f"Unknown mode: {mode}")
+      out("Use: lite|full|ultra (or omit to auto-pick from current caveman level)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    # Auto-pick mode from current output_style if not provided.
+    if not mode:
+      os_ = (getattr(cfg, "output_style", None) or "").lower()
+      if os_ in ("caveman-lite",):
+        mode = "lite"
+      elif os_ in ("caveman-ultra",):
+        mode = "ultra"
+      else:
+        mode = "full"
+
+    # Dispatch as a model turn so the agent runs the tool and reports results.
+    prompt = (
+      "Compress a memory file now.\n\n"
+      f"- target: `{target}`\n"
+      f"- mode: `{mode}`\n\n"
+      "Call `compress_memory_file(path=..., mode=...)` and report:\n"
+      "- ok/error\n"
+      "- path + backup_path\n"
+      "- warnings (if any)\n"
+      "- chars_before/chars_after\n"
+    )
+    return ReplSlashResult(model_prompt=prompt)
+
   # ── /rules ────────────────────────────────────────────────────────────────
   if name == "rules":
     rules = _load_rules(cfg.project_root, touched_paths=None)

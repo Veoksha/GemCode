@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from gemcode.config import GemCodeConfig
+from gemcode.query_sanitizer import sanitize_tool_query
 
 
 def _get_embedding_client():
@@ -75,6 +76,10 @@ async def semantic_search_files(
     calls and latency.
   """
   if not isinstance(query, str) or not query.strip():
+    return {"error": "query must be a non-empty string"}
+  s = sanitize_tool_query(query)
+  query = str(s.get("clean_query") or "").strip()
+  if not query:
     return {"error": "query must be a non-empty string"}
 
   root = Path(project_root).resolve() if project_root else None
@@ -165,7 +170,13 @@ async def semantic_search_files(
     snippet = chunks[idx][:500].replace("\n", " ")
     matches.append({"path": rel, "snippet": snippet, "score": score})
 
-  return {"query": query, "backend": "embeddings", "matches": matches}
+  return {
+    "query": query,
+    "query_sanitized": bool(s.get("was_sanitized")),
+    "query_sanitizer_method": str(s.get("method")),
+    "backend": "embeddings",
+    "matches": matches,
+  }
 
 
 def build_extra_tools(cfg: GemCodeConfig) -> list[Any]:

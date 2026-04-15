@@ -71,6 +71,40 @@ _BUILTIN_SKILLS: dict[str, tuple[GemSkillMeta, str]] = {
       "- **Final**: verification + next steps\n"
     ),
   ),
+  "compress-memory": (
+    GemSkillMeta(
+      name="compress-memory",
+      description=(
+        "Compress a markdown memory file (GEMINI.md, .gemcode notes, todos) into a terse style "
+        "to reduce input tokens, while preserving code blocks, headings, and URLs."
+      ),
+      disable_model_invocation=False,
+      user_invocable=True,
+    ),
+    (
+      "## Compress memory file\n"
+      "Use this skill to rewrite a markdown-like memory file into a more token-efficient form.\n\n"
+      "### When to use\n"
+      "- The user asks to compress GEMINI.md, .gemcode notes, preferences, or other prose-heavy markdown.\n"
+      "- The user wants fewer input tokens each session.\n\n"
+      "### Safety and boundaries\n"
+      "- ONLY run on markdown-like files (.md/.txt/.rst, or extensionless files under .gemcode/).\n"
+      "- NEVER run on secret/credential/key files (.env, credentials, .ssh, .aws, *.pem, etc.).\n"
+      "- This operation sends file content to the Gemini API.\n"
+      "- Tool will create a backup: `<stem>.original.md` and abort if backup already exists.\n"
+      "- Tool validates: headings, fenced code blocks, URLs. On failure, it restores the original.\n\n"
+      "### How to run\n"
+      "1. Confirm target file path from `$ARGUMENTS`.\n"
+      "2. Pick mode: `lite`, `full`, or `ultra` (default `full`).\n"
+      "3. Call the tool:\n\n"
+      "```python\n"
+      "compress_memory_file(path=\"$ARGUMENTS\", mode=\"$ARGUMENTS[1]\")\n"
+      "```\n\n"
+      "If no mode provided, call with `mode=\"full\"`.\n\n"
+      "### Output\n"
+      "- Report: ok/error, file path, backup path, and any warnings.\n"
+    ),
+  ),
 }
 
 

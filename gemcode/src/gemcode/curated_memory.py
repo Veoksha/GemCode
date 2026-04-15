@@ -22,6 +22,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from gemcode.wal import append_wal_event, wal_text_fingerprint
+
 
 _SUSPICIOUS = [
   "api_key",
@@ -106,5 +108,15 @@ def append_fact(project_root: Path, *, target: str, text: str) -> dict[str, Any]
   ts = datetime.now().strftime("%Y-%m-%d %H:%M")
   entry = f"\n<!-- {ts} -->\n- {stripped}\n"
   p.write_text(cur + entry, encoding="utf-8")
+  # Best-effort WAL: do not store raw text.
+  append_wal_event(
+    project_root,
+    type="curated_memory.append_fact",
+    data={
+      "target": (target or "").strip().lower() or "memory",
+      "path": str(p),
+      "fingerprint": wal_text_fingerprint(stripped),
+    },
+  )
   return {"status": "appended", "path": str(p)}
 

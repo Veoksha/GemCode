@@ -16,11 +16,18 @@ def _is_valid_name(name: str) -> bool:
   return bool(re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", name or ""))
 
 
+def _builtin_style_dir() -> Path:
+  # Built-in styles shipped with GemCode (lowest priority).
+  # Located under the python package so they work out-of-the-box.
+  return Path(__file__).resolve().parent / "builtin" / "output-styles"
+
+
 def _style_dirs_for_project(project_root: Path) -> list[Path]:
-  # Project has priority over personal.
+  # Priority (highest last): project > personal > built-in.
   return [
     project_root / ".gemcode" / "output-styles",
     Path.home() / ".gemcode" / "output-styles",
+    _builtin_style_dir(),
   ]
 
 
