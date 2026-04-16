@@ -64,11 +64,11 @@ def test_deep_research_flag_uses_deep_research_model(tmp_path) -> None:
   cfg = GemCodeConfig(project_root=tmp_path)
   cfg.model = "gemini-fast"
   cfg.model_mode = "fast"
-  cfg.model_deep_research = "travel_explore"
+  cfg.model_deep_research = "deep-research-model"
   cfg.enable_deep_research = True
   assert (
     pick_effective_model(cfg, "anything about research")
-    == "travel_explore"
+    == "deep-research-model"
   )
 
 
@@ -76,8 +76,8 @@ def test_auto_deep_research_prompt_triggers_deep_research_model(tmp_path) -> Non
   cfg = GemCodeConfig(project_root=tmp_path)
   cfg.model = "gemini-fast"
   cfg.model_mode = "auto"
-  cfg.model_deep_research = "travel_explore"
+  cfg.model_deep_research = "deep-research-model"
   cfg.model_family_mode = "primary"
   prompt = "Do deep research and provide sources and citations."
-  assert pick_effective_model(cfg, prompt) == "travel_explore"
+  assert pick_effective_model(cfg, prompt) == "deep-research-model"
 

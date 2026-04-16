@@ -232,7 +232,9 @@ class GemCodeConfig:
   # Deep research model id used when routing selects deep research.
   model_deep_research: str = field(
     default_factory=lambda: os.environ.get(
-      "GEMCODE_MODEL_DEEP_RESEARCH", "travel_explore"
+      # Leave empty by default so routing falls back to `cfg.model` unless the
+      # user explicitly configures a deep-research-capable model id.
+      "GEMCODE_MODEL_DEEP_RESEARCH", ""
     )
   )
 
