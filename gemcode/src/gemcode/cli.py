@@ -705,6 +705,11 @@ def main() -> None:
       action="store_true",
       help="Enable embeddings-based semantic retrieval",
     )
+    audio_parser.add_argument(
+      "--no-playback",
+      action="store_true",
+      help="Do not play model audio to speakers (still prints text if any)",
+    )
 
     args = audio_parser.parse_args(sys.argv[2:])
     load_cli_environment()
@@ -725,15 +730,108 @@ def main() -> None:
     session_id = args.session or str(uuid.uuid4())
     from gemcode.live_audio_engine import run_live_audio
 
-    asyncio.run(
-      run_live_audio(
-        cfg,
-        session_id=session_id,
-        seconds=args.seconds,
-        input_rate=args.rate,
-        language_code=args.language,
+    # One-time explicit permission prompt (HITL) for mic/speaker use.
+    if hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
+      try:
+        ask = os.environ.get("GEMCODE_LIVE_AUDIO_ASK", "1").lower() not in ("0", "false", "no", "off")
+        if ask and not args.yes:
+          print(
+            "\n[gemcode live-audio] Permissions\n"
+            "GemCode will access your microphone"
+            + (" and play audio to your speakers" if not args.no_playback else "")
+            + ".\n"
+            "Allow this now? [y/N] ",
+            file=sys.stderr,
+            end="",
+          )
+          ans = input().strip().lower()
+          if ans not in ("y", "yes"):
+            raise SystemExit("live-audio cancelled by user.")
+      except EOFError:
+        raise SystemExit("live-audio cancelled (no TTY input).")
+
+    try:
+      # Suppress non-actionable serialization warning seen in some SDK versions.
+      try:
+        import warnings as _warnings
+        _warnings.filterwarnings(
+          "ignore",
+          message=r".*Pydantic serializer warnings.*",
+          category=UserWarning,
+        )
+      except Exception:
+        pass
+
+      # Some SDK builds print a close-1000 traceback directly to stderr even when it's benign.
+      # Capture stderr during the run and suppress that specific known noise.
+      _hide = os.environ.get("GEMCODE_LIVE_AUDIO_HIDE_SDK_TRACE", "1").lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
       )
-    )
+      if _hide:
+        import io
+        from contextlib import redirect_stderr
+
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+          asyncio.run(
+            run_live_audio(
+              cfg,
+              session_id=session_id,
+              seconds=args.seconds,
+              input_rate=args.rate,
+              language_code=args.language,
+              playback=(not args.no_playback),
+            )
+          )
+        captured = buf.getvalue()
+        if captured and "An unexpected error occurred in live flow: 1000" not in captured:
+          # Re-emit unexpected stderr.
+          print(captured, file=sys.stderr, end="")
+      else:
+        asyncio.run(
+          run_live_audio(
+            cfg,
+            session_id=session_id,
+            seconds=args.seconds,
+            input_rate=args.rate,
+            language_code=args.language,
+            playback=(not args.no_playback),
+          )
+        )
+    except Exception as e:
+      # Some SDK/ADK versions surface a normal websocket close (1000 OK) as an exception.
+      try:
+        from google.genai.errors import APIError  # type: ignore
+        if isinstance(e, APIError) and (getattr(e, "status_code", None) == 1000 or "1000" in str(e)):
+          print("\n[gemcode live-audio] Session ended.", file=sys.stderr)
+          raise SystemExit(0)
+      except Exception:
+        pass
+      # websockets can also surface a close directly.
+      if "ConnectionClosedOK" in repr(e) or "sent 1000 (OK)" in str(e):
+        print("\n[gemcode live-audio] Session ended.", file=sys.stderr)
+        raise SystemExit(0)
+      raise
+    except RuntimeError as e:
+      msg = str(e or "")
+      if "Mic capture requires `sounddevice` and `numpy`" in msg:
+        print(
+          "\n[gemcode live-audio] Microphone capture dependencies are missing.\n\n"
+          "Install:\n"
+          "  python3 -m pip install -U \"gemcode[live]\"\n\n"
+          "If that fails on your system, try:\n"
+          "  python3 -m pip install -U numpy sounddevice\n\n"
+          "Then re-run:\n"
+          f"  gemcode live-audio -C {cfg.project_root}\n\n"
+          "If the mic is still blocked, enable Microphone access for your terminal app in:\n"
+          "  System Settings → Privacy & Security → Microphone\n",
+          file=sys.stderr,
+        )
+        raise SystemExit(2)
+      raise
     print(f"\n[gemcode live-audio] session_id={session_id}", file=sys.stderr)
     return
 
