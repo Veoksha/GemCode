@@ -184,15 +184,33 @@ async def run_turn(
         # user-granted "Files and Folders" permissions on first access.
         # If approved once, we don't re-prompt for the rest of this session.
         attach_allow = True
-        if cfg is not None:
-          attach_allow = bool(getattr(cfg, "interactive_permission_ask", False))
-          attach_allow = attach_allow and hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
-          if attach_allow and not bool(getattr(cfg, "_attachments_allowed", False)):
-            attach_allow = _prompt_yes_no(
-              "Allow GemCode to read and upload the attached file(s) from disk? (y/n) "
-            )
-            if attach_allow:
+        if hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
+          # Default-on: attachments can read any local file path (not workspace-scoped),
+          # but we ask once per session so the user is in control and macOS can trigger
+          # its permission prompt at the moment we attempt the read.
+          attach_allow = os.environ.get("GEMCODE_ATTACHMENTS_ASK", "1").lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+          )
+          if cfg is not None:
+            # If user already approved earlier in this session, don't prompt again.
+            if bool(getattr(cfg, "_attachments_allowed", False)):
+              attach_allow = True
+            # If yes-to-all is enabled, auto-allow attachments.
+            elif bool(getattr(cfg, "yes_to_all", False)):
+              attach_allow = True
               object.__setattr__(cfg, "_attachments_allowed", True)
+            elif attach_allow:
+              attach_allow = _prompt_yes_no(
+                "Allow GemCode to read and upload the attached file(s) from disk? (y/n) "
+              )
+              if attach_allow:
+                object.__setattr__(cfg, "_attachments_allowed", True)
+        else:
+          # Non-interactive sessions can't prompt; default to allow.
+          attach_allow = True
         effective_attachments = attachment_paths if attach_allow else None
 
         root = cfg.project_root if cfg is not None else Path.cwd()

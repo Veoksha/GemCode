@@ -97,6 +97,18 @@ def _infer_mime(path: Path, data: bytes) -> tuple[str, list[str]]:
   return "application/octet-stream", warnings
 
 
+def _is_supported_mime(m: str) -> bool:
+  mm = (m or "").strip().lower()
+  if not mm:
+    return False
+  if mm.startswith(("image/", "audio/", "video/", "text/")):
+    return True
+  if mm == "application/pdf":
+    return True
+  # Most other application/* types are rejected by Gemini file parts.
+  return False
+
+
 def build_user_content(
   prompt: str,
   attachment_paths: Sequence[Path | str] | None,
@@ -135,6 +147,12 @@ def build_user_content(
         continue
       mime, mw = _infer_mime(p, data)
       warnings.extend(mw)
+      if not _is_supported_mime(mime) or mime == "application/octet-stream":
+        warnings.append(
+          f"unsupported attachment type for {p} (mime={mime}); "
+          "skipping (export to PDF/image/text if needed)"
+        )
+        continue
       parts.append(types.Part(inline_data=types.Blob(data=data, mime_type=mime)))
 
   text = (prompt or "").strip() or (

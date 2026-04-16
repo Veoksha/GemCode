@@ -130,7 +130,9 @@ Use:
 
 GemCode can prompt in-run for sensitive operations instead of assuming blanket approval.
 
-Attachment access gate: when you provide attachments in interactive mode, GemCode may prompt (y/n) before it reads/uploads the attached file(s) from disk. If you answer `n`, GemCode proceeds text-only for that turn. Approval is remembered for the session.
+Attachment access gate: when you provide attachments in an interactive TTY session, GemCode prompts (y/n) before it reads/uploads the attached file(s) from disk. If you answer `n`, GemCode proceeds text-only for that turn. Approval is remembered for the session.
+
+You can disable this prompt with `GEMCODE_ATTACHMENTS_ASK=0`.
 
 ### Settings-based allow/deny
 Config files:
