@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="docs/assets/gemcode-banner.png" alt="GemCode banner" />
-</p>
+![GemCode banner](docs/assets/gemcode-banner.png)
 
 ![PyPI](https://img.shields.io/pypi/v/gemcode?label=PyPI&style=flat)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
