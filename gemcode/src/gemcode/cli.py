@@ -849,18 +849,19 @@ def main() -> None:
         if isinstance(e, APIError) and (getattr(e, "status_code", None) == 1000 or "1000" in str(e)):
           print("\n[gemcode live-audio] Session ended.", file=sys.stderr)
           raise SystemExit(0)
-        if isinstance(e, APIError) and getattr(e, "status_code", None) == 1011:
-          print(
-            "\n[gemcode live-audio] Gemini Live internal error (1011).\n"
-            "This is usually transient. Try again, or try:\n"
-            "  - set a different live model:  gemcode live-audio --model <id>\n"
-            "  - disable playback:           gemcode live-audio --no-playback\n"
-            "  - shorten the session:        gemcode live-audio --seconds 10\n",
-            file=sys.stderr,
-          )
-          raise SystemExit(2)
       except Exception:
         pass
+      # Gemini Live "1011 Internal error" can surface through different wrappers.
+      if "1011" in str(e) or "received 1011" in str(e) or "Internal error encountered" in str(e):
+        print(
+          "\n[gemcode live-audio] Gemini Live internal error (1011).\n"
+          "This is usually transient. Try again, or try:\n"
+          "  - set a different live model:  gemcode live-audio --model <id>\n"
+          "  - disable playback:           gemcode live-audio --no-playback\n"
+          "  - shorten the session:        gemcode live-audio --seconds 10\n",
+          file=sys.stderr,
+        )
+        raise SystemExit(2)
       # websockets can also surface a close directly.
       if "ConnectionClosedOK" in repr(e) or "sent 1000 (OK)" in str(e):
         print("\n[gemcode live-audio] Session ended.", file=sys.stderr)
