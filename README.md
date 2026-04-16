@@ -62,7 +62,7 @@ That means GemCode is not just a single prompt wrapper. It is a runtime that com
 
 1. Install:
 ```bash
-python3 -m pip install -U gemcode
+pip install gemcode
 ```
 
 2. Set your Gemini API key:
@@ -256,10 +256,6 @@ The root README is the landing page. The deeper documentation lives here:
 |---|---|
 | `gemcode/` | Python package, CLI, runtime, tests, packaging |
 | `docs/` | Production documentation set |
-| `veomem/` | Optional memory subsystem used by some GemCode flows |
-| `gemcode-vscode/` | Editor integration code in full repository snapshots |
-| `gemcode-web-api/` | Web/server wiring in full repository snapshots |
-| `gemcode-web-ui/` | Web UI assets in full repository snapshots |
 
 ## Source install for contributors
 

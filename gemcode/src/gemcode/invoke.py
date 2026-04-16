@@ -175,10 +175,26 @@ async def run_turn(
       if attachment_paths:
         from gemcode.multimodal_input import build_user_content
 
+        # Optional HITL gate for local attachment reads/upload materialization.
+        # This is separate from workspace trust: the OS may still require
+        # user-granted "Files and Folders" permissions on first access.
+        # If approved once, we don't re-prompt for the rest of this session.
+        attach_allow = True
+        if cfg is not None:
+          attach_allow = bool(getattr(cfg, "interactive_permission_ask", False))
+          attach_allow = attach_allow and hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
+          if attach_allow and not bool(getattr(cfg, "_attachments_allowed", False)):
+            attach_allow = _prompt_yes_no(
+              "Allow GemCode to read and upload the attached file(s) from disk? (y/n) "
+            )
+            if attach_allow:
+              object.__setattr__(cfg, "_attachments_allowed", True)
+        effective_attachments = attachment_paths if attach_allow else None
+
         root = cfg.project_root if cfg is not None else Path.cwd()
         current_message, attach_warn = build_user_content(
             prompt,
-            attachment_paths,
+            effective_attachments,
             project_root=root,
         )
         for w in attach_warn:
