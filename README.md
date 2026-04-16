@@ -1,5 +1,9 @@
 # GemCode
 
+![PyPI](https://img.shields.io/pypi/v/gemcode?label=PyPI&style=flat)
+![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)
+
 GemCode is a local-first coding agent for real repositories, built on Google Gemini and the Google Agent Development Kit (ADK). It runs against your project directory, orchestrates tool calls, and keeps project-local state under `.gemcode/` so sessions, skills, logs, and runtime artifacts stay tied to the codebase you are actually working on.
 
 It is built for repository-native work rather than copy-paste chat: reading files, editing code, searching symbols, running controlled shell commands, loading reusable skills, and operating with explicit trust and permission controls.
@@ -54,35 +58,28 @@ That means GemCode is not just a single prompt wrapper. It is a runtime that com
 
 ## Installation
 
-### Install from PyPI
+### 60-second quickstart
 
+1. Install:
 ```bash
 python3 -m pip install -U gemcode
 ```
 
-### Set your Gemini API key
-
+2. Set your Gemini API key:
 ```bash
 export GOOGLE_API_KEY="your-key"
 ```
 
-You can also use:
+GemCode reads `GOOGLE_API_KEY` from your environment (or a `.env` file). No separate `login` step is required—on the first run it may prompt for workspace trust and confirmation for mutating actions.
 
-```bash
-gemcode login
-```
-
-### First run
-
+3. Run (choose a project root):
 ```bash
 gemcode -C /path/to/project
 ```
 
-Using `-C` is important because it defines:
-
-- which project GemCode is operating on
+Why `-C` matters:
 - where `.gemcode/` state is stored
-- which local instructions and skills are active
+- which local instructions/skills are active
 - what trust scope and permission boundary apply
 
 ## Quick examples
@@ -121,6 +118,23 @@ gemcode kaira -C .
 
 ```bash
 gemcode ide --stdio
+```
+
+## Try these REPL commands
+
+Once you start `gemcode -C /path/to/project`, use slash commands for the high-signal operations:
+
+```text
+/help
+/status
+/cost
+/context
+/attach ./file.pdf
+/skills
+/create gemskill
+/audit
+/diff
+/rewind
 ```
 
 ## Execution modes
@@ -276,9 +290,15 @@ Contributions are welcome, especially for:
 
 For source changes, run the relevant tests from `gemcode/`.
 
-## Security
+## Security & auditability
 
-If you find a security issue, open a GitHub issue with clear reproduction details or follow the repository security process if one is added later.
+GemCode is built around explicit workspace trust and permission controls for filesystem/shell/git tool access.
+
+Runtime activity is recorded for inspection:
+- `.gemcode/audit.log`
+- REPL command `/audit`
+
+For the full model (tool allowlists, permissions, and failure modes), see [`docs/tools-and-permissions.md`](docs/tools-and-permissions.md).
 
 ## License
 
