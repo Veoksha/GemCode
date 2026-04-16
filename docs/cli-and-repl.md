@@ -91,6 +91,68 @@ The canonical command registry is in `repl_commands.SLASH_COMMANDS`.
 
 Completion behavior differs slightly by shell/TUI layer, but the source of truth is shared.
 
+## Slash command reference
+
+The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
+
+| Command | Purpose |
+|---|---|
+| `/add-dir` | Extra read/search roots · `/add_dir` works too |
+| `/append` | Iterate a file · `/append gemskill <name> <request>` |
+| `/audit` | Tail `audit.log` · `/logs` same |
+| `/autotune` | Branch + eval ledger · `/autotune init <tag>` · `/autotune eval` |
+| `/batch` | Built-in batch GemSkill (large parallel changes) |
+| `/caveman` | Terse output mode · `/caveman` lite, full, ultra, wenyan, off |
+| `/caveman:compress` | Compress memory file · `/caveman:compress <path> [lite|full|ultra]` |
+| `/budget` | Per-turn token budget · `/token-budget` same |
+| `/caps` | Capabilities · `/capabilities` / `/capability` same |
+| `/clear` | Fresh session · same as `/session new` |
+| `/code` | Toggle ADK BuiltInCodeExecutor (sandboxed Python) |
+| `/compact` | Context compaction / summarization |
+| `/computer` | Browser automation · `/browser` same |
+| `/config` | Dump active configuration |
+| `/context` | Context pressure + token breakdown |
+| `/cost` | Session token usage + estimated cost |
+| `/create` | New GemSkill file · `/create gemskill <name> [description]` |
+| `/gemskill` | Load skill into session prompt · `/gemskill <name>` · list · clear |
+| `/curated` | Curated memory snapshot · `/memory-files` / `/memoryfiles` same |
+| `/diff` | Git diff or checkpoint diff |
+| `/doctor` | Environment sanity check |
+| `/embeddings` | Semantic file search · `/embed` same |
+| `/eval` | Eval gates (tools + pytest) · `/eval llm` optional |
+| `/exit` | Leave the REPL · `/quit` same |
+| `/help` | Short help · `/?` same |
+| `/hooks` | Post-turn hook configuration |
+| `/attach` | Queue file(s) for next message (PDF, images, …) · `/image` / `/file` / `/img` · list · clear |
+| `/init` | Generate `GEMINI.md` project instructions |
+| `/file` | Alias of `/attach` |
+| `/image` | Alias of `/attach` (same queue) |
+| `/img` | Alias of `/attach` |
+| `/kaira` | Background job scheduler help · how to run `gemcode kaira` |
+| `/limits` | Execution limits (calls, context, …) |
+| `/live-audio` | How to run `gemcode live-audio` · `/liveaudio` same |
+| `/login` | How to run `gemcode login` (API key) |
+| `/maps` | Maps grounding · `/maps` on/off · `/map` same |
+| `/memory` | Persistent memory · `/memory` on/off |
+| `/mode` | Model mode: fast, balanced, quality, auto |
+| `/model` | Model info / override · `/models` same |
+| `/notes` | `.gemcode/notes.md` · `/notes clear` · `/notes edit` |
+| `/permissions` | Permission + HITL · `/perm` / `/permission` same |
+| `/plan` | Plan-before-act mode |
+| `/research` | Deep research tools · `/research` on/off |
+| `/review` | Parallel code review |
+| `/rewind` | Checkpoints · `/checkpoint` same |
+| `/rules` | Rule files from `.gemcode/rules/` |
+| `/session` | Session id / list / resume / new |
+| `/skill` | Load or show a GemSkill |
+| `/skills` | List GemSkills |
+| `/status` | Model, capabilities, thinking, limits |
+| `/style` | Output styles · `/style <name>` or off |
+| `/thinking` | Thinking verbose/brief/off, budget, level |
+| `/tools` | Tool inventory · `/tools smoke` |
+| `/trust` | Workspace trust · `/trust` on/off |
+| `/version` | GemCode version |
+
 ## Attachments
 
 ### One-shot CLI attachments
