@@ -1,12 +1,19 @@
 # GemCode
 
-GemCode is a local-first coding agent for real repositories. It runs against your project directory, uses Gemini + ADK to orchestrate tool calls, and keeps project-local state under `.gemcode/` so sessions, skills, logs, and runtime artifacts stay tied to the codebase you are actually working on.
+GemCode is a local-first coding agent for real repositories, built on Google Gemini and the Google Agent Development Kit (ADK). It runs against your project directory, orchestrates tool calls, and keeps project-local state under `.gemcode/` so sessions, skills, logs, and runtime artifacts stay tied to the codebase you are actually working on.
 
 It is built for repository-native work rather than copy-paste chat: reading files, editing code, searching symbols, running controlled shell commands, loading reusable skills, and operating with explicit trust and permission controls.
 
-## Why GemCode
+GemCode is an agentic coding tool that lives in your terminal. It understands your codebase, helps you code faster by executing routine repo tasks, explaining complex code in context, and inspecting changes via diffs and checkpoints, all behind explicit trust and permission gates.
 
-Most coding assistants are optimized for chat-first workflows. GemCode is optimized for codebase-first workflows:
+- Operates from a chosen project root (`-C`) with persistent state under `.gemcode/`
+- Supports inspection-first iteration (`/diff`, checkpoints, and audit logs)
+- Offers reusable workflows via GemSkills
+- Works across multiple entry points: CLI/REPL/TUI, IDE stdio bridge, Kaira, and live audio
+
+## Built for repo-first work
+
+Unlike chat-first tools, GemCode is optimized for codebase-first workflows:
 
 - it operates against a chosen project root
 - it keeps inspectable local state
@@ -177,6 +184,18 @@ GemCode can load project-local instructions, rules, styles, hooks, skills, MCP c
 ### Optional capability layers
 
 Depending on configuration, GemCode can also expose deep research, embeddings, memory-backed retrieval, browser/computer-use flows, and live audio support.
+
+## Power features (high impact)
+
+GemCode is not just “chat on code”. These are the things power users typically reach for repeatedly:
+
+- **Inspection & recovery**: checkpoints and rewinds (`/diff`, `/rewind`), plus an audit trail (`/audit` and `.gemcode/audit.log`)
+- **Cost/context telemetry**: `/cost`, `/status`, `/context`, plus compression/limits controls like `/compact`, `/budget`, `/limits`
+- **Multimodal attachments**: CLI `--attach` / `--image` for the current one-shot turn; REPL `/attach` with aliases like `/image` / `/file`
+- **GemSkills as reusable workflows**: `/skills`, `/gemskill`, `/append`, and `/create gemskill` (wizard-driven)
+- **Evaluation & autotune gates**: `gemcode eval -C .`, `gemcode autotune init --tag name -C .`, `gemcode autotune eval -C .` (and REPL `/eval` / `/autotune`)
+- **Integrations & tool surfaces**: MCP via `.gemcode/mcp.json`, OpenAPI specs under `.gemcode/openapi/`, IDE stdio bridge, and web/SSE compatibility
+- **Capability flags**: enable deep research with `--deep-research`, embeddings with `--embeddings`, and optional computer-use with `GEMCODE_ENABLE_COMPUTER_USE`
 
 ## Typical workflow
 
