@@ -618,9 +618,6 @@ async def process_repl_slash(
 
   # ── /add-dir (safe multi-root access) ──────────────────────────────────────
   if name in ("add-dir", "add_dir", "adddir"):
-    import os
-    from pathlib import Path
-
     args = (sc.args or "").strip()
     added: dict[str, Path] = getattr(cfg, "_added_dirs", None) or {}
     setattr(cfg, "_added_dirs", added)
