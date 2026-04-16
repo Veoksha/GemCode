@@ -96,6 +96,10 @@ Completion behavior differs slightly by shell/TUI layer, but the source of truth
 ### One-shot CLI attachments
 Use `--attach` or `--image` for the current message only.
 
+In interactive runs (TTY), GemCode may prompt once per session:
+`Allow GemCode to read and upload the attached file(s) from disk? (y/n)`
+If you answer `n`, GemCode will proceed text-only for that turn.
+
 ### REPL attachments
 Use:
 
