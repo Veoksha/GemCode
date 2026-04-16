@@ -822,7 +822,13 @@ def main() -> None:
             )
           )
         captured = buf.getvalue()
-        if captured and "An unexpected error occurred in live flow: 1000" not in captured:
+        noisy = (
+          "An unexpected error occurred in live flow: 1000" in captured
+          or "APIError: 1000" in captured
+          or "APIError: 1011" in captured
+          or "An unexpected error occurred in live flow: 1011" in captured
+        )
+        if captured and not noisy:
           # Re-emit unexpected stderr.
           print(captured, file=sys.stderr, end="")
       else:
@@ -843,6 +849,16 @@ def main() -> None:
         if isinstance(e, APIError) and (getattr(e, "status_code", None) == 1000 or "1000" in str(e)):
           print("\n[gemcode live-audio] Session ended.", file=sys.stderr)
           raise SystemExit(0)
+        if isinstance(e, APIError) and getattr(e, "status_code", None) == 1011:
+          print(
+            "\n[gemcode live-audio] Gemini Live internal error (1011).\n"
+            "This is usually transient. Try again, or try:\n"
+            "  - set a different live model:  gemcode live-audio --model <id>\n"
+            "  - disable playback:           gemcode live-audio --no-playback\n"
+            "  - shorten the session:        gemcode live-audio --seconds 10\n",
+            file=sys.stderr,
+          )
+          raise SystemExit(2)
       except Exception:
         pass
       # websockets can also surface a close directly.
