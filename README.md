@@ -15,6 +15,19 @@ GemCode is an agentic coding tool that lives in your terminal. It understands yo
 - Offers reusable workflows via GemSkills
 - Works across multiple entry points: CLI/REPL/TUI, IDE stdio bridge, Kaira, and live audio
 
+## Website
+
+Live preview: [gemcode.veoksha.com](https://gemcode.veoksha.com)
+
+<a href="https://gemcode.veoksha.com">
+  <img
+    src="https://gemcode.veoksha.com/favicon.ico"
+    width="24"
+    height="24"
+    alt="GemCode website preview icon"
+  />
+</a>
+
 ## Built for repo-first work
 
 Unlike chat-first tools, GemCode is optimized for codebase-first workflows:
