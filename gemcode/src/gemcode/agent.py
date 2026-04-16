@@ -303,6 +303,20 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
   except Exception:
     curated_section = ""
 
+  # ── VeoMem recall (optional) ─────────────────────────────────────────────
+  veomem_section = ""
+  try:
+    t = getattr(cfg, "_veomem_wakeup_text", None)
+    if isinstance(t, str) and t.strip():
+      veomem_section = (
+        "\n\n## VeoMem recall (auto-captured, progressive)\n"
+        "This section is automatically generated from prior tool usage and summaries. "
+        "Treat it as helpful context; do not restate it verbatim to the user.\n"
+        f"{t.strip()}\n"
+      )
+  except Exception:
+    veomem_section = ""
+
   return f"""## Runtime facts (authoritative for this session)
 - **Today's date:** {today}
 - **Project root** — every filesystem tool path is relative to: `{root}`
@@ -317,6 +331,7 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
 - **UI banner** phrases like "GemCode Pro" are terminal marketing, not a separate API tier.
 - **Env toggles** (`GEMCODE_ENABLE_COMPUTER_USE`, `GEMCODE_MODEL`, etc.) affect only the OS process that launched gemcode. Pasting `VAR=1` in chat does NOT reconfigure a running session—tell the user to export in their shell, use project `.env`, or restart the CLI.
 - **Working in subfolders** — call `list_directory(\"Desktop\")`, `glob_files(\"**/query.ts\")`, `read_file(\"testing/ai-edtech-app/src/app/page.tsx\")` directly. Never claim access is blocked unless a tool returned an explicit error.{git_section}{curated_section}"""
+ - **Working in subfolders** — call `list_directory(\"Desktop\")`, `glob_files(\"**/query.ts\")`, `read_file(\"testing/ai-edtech-app/src/app/page.tsx\")` directly. Never claim access is blocked unless a tool returned an explicit error.{git_section}{curated_section}{veomem_section}"""
 
 
 def _build_memory_section(cfg: GemCodeConfig) -> str:

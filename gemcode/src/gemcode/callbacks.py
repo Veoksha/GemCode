@@ -525,6 +525,26 @@ def make_after_tool_callback(cfg: GemCodeConfig):
     except Exception:
       pass
 
+    # ── VeoMem (optional): auto-capture tool usage ────────────────────────
+    try:
+      from gemcode.veomem_bridge import record_tool_use
+      sid = None
+      try:
+        if tool_context is not None and getattr(tool_context, "session", None) is not None:
+          sid = getattr(tool_context.session, "id", None)
+      except Exception:
+        sid = None
+      record_tool_use(
+        cfg.project_root,
+        session_id=str(sid) if sid else None,
+        tool_name=name,
+        args=args or {},
+        result=tool_response if isinstance(tool_response, dict) else {},
+        paths=(st.get(_RISK_FILES_TOUCHED, []) or []) if isinstance(st, dict) else None,
+      )
+    except Exception:
+      pass
+
     if _maybe_tool_summary_enabled():
       summary: dict[str, Any] = {
         "phase": "tool_result",

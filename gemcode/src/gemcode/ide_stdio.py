@@ -322,7 +322,13 @@ async def run_stdio_loop() -> int:
           continue
       out_text = "".join(txt_parts).strip()
       if out_text:
-        emitter.send(make_event(event="text", id=req_id, text=out_text))
+        # Pseudo-streaming: emit deltas so IDE chat can feel alive even though
+        # we only have the final assistant text today.
+        emitter.send(make_event(event="text_start", id=req_id))
+        chunk_size = 450
+        for i in range(0, len(out_text), chunk_size):
+          emitter.send(make_event(event="text_delta", id=req_id, text=out_text[i : i + chunk_size]))
+        emitter.send(make_event(event="text_end", id=req_id))
       emitter.send(make_response(id=req_id, ok=True, session=session_id))
 
   finally:

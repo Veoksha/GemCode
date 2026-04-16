@@ -368,6 +368,21 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
   except Exception:
     pass
 
+  # VeoMem wake-up snapshot (optional): load once per session and keep stable.
+  try:
+    import os
+    if os.environ.get("GEMCODE_VEOMEM", "").strip().lower() in ("1", "true", "yes", "on"):
+      from veomem.wakeup import build_wake_up_context  # type: ignore[import-not-found]
+      # Ensure store exists; build_wake_up_context can work even if empty.
+      from veomem.store import init_store  # type: ignore[import-not-found]
+
+      init_store(cfg.project_root)
+      snap2 = build_wake_up_context(cfg.project_root, max_chars=5000, limit=30)
+      txt = (snap2.get("text") if isinstance(snap2, dict) else "") or ""
+      object.__setattr__(cfg, "_veomem_wakeup_text", txt.strip() if isinstance(txt, str) else "")
+  except Exception:
+    pass
+
   # ── MCP toolsets from .gemcode/mcp.json ─────────────────────────────────
   # Supports stdio, http (Streamable HTTP), and sse connection types.
   try:

@@ -3,6 +3,10 @@
 .env
 .gemcode/
 *.sqlite
+veomem/.venv/
+veomem/**/__pycache__/
+veomem/**/*.pyc
+**/*.egg-info/
 
 # Python build artifacts
 **/__pycache__/
@@ -12,6 +16,8 @@ gemcode/build/
 gemcode/*.egg-info/
 
 # Web artifacts (keep repo lean)
+gemcode-vscode/node_modules/
+gemcode-vscode/*.vsix
 gemcode-web-ui/node_modules/
 gemcode-web-ui/.next/
 gemcode-web-ui/out/

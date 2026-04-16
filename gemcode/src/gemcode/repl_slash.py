@@ -8,8 +8,10 @@ Returns ``None`` when the line is not a slash command; otherwise a
 from __future__ import annotations
 
 import os
+import shlex
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from gemcode.config import GemCodeConfig
@@ -98,11 +100,26 @@ async def process_repl_slash(
       out("  /attach clear    Clear the queue")
       out("Aliases: /file, /image, /img — same queue.")
       out("Types: Gemini-supported MIME (e.g. images, PDF, audio, video, text). Default max ~20 MiB each.")
+      out("Inline prompt: /image <path> <prompt...>  (or use `--` before the prompt)")
       out("CLI:  gemcode -C . --attach ./doc.pdf \"Summarize this\"")
       out()
       return ReplSlashResult(skip_model_turn=True)
-    low_i = raw_i.lower()
-    if low_i == "list":
+
+    # Parse args as:
+    # - list|clear (no further args)
+    # - <path> [--] <optional prompt...>
+    #
+    # We support quoted paths and best-effort unquoted paths with spaces by
+    # scanning for the longest prefix that resolves to an existing file.
+    try:
+      tokens = shlex.split(raw_i, posix=True)
+    except ValueError:
+      tokens = raw_i.split()
+
+    if not tokens:
+      return ReplSlashResult(skip_model_turn=True)
+
+    if len(tokens) == 1 and tokens[0].strip().lower() == "list":
       pend = cfg.pending_attachment_paths
       if not pend:
         out("(no attachments queued)")
@@ -112,15 +129,43 @@ async def process_repl_slash(
           out(f"  {i}. {p}")
       out()
       return ReplSlashResult(skip_model_turn=True)
-    if low_i == "clear":
+    if len(tokens) == 1 and tokens[0].strip().lower() == "clear":
       cfg.pending_attachment_paths.clear()
       out("Attachment queue cleared.")
       out()
       return ReplSlashResult(skip_model_turn=True)
-    resolved = resolve_attachment_path(raw_i, project_root=cfg.project_root)
+
+    # Find the longest token prefix that resolves to a real file.
+    best_i: int | None = None
+    best_resolved: Path | None = None
+    for i in range(1, len(tokens) + 1):
+      cand = " ".join(tokens[:i]).strip()
+      if not cand:
+        continue
+      resolved_try = resolve_attachment_path(cand, project_root=cfg.project_root)
+      if resolved_try.is_file():
+        best_i = i
+        best_resolved = resolved_try
+
+    # Fallback: treat first token as the path (keeps old behavior).
+    if best_i is None or best_resolved is None:
+      path_raw = tokens[0]
+      resolved = resolve_attachment_path(path_raw, project_root=cfg.project_root)
+      remainder_tokens = tokens[1:]
+    else:
+      path_raw = " ".join(tokens[:best_i]).strip()
+      resolved = best_resolved
+      remainder_tokens = tokens[best_i:]
+
+    if remainder_tokens and remainder_tokens[0] == "--":
+      remainder_tokens = remainder_tokens[1:]
+    trailing_prompt = " ".join(remainder_tokens).strip()
+
     if not resolved.is_file():
-      out(f"Not a file: {raw_i}")
+      out(f"Not a file: {path_raw}")
       out("(Resolved relative to cwd, then project root.)")
+      if trailing_prompt:
+        out("Tip: quote paths with spaces, e.g. /image \"./My File.png\" analyze this")
       out()
       return ReplSlashResult(skip_model_turn=True)
     if len(cfg.pending_attachment_paths) >= 16:
@@ -128,6 +173,11 @@ async def process_repl_slash(
       out()
       return ReplSlashResult(skip_model_turn=True)
     cfg.pending_attachment_paths.append(resolved)
+    if trailing_prompt:
+      out(f"Queued: {resolved} (attaching now)")
+      out()
+      return ReplSlashResult(model_prompt=trailing_prompt)
+
     out(f"Queued: {resolved}")
     out(f"  ({len(cfg.pending_attachment_paths)} file(s) — send your next message to attach)")
     out()

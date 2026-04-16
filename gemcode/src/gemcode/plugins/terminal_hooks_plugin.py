@@ -189,5 +189,36 @@ class GemCodeTerminalHooksPlugin(BasePlugin):
         {"phase": "post_turn_hook", "ok": False, "error": str(e)},
       )
 
+    # ── VeoMem (optional): store final assistant summary ───────────────────
+    try:
+      # Best-effort: extract last assistant text from session events.
+      txt = ""
+      try:
+        events = callback_context.session.events or []
+        for ev in reversed(events):
+          if getattr(ev, "author", None) == getattr(agent, "name", "gemcode"):
+            content = getattr(ev, "content", None)
+            parts = getattr(content, "parts", None) if content is not None else None
+            if parts:
+              out_parts = []
+              for p in parts:
+                t = getattr(p, "text", None)
+                if t:
+                  out_parts.append(t)
+              if out_parts:
+                txt = "".join(out_parts).strip()
+                break
+      except Exception:
+        txt = ""
+      if txt:
+        from gemcode.veomem_bridge import record_turn_summary
+        record_turn_summary(
+          self.cfg.project_root,
+          session_id=str(callback_context.session.id),
+          text=txt,
+        )
+    except Exception:
+      pass
+
     return None
 
