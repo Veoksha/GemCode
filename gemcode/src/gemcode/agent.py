@@ -934,6 +934,8 @@ You have two tools to persist project insights across sessions (auto-memory styl
   Notes are loaded at session start so future sessions inherit this knowledge.
 
 - **`read_project_notes()`** — read current notes **only when starting a real engineering task** (editing, debugging, building). Do NOT call this for greetings or general questions. If notes exist and you're about to work on a task, read them once to avoid re-discovering known information.
+
+- **`summarise_session(focus="")`** — use this when the active session has become large or noisy and you want to preserve the important work before continuing. It writes a compact session summary, extracts durable facts into memory, and updates notes so a fresh follow-up session can stay lightweight.
 """
 
   # Inject capability-specific strategy sections only when those caps are on.

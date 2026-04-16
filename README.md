@@ -1,4 +1,13 @@
-# GemCode
+<div align="center">
+<pre>
+  ██████╗ ███████╗███╗   ███╗   ██████╗ ██████╗ ██████╗ ███████╗
+ ██╔════╝ ██╔════╝████╗ ████║  ██╔════╝██╔═══██╗██╔══██╗██╔════╝
+ ██║  ███╗█████╗  ██╔████╔██║  ██║     ██║   ██║██║  ██║█████╗
+ ██║   ██║██╔══╝  ██║╚██╔╝██║  ██║     ██║   ██║██║  ██║██╔══╝
+ ╚██████╔╝███████╗██║ ╚═╝ ██║  ╚██████╗╚██████╔╝██████╔╝███████╗
+  ╚═════╝ ╚══════╝╚═╝     ╚═╝   ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝
+</pre>
+</div>
 
 ![PyPI](https://img.shields.io/pypi/v/gemcode?label=PyPI&style=flat)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
@@ -21,10 +30,8 @@ Live preview: [gemcode.veoksha.com](https://gemcode.veoksha.com)
 
 <a href="https://gemcode.veoksha.com">
   <img
-    src="https://gemcode.veoksha.com/favicon.ico"
-    width="24"
-    height="24"
-    alt="GemCode website preview icon"
+    src="docs/assets/gemcode-website-preview.png"
+    alt="GemCode website preview"
   />
 </a>
 

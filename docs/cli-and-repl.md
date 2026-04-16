@@ -109,6 +109,7 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/clear` | Fresh session · same as `/session new` |
 | `/code` | Toggle ADK BuiltInCodeExecutor (sandboxed Python) |
 | `/compact` | Context compaction / summarization |
+| `/summarise` | Persist a durable session summary + key facts, then start a fresh session |
 | `/computer` | Browser automation · `/browser` same |
 | `/config` | Dump active configuration |
 | `/context` | Context pressure + token breakdown |
@@ -201,6 +202,7 @@ Useful REPL commands:
 - `/status`
 - `/context`
 - `/compact`
+- `/summarise`
 - `/budget`
 - `/limits`
 

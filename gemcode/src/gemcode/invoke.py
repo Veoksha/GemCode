@@ -74,6 +74,10 @@ async def run_turn(
   # This is intentionally heuristic but configurable via env knobs.
   if cfg is not None:
     try:
+      object.__setattr__(cfg, "_active_session_id", session_id)
+    except Exception:
+      pass
+    try:
       import re
       p = (prompt or "")[:20_000]
       risk = 0.0

@@ -36,6 +36,7 @@ from gemcode.slash_commands import parse_slash_command
 from gemcode.skills import discover_skill_metas, expand_skill_text, list_supporting_files, load_skill
 from gemcode.output_styles import discover_output_styles, load_output_style
 from gemcode.rules import load_rules as _load_rules
+from gemcode.session_summariser import summarise_session
 from gemcode.trust import is_trusted_root, trust_json_path, trust_root
 
 
@@ -1554,6 +1555,52 @@ async def process_repl_slash(
     return ReplSlashResult(
         skip_model_turn=False,
         model_prompt=compact_prompt,
+    )
+
+  if name in ("summarise", "summarize"):
+    focus = (sc.args or "").strip()
+    out("Summarising current session into durable memory…")
+    if focus:
+      out(f"Focus: {focus}")
+    out()
+    try:
+      model = (
+        getattr(cfg, "adk_compaction_summarizer_model", None)
+        or getattr(cfg, "model", "")
+        or "gemini-2.5-flash"
+      )
+      result = summarise_session(
+        cfg.project_root,
+        session_id=session_id,
+        model=model,
+        focus=focus,
+      )
+    except Exception as e:
+      out(f"[gemcode] session summarise failed: {e}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if result.get("error"):
+      out(f"[gemcode] {result['error']}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    out(f"Saved summary: {result.get('summary_path')}")
+    mem_saved = len(result.get("memory_facts_saved") or [])
+    user_saved = len(result.get("user_facts_saved") or [])
+    open_items = len(result.get("open_items") or [])
+    out(f"Curated memory saved: project={mem_saved}, user={user_saved}, open_items={open_items}")
+    if result.get("notes_status"):
+      out(f"Notes: {result.get('notes_status')}")
+    out("Starting a fresh session so the next turn stays lightweight.")
+    out()
+    _clear_session_loaded_skills(cfg)
+    cfg.pending_attachment_paths.clear()
+    new_id = str(uuid.uuid4())
+    return ReplSlashResult(
+        skip_model_turn=True,
+        new_session_id=new_id,
+        force_rebuild_runner=True,
     )
 
   if name in ("exit", "quit"):

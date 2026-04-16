@@ -21,6 +21,7 @@ from gemcode.tools.curated_memory import make_curated_memory_tools
 from gemcode.tools.compress_memory import make_compress_memory_tool
 from gemcode.tools.skills import make_skill_tools
 from gemcode.tools.veomem_tools import make_veomem_tools
+from gemcode.session_summariser import summarise_session
 
 
 def _get_load_memory_tool():
@@ -92,6 +93,30 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
   compress_memory_file = make_compress_memory_tool(cfg)
   list_skills, load_skill, skills_manifest = make_skill_tools(cfg)
 
+  def summarise_session_tool(focus: str = "") -> dict:
+    """
+    Summarise the current session into compact reusable memory.
+
+    Use this when the working session has grown large and you want GemCode to
+    extract key points into durable notes + curated memory before continuing.
+    """
+    session_id = str(getattr(cfg, "_active_session_id", "") or "").strip()
+    if not session_id:
+      return {"error": "no active session id is available"}
+    model = (
+      getattr(cfg, "adk_compaction_summarizer_model", None)
+      or getattr(cfg, "model", "")
+      or "gemini-2.5-flash"
+    )
+    return summarise_session(
+      cfg.project_root,
+      session_id=session_id,
+      model=model,
+      focus=focus,
+    )
+
+  summarise_session_tool.__name__ = "summarise_session"
+
   def checkpoints_list(limit: int = 20) -> dict:
     """List recent checkpoints created by mutating tools."""
     return {"checkpoints": _list_checkpoints(cfg.project_root, limit=limit)}
@@ -154,6 +179,7 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
     read_curated_memory,
     # Optional: compress memory files (markdown only; safe guards apply)
     compress_memory_file,
+    summarise_session_tool,
     # Optional: VeoMem recall tools (3-step search/timeline/fetch).
     # Enabled via GEMCODE_VEOMEM=1.
     # GemSkills (on-demand playbooks)
