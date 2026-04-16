@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/gemcode-banner-blue.svg" alt="GemCode banner" />
+  <img src="docs/assets/gemcode-banner.png" alt="GemCode banner" />
 </p>
 
 ![PyPI](https://img.shields.io/pypi/v/gemcode?label=PyPI&style=flat)
