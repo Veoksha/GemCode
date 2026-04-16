@@ -1,27 +1,237 @@
 # GemCode
 
-Local-first coding agent for real repositories: read, edit, search, and run allowlisted commands with explicit permissions and inspectable history.
+GemCode is a local-first coding agent for real repositories. It runs against your project directory, uses Gemini + ADK to orchestrate tool calls, and keeps project-local state under `.gemcode/` so sessions, skills, logs, and runtime artifacts stay tied to the codebase you are actually working on.
 
-## What it is
-GemCode is a single Python package that exposes a `gemcode` CLI. Every run is anchored to a **project root** (`-C`) and uses Gemini + ADK to orchestrate tool calls while keeping a trace of what happened under `.gemcode/`.
+It is built for repository-native work rather than copy-paste chat: reading files, editing code, searching symbols, running controlled shell commands, loading reusable skills, and operating with explicit trust and permission controls.
 
-## Key features
-- **Repository-native workflow**: file reads/edits, search, and structured tool usage against your codebase
-- **Explicit safety model**: workspace trust + permission gating + optional interactive approvals
-- **Persistent sessions**: SQLite-backed conversation history per session id
-- **GemSkills**: reusable markdown playbooks (`.gemcode/skills/<name>/SKILL.md`) for repeatable workflows
-- **Token/context controls**: budgets, compaction, and tool-result offloading
-- **Multiple execution modes**:
-  - One-shot CLI
-  - REPL / scrollback TUI
-  - IDE stdio bridge (`gemcode ide --stdio`)
-  - Background queue via **Kaira**
-  - Live audio mode
-- **Integrations**: MCP and OpenAPI tool loading, plus optional browser/computer-use and deep-research capabilities
+## Why GemCode
 
-## Quickstart
+Most coding assistants are optimized for chat-first workflows. GemCode is optimized for codebase-first workflows:
 
-### 1) Install (editable)
+- it operates against a chosen project root
+- it keeps inspectable local state
+- it supports persistent sessions
+- it exposes structured tools instead of relying only on raw text
+- it can be extended with project-local instructions, rules, styles, hooks, and GemSkills
+- it supports both interactive and automation-oriented entry points
+
+## What GemCode provides
+
+- **Repository-aware execution**: read, search, edit, diff, and run shell commands against real files
+- **Local project state**: `.gemcode/` stores sessions, logs, artifacts, skills, rules, styles, eval outputs, and integration config
+- **Safety controls**: workspace trust, permission modes, interactive approvals, and command gating
+- **GemSkills**: reusable markdown playbooks stored under `.gemcode/skills/<name>/SKILL.md`
+- **Context and token controls**: budgeting, context telemetry, tool-result offloading, and compaction-aware runtime behavior
+- **Multiple user interfaces**: one-shot CLI, REPL, TUI, IDE stdio bridge, Kaira scheduler, and live audio
+- **Integration surfaces**: MCP, OpenAPI, web-compatible contracts, optional browser/computer-use flows, and memory systems
+
+## Runtime model
+
+At a high level, a GemCode run looks like this:
+
+1. Build a `GemCodeConfig`
+2. Resolve the active project root
+3. Assemble the runtime runner and tool inventory
+4. Build the root agent instruction from config + local assets
+5. Execute turns against Gemini and tools
+6. Persist state under `.gemcode/`
+
+That means GemCode is not just a single prompt wrapper. It is a runtime that combines:
+
+- a configuration model
+- a session store
+- an agent instruction builder
+- a tool-loading pipeline
+- project-local extension assets
+- multiple execution frontends
+
+## Installation
+
+### Install from PyPI
+
+```bash
+python3 -m pip install -U gemcode
+```
+
+### Set your Gemini API key
+
+```bash
+export GOOGLE_API_KEY="your-key"
+```
+
+You can also use:
+
+```bash
+gemcode login
+```
+
+### First run
+
+```bash
+gemcode -C /path/to/project
+```
+
+Using `-C` is important because it defines:
+
+- which project GemCode is operating on
+- where `.gemcode/` state is stored
+- which local instructions and skills are active
+- what trust scope and permission boundary apply
+
+## Quick examples
+
+### Start the interactive REPL
+
+```bash
+gemcode -C /path/to/project
+```
+
+### Run a one-shot prompt
+
+```bash
+gemcode -C /path/to/project "Explain how authentication works in this repo"
+```
+
+### Allow a mutating run
+
+```bash
+gemcode -C /path/to/project --yes "Fix the failing tests and explain the change"
+```
+
+### Attach a file to a one-shot turn
+
+```bash
+gemcode -C . --attach ./report.pdf "Summarize this and list the key risks"
+```
+
+### Start the scheduler
+
+```bash
+gemcode kaira -C .
+```
+
+### Start the IDE bridge
+
+```bash
+gemcode ide --stdio
+```
+
+## Execution modes
+
+| Mode | Purpose |
+|---|---|
+| One-shot CLI | Single prompt/response tasks |
+| REPL | Stateful terminal interaction |
+| TUI | Scrollback terminal UI on top of the REPL runtime |
+| IDE stdio | Editor integration over stdin/stdout |
+| Kaira | Background job queue and scheduler |
+| Live audio | Microphone-driven Gemini Live sessions |
+
+## Key concepts
+
+### Project root
+
+Every GemCode run is anchored to a project root. This is one of the most important design decisions in the system because it controls visibility, state placement, trust boundaries, and which repo-local assets are loaded.
+
+### `.gemcode/`
+
+GemCode stores project-local runtime state under `.gemcode/`. Depending on what features you use, this can include:
+
+- sessions
+- logs
+- tool results
+- memory data
+- skills
+- rules
+- output styles
+- hooks
+- MCP and OpenAPI config
+- eval artifacts
+
+### GemSkills
+
+GemSkills are reusable playbooks stored as markdown assets. They let you codify repeatable workflows, domain-specific instructions, output formats, and evidence rules without hardcoding all of that logic into the base agent prompt.
+
+### Permissions and trust
+
+GemCode combines workspace trust, permission settings, allow/deny policies, and optional interactive confirmation for mutating operations. This helps keep repository access explicit instead of silently granting unrestricted tool execution.
+
+## Feature highlights
+
+### Repository-native tooling
+
+GemCode is designed to work on actual codebases, not just pasted snippets. It can inspect files, search the repo, edit source, manage checkpoints, and coordinate shell-driven workflows in the context of a chosen project root.
+
+### Persistent sessions
+
+Sessions are stored locally and can be resumed. This makes GemCode useful for longer-running implementation work rather than only stateless prompt/response usage.
+
+### Token and context management
+
+The runtime includes budget-aware behaviors such as context reporting, token/cost visibility, and tool-result offloading for large outputs. This matters for bigger repositories and longer sessions.
+
+### Extensible local assets
+
+GemCode can load project-local instructions, rules, styles, hooks, skills, MCP configs, and OpenAPI definitions. This makes it adaptable to different teams and repositories without turning the whole system into a hardcoded monolith.
+
+### Optional capability layers
+
+Depending on configuration, GemCode can also expose deep research, embeddings, memory-backed retrieval, browser/computer-use flows, and live audio support.
+
+## Typical workflow
+
+1. Install `gemcode`
+2. Set `GOOGLE_API_KEY`
+3. Start GemCode with `-C /path/to/project`
+4. Trust the workspace if prompted
+5. Ask questions, inspect architecture, or request changes
+6. Use REPL commands or GemSkills when you need more structured workflows
+7. Review diffs, costs, and context pressure as needed
+
+## Common commands
+
+```bash
+gemcode models
+gemcode -C .
+gemcode -C . "Explain this repository"
+gemcode -C . --attach ./diagram.png "Analyze this architecture diagram"
+gemcode kaira -C .
+gemcode live-audio -C .
+gemcode ide --stdio
+```
+
+## Documentation map
+
+The root README is the landing page. The deeper documentation lives here:
+
+- User manual and navigation: [`gemcode/README.md`](gemcode/README.md)
+- Docs index: [`docs/README.md`](docs/README.md)
+- Install and first run: [`docs/install.md`](docs/install.md)
+- CLI, REPL, TUI, and commands: [`docs/cli-and-repl.md`](docs/cli-and-repl.md)
+- Configuration and local assets: [`docs/configuration.md`](docs/configuration.md)
+- Tools and permissions: [`docs/tools-and-permissions.md`](docs/tools-and-permissions.md)
+- Capability bundles: [`docs/capabilities.md`](docs/capabilities.md)
+- Integrations: [`docs/integrations.md`](docs/integrations.md)
+- Architecture deep dive: [`docs/architecture.md`](docs/architecture.md)
+- Operations and troubleshooting: [`docs/operations.md`](docs/operations.md)
+- `.gemcode/` state reference: [`docs/reference-gemcode-state.md`](docs/reference-gemcode-state.md)
+- Web integration contract: [`docs/web-ui-contract.md`](docs/web-ui-contract.md)
+
+## Repository structure
+
+| Path | Purpose |
+|---|---|
+| `gemcode/` | Python package, CLI, runtime, tests, packaging |
+| `docs/` | Production documentation set |
+| `veomem/` | Optional memory subsystem used by some GemCode flows |
+| `gemcode-vscode/` | Editor integration code in full repository snapshots |
+| `gemcode-web-api/` | Web/server wiring in full repository snapshots |
+| `gemcode-web-ui/` | Web UI assets in full repository snapshots |
+
+## Source install for contributors
+
+If you want to develop GemCode itself rather than just use it:
+
 ```bash
 cd gemcode
 python3 -m venv .venv
@@ -29,59 +239,29 @@ source .venv/bin/activate
 python3 -m pip install -e ".[dev]"
 ```
 
-### 2) Set your Gemini API key
+Optional extras:
+
 ```bash
-export GOOGLE_API_KEY="your-key"
+python3 -m pip install -e ".[mcp]"
 ```
-
-### 3) Run against a project
-```bash
-gemcode -C /path/to/project
-```
-
-### One-shot example
-```bash
-gemcode -C /path/to/project "Explain how this repo is structured"
-```
-
-### Attach files (one-shot CLI)
-```bash
-gemcode -C . --attach ./report.pdf "Summarize this report"
-```
-
-## Documentation
-- User manual + navigation: [`gemcode/README.md`](gemcode/README.md)
-- Production docs index: [`docs/README.md`](docs/README.md)
-- Architecture deep dive: [`docs/architecture.md`](docs/architecture.md)
-- Configuration + local assets: [`docs/configuration.md`](docs/configuration.md)
-- Tools + permissions: [`docs/tools-and-permissions.md`](docs/tools-and-permissions.md)
-- Capabilities: [`docs/capabilities.md`](docs/capabilities.md)
-- Integrations: [`docs/integrations.md`](docs/integrations.md)
-- Operations and troubleshooting: [`docs/operations.md`](docs/operations.md)
-
-## Project structure (high level)
-- `gemcode/` — Python package + CLI entrypoint
-- `docs/` — production documentation set
-- `veomem/` — optional memory subsystem used by GemCode integrations
-- `gemcode-vscode/` — VS Code extension (in full repository snapshots)
-- `gemcode-web-api/` + `gemcode-web-ui/` — reference web wiring (in full repository snapshots)
-
-## Security
-GemCode includes:
-- **workspace trust** (controls access to filesystem/shell/git tools)
-- **permission modes and allow/deny patterns**
-- **optional interactive approval** for mutating operations
-
-If you discover a security issue, please open a GitHub issue with enough detail to reproduce it.
 
 ## Contributing
-Contributions are welcome:
-- bug fixes
-- documentation improvements
-- new GemSkills
 
-Before making large changes, check `gemcode/` tests and run `pytest` from the project root (or inside the package).
+Contributions are welcome, especially for:
+
+- core runtime improvements
+- documentation
+- GemSkills
+- integrations
+- tests and reliability
+
+For source changes, run the relevant tests from `gemcode/`.
+
+## Security
+
+If you find a security issue, open a GitHub issue with clear reproduction details or follow the repository security process if one is added later.
 
 ## License
+
 See [`gemcode/LICENSE`](gemcode/LICENSE).
 
