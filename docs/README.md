@@ -1,25 +1,25 @@
-# GemCode documentation index
+# GemCode Documentation Index
 
-## Primary manual (start here)
+This directory is the production documentation set for GemCode.
 
-- **[`../gemcode/README.md`](../gemcode/README.md)** — Full manual: what GemCode is (sessions, memory types, GemSkill workflows), architecture, install, CLI and flags, `.gemcode/` layout, **`GEMINI.md`**, function tools catalog, REPL slash commands (including **`/eval`**, **`/gemskill`**, **`/append gemskill`**), curated memory, workspace trust, styles, rules, checkpoints, multi-root, model routing, capabilities, permissions, hooks, token policy, MCP, IDE stdio bridge, eval/autotune, Kaira, live audio, related repos, environment variables, development and PyPI release.
+## Start here
+- [`../README.md`](../README.md) — repository overview, quickstart, and documentation map
+- [`../gemcode/README.md`](../gemcode/README.md) — primary user manual and navigation page
 
-## Recent additions
+## Core documentation
+- [`architecture.md`](architecture.md) — subsystem map, runtime flows, runner assembly, tool-loading surfaces, and persistence architecture
+- [`install.md`](install.md) — requirements, install, upgrade, first run, and common setup problems
+- [`cli-and-repl.md`](cli-and-repl.md) — execution modes, flags, REPL/TUI behavior, attachments, and session flows
+- [`configuration.md`](configuration.md) — env vars, `.gemcode/` assets, instruction files, rules, styles, skills, hooks, MCP, and OpenAPI
+- [`tools-and-permissions.md`](tools-and-permissions.md) — tool families, permission layers, background tasks, IDE proposal behavior, and AFC implications
+- [`capabilities.md`](capabilities.md) — deep research, embeddings, memory, VeoMem, browser/computer use, live audio, and routing behavior
+- [`integrations.md`](integrations.md) — IDE stdio, web/SSE, MCP, OpenAPI, browser integration, and skills as a workflow surface
+- [`operations.md`](operations.md) — audit/debugging, common failures, Kaira operation, eval/autotune, and release workflow
+- [`reference-gemcode-state.md`](reference-gemcode-state.md) — quick reference for the `.gemcode/` directory layout and state files
 
-- **Caveman output styles** — built-in terse modes via `/caveman` (plus `wenyan-*` variants).
-- **Memory file compression** — `compress_memory_file` tool and `/caveman:compress` alias (creates a backup and validates headings/URLs/code blocks).
-- **Search query sanitization** — `web_search` and `semantic_search_files` auto-trim “contaminated” long queries to the likely intended question.
-- **GemSkills** — improved YAML frontmatter support (`description: >` / `|`), token-efficient skill invocation, and a REPL wizard (“I want to make a new skill”) to generate new skills quickly.
-- **WAL** — `.gemcode/wal.jsonl` metadata log for curated memory appends and memory compression writes.
+## Integration contracts
+- [`web-ui-contract.md`](web-ui-contract.md) — HTTP/SSE contract for compatible web frontends and backends
 
-## Web and HTTP
-
-- **[`web-ui-contract.md`](web-ui-contract.md)** — Expected health checks, `POST /api/chat` streaming (SSE-style `data:` frames), `StreamChunk` and `StreamEvent` shapes for compatibility with the reference web UI. Use this when implementing or adapting a GemCode-backed API server.
-
-## Editor integration
-
-- **[`../gemcode-vscode/README.md`](../gemcode-vscode/README.md)** — VS Code extension: secure API key storage, launch commands, Chat panel, diff apply workflow, and the `gemcode ide --stdio` JSONL bridge.
-
-## Repository root
-
-- **[`../README.md`](../README.md)** — Project overview, quickstart, and links to the documents above.
+## Notes
+- The documentation is organized by operator concern rather than by file name.
+- The code remains the final source of truth; documentation should track `gemcode/src/gemcode/` behavior closely.

@@ -103,14 +103,15 @@ def _chain_before_model_callbacks(*callbacks):
 
 def _load_gemini_md(project_root: Path) -> str:
   """
-  Load GEMINI.md / .gemcode/NOTES.md from a interactive CLI–style hierarchy.
+  Load project instruction markdown / .gemcode/NOTES.md from a interactive CLI–style hierarchy.
 
   Priority (later entries override earlier ones, all are concatenated):
     1. ~/.gemcode/GEMINI.md           — user-global instructions (all projects)
-    2. Walk UP from project_root: each directory's GEMINI.md / .gemcode/GEMINI.md
+    2. Walk UP from project_root: each directory's `gemcode.md` / `GEMINI.md`
        (org-level files at higher dirs, project-level at project_root)
-    3. project_root/GEMINI.md         — the primary project instructions
-    4. project_root/.gemcode/GEMINI.md — alternative location
+    3. project_root/gemcode.md        — the primary project instructions
+    4. project_root/GEMINI.md         — backward-compatible legacy location
+    5. project_root/.gemcode/GEMINI.md — alternative location
     5. project_root/.gemcode/notes.md  — agent auto-generated notes (read-only context)
 
   Max total: 80,000 chars.  Each file is capped at 30,000 chars.
@@ -118,7 +119,14 @@ def _load_gemini_md(project_root: Path) -> str:
   """
   import re
 
-  _NAMES = ("GEMINI.md", "gemini.md", ".gemcode/GEMINI.md")
+  _NAMES = (
+    "gemcode.md",
+    "GEMCODE.md",
+    "GEMINI.md",
+    "gemini.md",
+    ".gemcode/GEMINI.md",
+    ".gemcode/gemini.md",
+  )
   _FILE_CAP = 30_000
   _TOTAL_CAP = 80_000
   _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -162,8 +170,15 @@ def _load_gemini_md(project_root: Path) -> str:
     for name in _NAMES:
       _add(ancestor / name)
 
-  # 3+4. Project-root level instructions (primary location)
-  for name in ("GEMINI.md", "gemini.md", ".gemcode/GEMINI.md", ".gemcode/gemini.md"):
+  # 3+5. Project-root level instructions (primary location + compatibility)
+  for name in (
+    "gemcode.md",
+    "GEMCODE.md",
+    "GEMINI.md",
+    "gemini.md",
+    ".gemcode/GEMINI.md",
+    ".gemcode/gemini.md",
+  ):
     _add(project_root / name)
 
   # 5. Agent-generated notes (informational context, not instructions)
@@ -312,6 +327,11 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
         "\n\n## VeoMem recall (auto-captured, progressive)\n"
         "This section is automatically generated from prior tool usage and summaries. "
         "Treat it as helpful context; do not restate it verbatim to the user.\n"
+        "If you need deeper details about a specific prior observation, use the "
+        "3-step retrieval flow with tools:\n"
+        "- `veomem_search(query=...)` → get an index of relevant observation IDs\n"
+        "- `veomem_timeline(id=...)` → get compact neighbors around an anchor ID\n"
+        "- `veomem_get_observations(ids=...)` → fetch full text for selected IDs\n"
         f"{t.strip()}\n"
       )
   except Exception:

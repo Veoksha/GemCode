@@ -130,18 +130,30 @@ def _initialize_gemcode_project(cfg: GemCodeConfig) -> None:
   """
   root = cfg.project_root.resolve()
   gem_dir = root / ".gemcode"
+  gemcode_md = root / "gemcode.md"
   already_there = gem_dir.is_dir()
   try:
     gem_dir.mkdir(parents=True, exist_ok=True)
   except OSError as e:
     print(f"[gemcode] warning: could not create {gem_dir}: {e}", file=sys.stderr)
     return
+  if not gemcode_md.exists():
+    try:
+      gemcode_md.write_text(
+        "# Project instructions\n\n"
+        "- Describe the project purpose here.\n"
+        "- Add build, test, and lint commands.\n"
+        "- Add architecture notes and conventions GemCode should follow.\n",
+        encoding="utf-8",
+      )
+    except OSError as e:
+      print(f"[gemcode] warning: could not create {gemcode_md}: {e}", file=sys.stderr)
   if not already_there:
     print(
         "\n── GemCode · Project folder ready ──\n"
         f"  Workspace: {root}\n"
         f"  Config & session data: {gem_dir}/\n"
-        "  Optional: add GEMINI.md in the repo root for project context.\n"
+        f"  Project instructions: {gemcode_md.name}\n"
         "── Ready. ──\n",
         file=sys.stderr,
     )

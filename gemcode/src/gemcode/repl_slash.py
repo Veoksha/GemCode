@@ -1172,15 +1172,15 @@ async def process_repl_slash(
     return ReplSlashResult(skip_model_turn=True)
 
   if name == "init":
-    gemini_md = cfg.project_root / "GEMINI.md"
-    if gemini_md.exists() and (sc.args or "").strip().lower() not in ("force", "overwrite", "-f"):
-      out(f"GEMINI.md already exists at {gemini_md}.")
+    gemcode_md = cfg.project_root / "gemcode.md"
+    if gemcode_md.exists() and (sc.args or "").strip().lower() not in ("force", "overwrite", "-f"):
+      out(f"gemcode.md already exists at {gemcode_md}.")
       out("Use /init force to regenerate it, or edit it manually.")
       out()
       return ReplSlashResult(skip_model_turn=True)
-    # Dispatch to the model to analyze the project and write GEMINI.md.
+    # Dispatch to the model to analyze the project and write gemcode.md.
     init_prompt = (
-      "Analyze this codebase and generate a GEMINI.md file for me.\n\n"
+      "Analyze this codebase and generate a gemcode.md file for me.\n\n"
       "To do this:\n"
       "1. Run `list_directory('.')` to understand the project structure\n"
       "2. Read `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `README.md` "
@@ -1188,9 +1188,9 @@ async def process_repl_slash(
       "3. Look at the source directory structure (src/, lib/, app/, etc.)\n"
       "4. Check for test directories and test runner config\n"
       "5. Look for linting/formatting config files (.eslintrc, .prettierrc, ruff.toml, etc.)\n\n"
-      "Write **only** to `GEMINI.md` at the project root. Do **not** create "
+      "Write **only** to `gemcode.md` at the project root. Do **not** create "
       "`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, or similar.\n\n"
-      "Then write a GEMINI.md file at the project root containing:\n"
+      "Then write a gemcode.md file at the project root containing:\n"
       "# Project Name\n"
       "One-sentence description.\n\n"
       "## Build & Test\n"
@@ -1208,10 +1208,10 @@ async def process_repl_slash(
       "## Workflow\n"
       "- Any git branching rules from README or CONTRIBUTING\n"
       "- PR/commit conventions\n\n"
-      "Keep it under 200 lines. Write the file to GEMINI.md now."
+      "Keep it under 200 lines. Write the file to gemcode.md now."
     )
-    out("Analyzing project to generate GEMINI.md…")
-    out("(GemCode will read the project structure and write a starting GEMINI.md)")
+    out("Analyzing project to generate gemcode.md…")
+    out("(GemCode will read the project structure and write a starting gemcode.md)")
     out()
     return ReplSlashResult(model_prompt=init_prompt)
 

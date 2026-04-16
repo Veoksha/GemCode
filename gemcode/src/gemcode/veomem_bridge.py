@@ -24,6 +24,16 @@ def _summarize_tool_result(result: dict[str, Any]) -> str:
   if result.get("error"):
     e = str(result.get("error"))
     return f"error: {e[:800]}"
+
+  def _clip_str(x: Any, n: int) -> str:
+    if x is None:
+      return ""
+    s = str(x)
+    s = s.strip()
+    if len(s) <= n:
+      return s
+    return s[:n].rstrip() + "…"
+
   parts: list[str] = []
   for k in ("exit_code", "path", "backup_path", "count", "chars_before", "chars_after"):
     if k in result:
@@ -31,7 +41,26 @@ def _summarize_tool_result(result: dict[str, Any]) -> str:
   for k in ("stdout", "stderr"):
     v = result.get(k)
     if isinstance(v, str) and v.strip():
-      parts.append(f"{k}={v.strip()[:200]}{'…' if len(v) > 200 else ''}")
+      parts.append(f"{k}={_clip_str(v, 800)}")
+
+  # Web search results can be high-signal but are structured; make them searchable.
+  try:
+    results = result.get("results")
+    if isinstance(results, list) and results:
+      pieces: list[str] = []
+      for r in results[:5]:
+        if not isinstance(r, dict):
+          continue
+        title = _clip_str(r.get("title"), 120)
+        url = _clip_str(r.get("url"), 140)
+        snippet = _clip_str(r.get("snippet"), 180)
+        if title or url or snippet:
+          pieces.append(f"{title} ({url}) {snippet}".strip())
+      if pieces:
+        parts.append("results=[" + " | ".join(pieces) + "]")
+  except Exception:
+    pass
+
   return " ".join(parts).strip()
 
 

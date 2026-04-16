@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 from unittest.mock import MagicMock
 
 from gemcode.hitl_session import HITL_STICKY_SESSION_KEY
@@ -7,6 +8,7 @@ from gemcode.config import GemCodeConfig
 from gemcode.tools.edit import make_edit_tools
 from gemcode.tools.filesystem import make_filesystem_tools
 from gemcode.tools.shell import make_run_command
+from gemcode.tools.veomem_tools import make_veomem_tools
 from gemcode.tools.shell_gate import arm_confirmed_shell_basename
 from gemcode.tools.todo import TODO_STATE_KEY, make_todo_tool
 from gemcode.trust import trust_root
@@ -164,3 +166,64 @@ def test_write_file_blocks_vendor_instruction_filenames(tmp_path: Path) -> None:
   assert not (tmp_path / "CLAUDE.md").exists()
   assert not (tmp_path / ".cursorrules").exists()
   assert not (tmp_path / "docs" / "AGENTS.md").exists()
+
+
+def test_veomem_tool_wrappers_roundtrip(tmp_path: Path, monkeypatch) -> None:
+  repo_root = Path(__file__).resolve().parents[2]
+  veomem_src = repo_root / "veomem" / "src"
+  p = str(veomem_src)
+  if p not in sys.path:
+    sys.path.insert(0, p)
+
+  monkeypatch.setenv("GEMCODE_VEOMEM", "1")
+
+  from veomem.store import add_observation, init_store
+
+  init_store(tmp_path)
+  a = add_observation(
+    tmp_path,
+    kind="tool",
+    title="read_file",
+    text="read src/app.py and noted auth workflow",
+    session_id="s1",
+    tool_name="read_file",
+    wing="w1",
+    room="auth",
+    paths=["src/app.py"],
+    extra={"primary_path": "src/app.py"},
+    ts_epoch_ms=1_000,
+  )
+  b = add_observation(
+    tmp_path,
+    kind="tool",
+    title="write_file",
+    text="updated src/app.py to fix auth workflow",
+    session_id="s1",
+    tool_name="write_file",
+    wing="w1",
+    room="auth",
+    paths=["src/app.py"],
+    extra={"primary_path": "src/app.py"},
+    ts_epoch_ms=40_000,
+  )
+
+  cfg = GemCodeConfig(project_root=tmp_path)
+  tools = {t.__name__: t for t in make_veomem_tools(cfg)}
+  assert {"veomem_search", "veomem_timeline", "veomem_get_observations"} <= set(tools)
+
+  res = tools["veomem_search"]("auth workflow", limit=5)
+  assert res.get("ok") is True
+  ids = [int(x["id"]) for x in res.get("results") or []]
+  assert int(a["id"]) in ids or int(b["id"]) in ids
+
+  tl = tools["veomem_timeline"](int(b["id"]), window_ms=60_000, limit=10)
+  assert tl.get("ok") is True
+  tl_ids = [int(x["id"]) for x in tl.get("results") or []]
+  assert int(a["id"]) in tl_ids
+  assert int(b["id"]) in tl_ids
+
+  full = tools["veomem_get_observations"](f"{a['id']},{b['id']}", max_chars=500)
+  assert full.get("ok") is True
+  assert full.get("count") == 2
+  texts = " ".join(str(x.get("text") or "") for x in full.get("results") or [])
+  assert "auth workflow" in texts

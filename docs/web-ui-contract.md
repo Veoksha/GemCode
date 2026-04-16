@@ -1,8 +1,16 @@
-# Web UI Contract (GemCode backend)
+# Web UI Contract
 
-This document captures the HTTP/WebSocket contract expected by the bundled reference web UI (`gemcode-web-ui/`) so a GemCode-backed backend can implement the same behavior.
+This document captures the HTTP and streaming contract expected by GemCode-compatible web frontends and backends.
 
-**See also:** [GemCode user manual](../gemcode/README.md) (CLI, tools, REPL, env vars), [documentation index](README.md), and the [repository README](../README.md) for project layout and quickstart.
+Use this document when:
+- implementing a GemCode-backed API server
+- adapting an existing frontend to GemCode streaming behavior
+- validating `/api/chat` framing and health checks
+
+See also:
+- [GemCode user manual](../gemcode/README.md)
+- [documentation index](README.md)
+- [repository overview](../README.md)
 
 ## 1. Base URLs
 

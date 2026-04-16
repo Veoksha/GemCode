@@ -1,0 +1,55 @@
+# Reference: `.gemcode/` State
+
+## Purpose
+This page is a quick reference for the project-local state GemCode stores under `.gemcode/`.
+
+## Core files and directories
+
+| Path | Purpose |
+|---|---|
+| `.gemcode/sessions.sqlite` | ADK session history store |
+| `.gemcode/sessions_meta.json` | Session names and metadata |
+| `.gemcode/audit.log` | Audit log for tool and runtime activity |
+| `.gemcode/tool-results/` | Offloaded large tool outputs |
+| `.gemcode/artifacts/` | Artifact storage |
+| `.gemcode/policy.json` | Dynamic token/evidence policy profile |
+| `.gemcode/notes.md` | Operator/agent notes surfaced by `/notes` |
+| `.gemcode/debug.yaml` | Optional debug log |
+
+## Memory
+
+| Path | Purpose |
+|---|---|
+| `.gemcode/GEMCODE_MEMORY.md` | Curated project memory |
+| `.gemcode/GEMCODE_USER.md` | Curated user preferences |
+| `.gemcode/memories.jsonl` | Retrieval memory backing store |
+| `.gemcode/wal.jsonl` | Metadata log for curated memory and compression writes |
+
+## Prompt assets
+
+| Path | Purpose |
+|---|---|
+| `.gemcode/skills/` | GemSkills |
+| `.gemcode/output-styles/` | Output styles |
+| `.gemcode/rules/` | Rule files |
+| `.gemcode/hooks/` | Hook scripts |
+
+## Integrations and policy
+
+| Path | Purpose |
+|---|---|
+| `.gemcode/mcp.json` | MCP server configuration |
+| `.gemcode/openapi/` | OpenAPI specs and related config |
+| `.gemcode/settings.json` | Permission configuration |
+
+## Evaluation
+
+| Path | Purpose |
+|---|---|
+| `.gemcode/evals/last_eval.json` | Last evaluation run |
+| `.gemcode/evals/autotune_ledger.jsonl` | Autotune history |
+
+## Notes
+- Not every file exists in every project.
+- Some files are created lazily.
+- Some state also exists under `~/.gemcode/` for user-global configuration and credentials.

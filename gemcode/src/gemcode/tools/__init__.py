@@ -20,6 +20,7 @@ from gemcode.checkpoints import list_checkpoints as _list_checkpoints, undo_chec
 from gemcode.tools.curated_memory import make_curated_memory_tools
 from gemcode.tools.compress_memory import make_compress_memory_tool
 from gemcode.tools.skills import make_skill_tools
+from gemcode.tools.veomem_tools import make_veomem_tools
 
 
 def _get_load_memory_tool():
@@ -153,11 +154,18 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
     read_curated_memory,
     # Optional: compress memory files (markdown only; safe guards apply)
     compress_memory_file,
+    # Optional: VeoMem recall tools (3-step search/timeline/fetch).
+    # Enabled via GEMCODE_VEOMEM=1.
     # GemSkills (on-demand playbooks)
     list_skills,
     load_skill,
     skills_manifest,
   ]
+
+  try:
+    tools.extend(make_veomem_tools(cfg))
+  except Exception:
+    pass
 
   # ADK load_memory: explicit on-demand memory search (complements preload_memory).
   # Only add when memory is enabled so the tool doesn't appear when there's no

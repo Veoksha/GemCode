@@ -13,6 +13,7 @@ def test_initialize_gemcode_project_creates_dot_gemcode(tmp_path: Path) -> None:
   assert not (tmp_path / ".gemcode").exists()
   _initialize_gemcode_project(cfg)
   assert (tmp_path / ".gemcode").is_dir()
+  assert (tmp_path / "gemcode.md").is_file()
 
 
 def test_initialize_gemcode_project_idempotent(tmp_path: Path) -> None:
@@ -20,3 +21,4 @@ def test_initialize_gemcode_project_idempotent(tmp_path: Path) -> None:
   _initialize_gemcode_project(cfg)
   _initialize_gemcode_project(cfg)
   assert (tmp_path / ".gemcode").is_dir()
+  assert (tmp_path / "gemcode.md").is_file()

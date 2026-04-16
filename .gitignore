@@ -22,3 +22,10 @@ gemcode-web-ui/node_modules/
 gemcode-web-ui/.next/
 gemcode-web-ui/out/
 gemcode-web-api/node_modules/
+
+# Ignore bundled sibling projects from the monorepo root
+gemcode-web-api/
+gemcode-web-ui/
+gemcode-vscode/
+veomem/
+openclaude/

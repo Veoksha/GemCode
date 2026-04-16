@@ -404,6 +404,46 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
   except Exception:
     pass  # OpenAPIToolset not in this ADK version — continue without
 
+  # ── AFC compatibility prompt (optional) ───────────────────────────────────
+  # Gemini Automatic Function Calling (AFC) only works when the tool list is
+  # composed of Python callables. Some ADK toolsets (MCP/OpenAPI/built-in
+  # declarations) may be non-callable and cause AFC to be disabled.
+  #
+  # If we're in an interactive terminal and the user opted into prompting,
+  # ask whether to keep "all tools" (AFC disabled) or restrict to callables
+  # (AFC enabled).
+  try:
+    import os
+    import sys
+
+    prompt_afc = os.environ.get("GEMCODE_AFC_PROMPT", "1").strip().lower() in ("1", "true", "yes", "on")
+    if prompt_afc and hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
+      tools_list = list(merged_extra_tools or [])
+      noncallable = [t for t in tools_list if not callable(t)]
+      if noncallable and getattr(cfg, "_afc_choice", None) not in ("all", "callables"):
+        print(
+          "\n[gemcode] AFC compatibility\n"
+          "Gemini Automatic Function Calling (AFC) works best with Python callables only.\n"
+          "Some enabled toolsets appear non-callable, which can disable AFC.\n\n"
+          "Choose tool mode for this session:\n"
+          "  [Enter] all tools (recommended; AFC may be disabled)\n"
+          "  c       callable-only tools (keeps AFC; disables MCP/OpenAPI/toolsets)\n",
+          file=sys.stderr,
+        )
+        try:
+          ans = input("afc> ").strip().lower()
+        except EOFError:
+          ans = ""
+        if ans.startswith("c"):
+          object.__setattr__(cfg, "_afc_choice", "callables")
+        else:
+          object.__setattr__(cfg, "_afc_choice", "all")
+
+      if getattr(cfg, "_afc_choice", None) == "callables":
+        merged_extra_tools = [t for t in tools_list if callable(t)] or None
+  except Exception:
+    pass
+
   # Computer-use: ADK ComputerUseToolset backed by our Playwright BrowserComputer.
   # Probe Playwright BEFORE building the agent so model routing (which runs
   # inside build_root_agent → pick_effective_model) never switches to
