@@ -210,14 +210,22 @@ async def process_repl_slash(
       out("Tip: /skills list")
       out()
       return ReplSlashResult(skip_model_turn=True)
-    expanded = expand_skill_text(s, arguments=sk_args, session_id=session_id)
+    # Token-efficient one-shot invocation: do NOT inline the full SKILL.md.
+    # Instead, point the model at the skill and require it to load/read it as needed.
     files = list_supporting_files(s)
-    prompt = (
-      f"Apply GemSkill `/{s.meta.name}`.\n\n"
-      f"## Skill instructions\n{expanded}\n\n"
-      + (f"## Skill supporting files\n{', '.join(files)}\n\n" if files else "")
-      + "Now carry out the user's request using the skill instructions."
-    )
+    prompt_parts = [
+      f"User invoked GemSkill `/{s.meta.name}`.\n\n",
+      f"## Arguments\n{sk_args or '(none)'}\n\n",
+      "## Instructions\n",
+      "1. Load the skill instructions using the `load_skill` tool (preferred) or by reading the SKILL.md file.\n",
+      "2. Only read supporting files if needed (keep it efficient).\n",
+      "3. Then carry out the user's request.\n\n",
+      f"## Skill file\n{s.skill_md}\n\n",
+    ]
+    if files:
+      prompt_parts.append(f"## Supporting files (optional)\n{', '.join(files)}\n\n")
+    prompt_parts.append("Now proceed.")
+    prompt = "".join(prompt_parts)
     return ReplSlashResult(model_prompt=prompt)
 
   # ── /gemskill (load full skill into session system prompt) ────────────────

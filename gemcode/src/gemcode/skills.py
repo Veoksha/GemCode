@@ -135,11 +135,16 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 
   Supported:
   - key: value (single-line)
+  - key: >
+      multi-line
+    (folded; newlines become spaces)
+  - key: |
+      multi-line
+    (literal; newlines preserved)
   - key: [a, b]  (parsed as a string; caller can split if needed)
 
   Not supported:
   - nested objects
-  - multi-line scalars
   - full YAML spec
   """
   m = _FRONTMATTER_RE.match(text or "")
@@ -148,18 +153,58 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
   raw = m.group(1)
   body = (text or "")[m.end() :]
   d: dict[str, str] = {}
-  for line in raw.splitlines():
+  lines = raw.splitlines()
+  i = 0
+  while i < len(lines):
+    line = lines[i]
     if not line.strip() or line.strip().startswith("#"):
+      i += 1
       continue
     if ":" not in line:
+      i += 1
       continue
     k, v = line.split(":", 1)
     k = k.strip()
-    v = v.strip()
+    v = v.rstrip()
+    v_stripped = v.strip()
+
+    # Multi-line scalar blocks: `key: >` or `key: |` followed by indented lines.
+    if v_stripped in (">", "|"):
+      style = v_stripped
+      block: list[str] = []
+      i += 1
+      while i < len(lines):
+        nxt = lines[i]
+        # YAML block scalars require indentation. We accept 2+ spaces or a tab.
+        if not (nxt.startswith("  ") or nxt.startswith("\t")):
+          break
+        block.append(nxt.lstrip(" \t"))
+        i += 1
+      if style == ">":
+        # folded: join non-empty lines with spaces; keep paragraph breaks as newline.
+        paras: list[str] = []
+        cur: list[str] = []
+        for ln in block:
+          if not ln.strip():
+            if cur:
+              paras.append(" ".join(x.strip() for x in cur if x.strip()))
+              cur = []
+            continue
+          cur.append(ln)
+        if cur:
+          paras.append(" ".join(x.strip() for x in cur if x.strip()))
+        d[k.lower()] = "\n".join(paras).strip()
+      else:
+        d[k.lower()] = "\n".join(block).rstrip()
+      continue
+
+    # Single-line scalar
+    v2 = v_stripped
     # Strip simple surrounding quotes
-    if len(v) >= 2 and ((v[0] == v[-1] == '"') or (v[0] == v[-1] == "'")):
-      v = v[1:-1]
-    d[k.lower()] = v
+    if len(v2) >= 2 and ((v2[0] == v2[-1] == '"') or (v2[0] == v2[-1] == "'")):
+      v2 = v2[1:-1]
+    d[k.lower()] = v2
+    i += 1
   return d, body
 
 

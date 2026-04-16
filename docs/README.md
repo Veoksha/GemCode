@@ -9,6 +9,7 @@
 - **Caveman output styles** — built-in terse modes via `/caveman` (plus `wenyan-*` variants).
 - **Memory file compression** — `compress_memory_file` tool and `/caveman:compress` alias (creates a backup and validates headings/URLs/code blocks).
 - **Search query sanitization** — `web_search` and `semantic_search_files` auto-trim “contaminated” long queries to the likely intended question.
+- **GemSkills** — improved YAML frontmatter support (`description: >` / `|`), token-efficient skill invocation, and a REPL wizard (“I want to make a new skill”) to generate new skills quickly.
 - **WAL** — `.gemcode/wal.jsonl` metadata log for curated memory appends and memory compression writes.
 
 ## Web and HTTP

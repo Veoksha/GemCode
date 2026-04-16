@@ -385,9 +385,15 @@ The TUI (when `GEMCODE_TUI=1` and terminal supports it) provides **slash complet
 - **Discovery:** Only **metadata** (name + description) is preloaded into context for token efficiency. Full body loads **on demand** via `/skill <name>`, `/<name>`, or tools `load_skill` / `list_skills`.
 - **Built-in:** **`batch`** — parallel large-change workflow (map → units → `run_subtask` → verify). Exposed as `/batch <goal>`; not auto-invoked by the model (`disable_model_invocation`).
 
-- **`/create gemskill <name>`** — create a new skill directory.
+- **`/create gemskill <name>`** — create a new skill directory (scaffold).
+- **Interactive wizard (CLI)**: if you type something like “I want to make a new skill” in the REPL, GemCode will switch into a short **GemSkill wizard** (name/description/spec) and then generate the full skill folder for you.
 - **`/gemskill <name>`** — pin the full skill body into the system prompt for this session.
 - **`/append gemskill <name> <text>`** — one-shot turn for the model to revise that skill on disk.
+
+### Frontmatter notes (compatibility)
+GemCode supports common YAML frontmatter styles including multi-line scalars like:
+- `description: >` (folded)
+- `description: |` (literal)
 
 ---
 

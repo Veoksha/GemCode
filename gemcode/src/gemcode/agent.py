@@ -330,8 +330,7 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
 {kaira_section}
 - **UI banner** phrases like "GemCode Pro" are terminal marketing, not a separate API tier.
 - **Env toggles** (`GEMCODE_ENABLE_COMPUTER_USE`, `GEMCODE_MODEL`, etc.) affect only the OS process that launched gemcode. Pasting `VAR=1` in chat does NOT reconfigure a running session—tell the user to export in their shell, use project `.env`, or restart the CLI.
-- **Working in subfolders** — call `list_directory(\"Desktop\")`, `glob_files(\"**/query.ts\")`, `read_file(\"testing/ai-edtech-app/src/app/page.tsx\")` directly. Never claim access is blocked unless a tool returned an explicit error.{git_section}{curated_section}"""
- - **Working in subfolders** — call `list_directory(\"Desktop\")`, `glob_files(\"**/query.ts\")`, `read_file(\"testing/ai-edtech-app/src/app/page.tsx\")` directly. Never claim access is blocked unless a tool returned an explicit error.{git_section}{curated_section}{veomem_section}"""
+- **Working in subfolders** — call `list_directory(\"Desktop\")`, `glob_files(\"**/query.ts\")`, `read_file(\"testing/ai-edtech-app/src/app/page.tsx\")` directly. Never claim access is blocked unless a tool returned an explicit error.{git_section}{curated_section}{veomem_section}"""
 
 
 def _build_memory_section(cfg: GemCodeConfig) -> str:

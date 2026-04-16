@@ -7,6 +7,7 @@ import asyncio
 import getpass
 import json
 import os
+import re
 import sys
 import uuid
 import warnings
@@ -262,6 +263,100 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
       "GemCode CLI is running. Type your prompt and press Enter. (Ctrl+D to exit)",
       file=sys.stderr,
     )
+
+    def _looks_like_new_skill_request(s: str) -> bool:
+      t = (s or "").strip().lower()
+      if not t or t.startswith("/"):
+        return False
+      # Natural language trigger: "make/create/build a new skill/gemskill"
+      return bool(
+        re.search(r"\b(new|create|make|build)\b", t)
+        and re.search(r"\b(gem\s*skill|gemskill|skill)\b", t)
+      )
+
+    def _prompt_nonempty(label: str, default: str | None = None) -> str:
+      while True:
+        try:
+          v = input(label).strip()
+        except EOFError:
+          return default or ""
+        if v:
+          return v
+        if default is not None:
+          return default
+
+    def _wizard_create_gemskill() -> str | None:
+      """
+      Interactive CLI wizard that collects a GemSkill spec, then returns a single
+      model prompt instructing the agent to generate the skill folder/files.
+      """
+      if not (hasattr(sys.stdin, "isatty") and sys.stdin.isatty()):
+        return None
+      print("\n── GemSkill wizard ──", file=sys.stderr)
+      print("We'll create a new skill under `.gemcode/skills/<name>/`.\n", file=sys.stderr)
+      name = _prompt_nonempty("skill name (kebab-case, e.g. api-review): ")
+      name = (name or "").strip().lower()
+      if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", name):
+        print("Invalid name. Use lowercase letters/numbers/hyphens (max 64 chars).", file=sys.stderr)
+        return None
+      desc = _prompt_nonempty("one-line description: ")
+      when = _prompt_nonempty("when should it be used (1-2 sentences)? ")
+      inputs = _prompt_nonempty("inputs it should accept (bullets or short text): ", default="User request + $ARGUMENTS")
+      outputs = _prompt_nonempty("expected output format (short): ", default="Concise checklist + actionable steps")
+      tools_pref = _prompt_nonempty(
+        "tools: (a)uto, (r)ead-only, (w)eb-research-heavy? [a]: ",
+        default="a",
+      ).strip().lower()
+      use_web = tools_pref.startswith("w")
+      read_only = tools_pref.startswith("r")
+      examples = _prompt_nonempty("example command(s) user will type (optional): ", default="")
+
+      root = cfg.project_root.resolve()
+      skill_dir = root / ".gemcode" / "skills" / name
+      skill_md = skill_dir / "SKILL.md"
+
+      prompt_parts: list[str] = [
+        "You are creating a **GemCode GemSkill**. Generate a new skill folder and files.\n\n",
+        "## Target\n",
+        f"- Project root: {root}\n",
+        f"- Skill directory: {skill_dir}\n",
+        f"- Primary file: {skill_md}\n\n",
+        "## Requirements\n",
+        f"- Skill name: {name}\n",
+        f"- Description: {desc}\n",
+        f"- When to use: {when}\n",
+        f"- Inputs: {inputs}\n",
+        f"- Output expectations: {outputs}\n",
+      ]
+      if examples:
+        prompt_parts.append(f"- Example invocations: {examples}\n")
+      prompt_parts.extend(
+        [
+          "\n",
+          "- Write `SKILL.md` with YAML frontmatter using **multiline-friendly** fields when needed.\n",
+          "- Include: Purpose, When to use, When NOT to use (guardrails), Inputs, Output format, Workflow, Examples.\n",
+          "- Make it **token-efficient**: prefer short checklists and explicit decision gates.\n",
+          "- Avoid vague 'ALWAYS trigger' language; provide precise triggers.\n",
+          "- If you need templates/checklists, create supporting files in a `references/` subfolder and keep them small.\n",
+          "- Do not create CLAUDE.md/AGENTS.md or other vendor-specific files.\n\n",
+          "## Tooling / research policy\n",
+          (
+            "- You MAY use web research to find best practices, but only if it materially improves the skill.\n"
+            if use_web
+            else "- Avoid web research unless strictly necessary.\n"
+          ),
+          ("- Operate in read-only mode: do not write files.\n" if read_only else "- You are allowed to write the skill files.\n"),
+          "\n",
+          "## Execution steps\n",
+          "1. Create the skill directory if missing.\n",
+          "2. Write `SKILL.md` (and any supporting files).\n",
+          "3. Validate the YAML frontmatter parses and the skill is usable.\n",
+          f"4. Print a short confirmation: created files + how to invoke (e.g. `/skills list`, `/{name} ...`, `/gemskill {name}`).\n",
+        ]
+      )
+      prompt = "".join(prompt_parts)
+      return prompt
+
     while True:
       try:
         raw = input("> ")
@@ -273,6 +368,12 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
         continue
       if prompt_text in (":q", "quit", "exit", "/exit"):
         break
+
+      # Natural language shortcut: "I want to make a new skill" => wizard.
+      if _looks_like_new_skill_request(prompt_text):
+        wizard_prompt = _wizard_create_gemskill()
+        if wizard_prompt:
+          prompt_text = wizard_prompt
 
       cfg.session_skill_expand_session_id = session_id
       slash = await process_repl_slash(

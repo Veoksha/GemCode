@@ -337,6 +337,7 @@ def slash_help_lines() -> list[str]:
       "  /notes clear          Delete all notes",
       "  /notes edit           Open notes in $EDITOR",
       "  /create gemskill <name> [description]  Create a new GemSkill (SKILL.md scaffold)",
+      "                        Tip: you can also type “I want to make a new skill” and follow the wizard",
       "  /gemskill <name>        Load an existing GemSkill into this session (system prompt)",
       "  /gemskill list|clear    List skills or unload all session-loaded skills",
       "  /append gemskill <name> <request>  Ask the agent to edit that skill file",
