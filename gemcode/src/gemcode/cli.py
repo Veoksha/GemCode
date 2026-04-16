@@ -710,6 +710,11 @@ def main() -> None:
       action="store_true",
       help="Do not play model audio to speakers (still prints text if any)",
     )
+    audio_parser.add_argument(
+      "--list-devices",
+      action="store_true",
+      help="List available audio devices and exit (for mic troubleshooting)",
+    )
 
     args = audio_parser.parse_args(sys.argv[2:])
     load_cli_environment()
@@ -729,6 +734,36 @@ def main() -> None:
 
     session_id = args.session or str(uuid.uuid4())
     from gemcode.live_audio_engine import run_live_audio
+
+    if args.list_devices:
+      try:
+        import sounddevice as sd  # type: ignore
+      except Exception:
+        print(
+          "\n[gemcode live-audio] Audio deps missing. Install:\n"
+          "  python3 -m pip install -U \"gemcode[live]\"\n",
+          file=sys.stderr,
+        )
+        raise SystemExit(2)
+      try:
+        devs = sd.query_devices()
+        default_in, default_out = sd.default.device
+        print("Audio devices:")
+        for i, d in enumerate(devs):
+          name = str(d.get("name") or "")
+          mi = int(d.get("max_input_channels") or 0)
+          mo = int(d.get("max_output_channels") or 0)
+          mark = ""
+          if i == default_in:
+            mark += " [default-in]"
+          if i == default_out:
+            mark += " [default-out]"
+          print(f"  {i:>2}: in={mi} out={mo}  {name}{mark}")
+        print("\nTip: set GEMCODE_LIVE_AUDIO_INPUT_DEVICE to a device index or name.")
+      except Exception as e:
+        print(f"[gemcode live-audio] Could not list devices: {e}", file=sys.stderr)
+        raise SystemExit(2)
+      raise SystemExit(0)
 
     # One-time explicit permission prompt (HITL) for mic/speaker use.
     if hasattr(sys.stdin, "isatty") and sys.stdin.isatty():

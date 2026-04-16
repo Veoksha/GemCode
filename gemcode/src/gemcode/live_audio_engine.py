@@ -8,6 +8,7 @@ This wires GemCode's existing outer session + callbacks into ADK's
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import sys
 from dataclasses import dataclass
@@ -126,7 +127,8 @@ async def run_live_audio(
 
   run_config = RunConfig(
     # Prefer the enum value (avoids pydantic serializer warnings in some SDK versions).
-    response_modalities=[types.Modality.AUDIO],
+    # Request TEXT too so users see transcripts even when the model returns only audio.
+    response_modalities=[types.Modality.AUDIO, types.Modality.TEXT],
     speech_config=speech_config,
     # Keep SDK defaults for STT/TTS transcription configs.
   )
@@ -188,16 +190,20 @@ async def run_live_audio(
   # Mic capture → async queue (threaded producer).
   pcm_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=50)
   stop_at = time.time() + max(1, int(seconds))
+  chunks_sent = 0
+  non_silent_chunks = 0
 
   def _mic_thread() -> None:
     # ~20ms frames is a good latency/overhead balance.
     blocksize = max(120, int(input_rate // 50))
+    device = os.environ.get("GEMCODE_LIVE_AUDIO_INPUT_DEVICE")
     try:
       stream = sd.RawInputStream(  # type: ignore[attr-defined]
         samplerate=int(input_rate),
         channels=1,
         dtype="int16",
         blocksize=int(blocksize),
+        device=device if device else None,
       )
     except Exception:
       # Let the consumer surface this as empty audio.
@@ -227,6 +233,14 @@ async def run_live_audio(
         chunk = await asyncio.wait_for(pcm_q.get(), timeout=0.25)
       except asyncio.TimeoutError:
         continue
+      chunks_sent += 1
+      try:
+        arr = np.frombuffer(chunk, dtype="int16")  # type: ignore[attr-defined]
+        # Consider it non-silent if mean abs amplitude crosses a tiny threshold.
+        if arr.size and float(np.mean(np.abs(arr))) > 25.0:  # type: ignore[attr-defined]
+          non_silent_chunks += 1
+      except Exception:
+        pass
       live_queue.send_realtime(
         types.Blob(data=chunk, mime_type=_mime_type_for_rate(input_rate))
       )
@@ -247,6 +261,15 @@ async def run_live_audio(
 
   if not printed_any:
     print("\n[gemcode live-audio] No model text received (audio may have been silent).")
+  if chunks_sent <= 2 or non_silent_chunks == 0:
+    print(
+      "\n[gemcode live-audio] Mic input looks silent or unavailable.\n"
+      "Check:\n"
+      "- System Settings → Privacy & Security → Microphone (allow your terminal)\n"
+      "- Your input device selection\n"
+      "Tip: set GEMCODE_LIVE_AUDIO_INPUT_DEVICE to a device index/name from sounddevice.query_devices().\n",
+      file=sys.stderr,
+    )
 
   await runner.close()
 
