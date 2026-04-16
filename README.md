@@ -1,13 +1,6 @@
-<div align="center">
-<pre>
-  ██████╗ ███████╗███╗   ███╗   ██████╗ ██████╗ ██████╗ ███████╗
- ██╔════╝ ██╔════╝████╗ ████║  ██╔════╝██╔═══██╗██╔══██╗██╔════╝
- ██║  ███╗█████╗  ██╔████╔██║  ██║     ██║   ██║██║  ██║█████╗
- ██║   ██║██╔══╝  ██║╚██╔╝██║  ██║     ██║   ██║██║  ██║██╔══╝
- ╚██████╔╝███████╗██║ ╚═╝ ██║  ╚██████╗╚██████╔╝██████╔╝███████╗
-  ╚═════╝ ╚══════╝╚═╝     ╚═╝   ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝
-</pre>
-</div>
+<p align="center">
+  <img src="docs/assets/gemcode-banner-blue.png" alt="GemCode banner" />
+</p>
 
 ![PyPI](https://img.shields.io/pypi/v/gemcode?label=PyPI&style=flat)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
