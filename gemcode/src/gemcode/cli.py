@@ -13,7 +13,7 @@ import uuid
 import warnings
 from pathlib import Path
 
-from gemcode.config import GemCodeConfig, load_cli_environment
+from gemcode.config import GemCodeConfig, apply_super_mode, load_cli_environment
 from gemcode.tools_inspector import inspect_tools, smoke_tools
 from gemcode.invoke import run_turn
 from gemcode.model_routing import pick_effective_model
@@ -43,6 +43,11 @@ def _maybe_prompt_trust(cfg: GemCodeConfig) -> None:
   On first use in a project root, ask the user to trust the folder so file,
   shell, and git tools can run. If not trusted, we exit before any tool runs.
   """
+  if getattr(cfg, "super_mode", False):
+    root = cfg.project_root.resolve()
+    if not is_trusted_root(root):
+      trust_root(root, trusted=True)
+    return
   # Non-interactive sessions can't answer prompts.
   if not (hasattr(sys.stdin, "isatty") and sys.stdin.isatty()):
     return
@@ -220,7 +225,9 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
       "on",
     ):
       try:
-        if (
+        if getattr(cfg, "super_mode", False):
+          pass
+        elif (
           hasattr(sys.stdin, "isatty")
           and sys.stdin.isatty()
           and not cfg.yes_to_all
@@ -923,6 +930,11 @@ def main() -> None:
       help="Allow write_file / search_replace (disables interactive HITL prompts).",
     )
     kaira_parser.add_argument(
+      "--super",
+      action="store_true",
+      help="Fully autonomous jobs: auto-approve tools/shell, no HITL (implies --yes).",
+    )
+    kaira_parser.add_argument(
       "--interactive-ask",
       action="store_true",
       help="Prompt in-run for mutating tool confirmations (HITL).",
@@ -978,7 +990,11 @@ def main() -> None:
         cfg.model_mode = "fast"
 
     cfg.yes_to_all = bool(args.yes)
-    if args.interactive_ask:
+    if getattr(args, "super", False):
+      cfg.super_mode = True
+    if cfg.super_mode:
+      apply_super_mode(cfg)
+    elif args.interactive_ask:
       cfg.interactive_permission_ask = True
     else:
       if "GEMCODE_INTERACTIVE_PERMISSION_ASK" not in os.environ:
@@ -1023,6 +1039,11 @@ def main() -> None:
   parser.add_argument("-C", "--directory", type=Path, default=Path.cwd(), help="Project root")
   parser.add_argument("--session", default=None, help="Session id for SQLite-backed history")
   parser.add_argument("--yes", action="store_true", help="Allow write_file / search_replace")
+  parser.add_argument(
+    "--super",
+    action="store_true",
+    help="Super mode: auto-approve all tool/shell use, skip HITL and AFC prompts (implies --yes).",
+  )
   parser.add_argument(
     "--interactive-ask",
     action="store_true",
@@ -1096,7 +1117,11 @@ def main() -> None:
     if args.model_mode is None:
       cfg.model_mode = "fast"
   cfg.yes_to_all = args.yes
-  if args.interactive_ask:
+  if args.super:
+    cfg.super_mode = True
+  if cfg.super_mode:
+    apply_super_mode(cfg)
+  elif args.interactive_ask:
     cfg.interactive_permission_ask = True
   else:
     # If user didn't explicitly set env, default to HITL when we're in a TTY.

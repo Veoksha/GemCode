@@ -616,6 +616,23 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True)
 
+  # ── /super (fully autonomous: no HITL, auto-approve tools) ─────────────────
+  if name == "super":
+    from gemcode.config import apply_super_mode
+
+    args_s = (sc.args or "").strip().lower()
+    if args_s in ("off", "0", "false", "no"):
+      cfg.super_mode = False
+      out("Super mode: off (yes_to_all unchanged; restart or adjust flags to change approvals).")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    cfg.super_mode = True
+    apply_super_mode(cfg)
+    out("Super mode: on — mutating/shell tools and ADK confirmations auto-approved; no AFC stdin prompt.")
+    out("Equivalent: gemcode --super  or  GEMCODE_SUPER_MODE=1")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
   # ── /add-dir (safe multi-root access) ──────────────────────────────────────
   if name in ("add-dir", "add_dir", "adddir"):
     args = (sc.args or "").strip()

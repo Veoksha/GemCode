@@ -217,6 +217,8 @@ GemSkills are reusable playbooks stored as markdown assets. They let you codify 
 
 GemCode combines workspace trust, permission settings, allow/deny policies, and optional interactive confirmation for mutating operations. This helps keep repository access explicit instead of silently granting unrestricted tool execution.
 
+**Super mode** (`gemcode --super`, `GEMCODE_SUPER_MODE=1`, or REPL `/super`) opts into maximum autonomy: GemCode-owned HITL is disabled, tools and shell are auto-approved, the AFC “all tools vs callable-only” prompt is skipped, workspace trust is applied automatically on first CLI start, and `get_user_choice` returns the first listed option. See [`docs/tools-and-permissions.md`](docs/tools-and-permissions.md#super-mode-fully-autonomous).
+
 ## Feature highlights
 
 ### Repository-native tooling
@@ -250,6 +252,7 @@ GemCode is not just “chat on code”. These are the things power users typical
 - **Evaluation & autotune gates**: `gemcode eval -C .`, `gemcode autotune init --tag name -C .`, `gemcode autotune eval -C .` (and REPL `/eval` / `/autotune`)
 - **Integrations & tool surfaces**: MCP via `.gemcode/mcp.json`, OpenAPI specs under `.gemcode/openapi/`, IDE stdio bridge, and web/SSE compatibility
 - **Capability flags**: enable deep research with `--deep-research`, embeddings with `--embeddings`, and optional computer-use with `GEMCODE_ENABLE_COMPUTER_USE`
+- **Super mode**: `gemcode -C . --super "…"` or `/super` for non-interactive tool approval and autonomous runs ([`docs/tools-and-permissions.md`](docs/tools-and-permissions.md#super-mode-fully-autonomous))
 
 ## Typical workflow
 
@@ -269,6 +272,7 @@ gemcode -C .
 gemcode -C . "Explain this repository"
 gemcode -C . --attach ./diagram.png "Analyze this architecture diagram"
 gemcode kaira -C .
+gemcode -C . --super "Implement and test the feature end-to-end"
 gemcode ide --stdio
 ```
 

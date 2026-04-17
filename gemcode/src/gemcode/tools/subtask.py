@@ -43,8 +43,9 @@ def _build_sub_tools(cfg: GemCodeConfig) -> list:
 
     # ADK special interactive tools — always try to include.
     try:
-        from google.adk.tools import get_user_choice, load_artifacts, exit_loop
-        tools = [*tools, get_user_choice, load_artifacts, exit_loop]
+        from gemcode.tools.user_choice import append_user_choice_load_artifacts_exit_loop
+
+        append_user_choice_load_artifacts_exit_loop(cfg, tools)
     except Exception:
         pass
 

@@ -491,8 +491,12 @@ class KairaDaemon:
       parts: list[types.Part] = []
       for fc in confirmation_fcs:
         tool_name, hint = _extract_hint_and_tool(fc)
-        ok = False
-        if self._ipc is not None:
+        auto_ok = bool(
+          getattr(self.cfg, "yes_to_all", False)
+          or getattr(self.cfg, "super_mode", False)
+        )
+        ok = bool(auto_ok)
+        if not ok and self._ipc is not None:
           try:
             ok = await self._ipc.request_confirmation(
               job_id=job.job_id,

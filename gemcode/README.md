@@ -135,6 +135,17 @@ GemCode combines:
 Reference:
 - [`../docs/tools-and-permissions.md`](../docs/tools-and-permissions.md)
 
+### Super mode (fully autonomous)
+
+Use when you want GemCode to run without GemCode’s own confirmation prompts (mutations, shell, ADK confirmation handoffs, AFC stdin prompt, attachment gate, auto-trust on CLI, and non-interactive `get_user_choice` = first option).
+
+- **CLI:** `gemcode -C . --super "your task"`
+- **Env:** `GEMCODE_SUPER_MODE=1`
+- **REPL/TUI:** `/super` (use `/super off` to clear the flag only)
+- **Kaira:** `gemcode kaira -C . --super`
+
+Details and safety notes: [`../docs/tools-and-permissions.md`](../docs/tools-and-permissions.md#super-mode-fully-autonomous).
+
 ## Common commands
 
 ### Inspect models
@@ -218,6 +229,7 @@ Status note:
 | `/review` | Run a review workflow |
 | `/eval` | Run evaluation gates |
 | `/kaira` | Show scheduler usage help |
+| `/super` | Super mode: auto-approve tools, no GemCode HITL · `/super off` |
 
 Detailed behavior:
 - [`../docs/cli-and-repl.md`](../docs/cli-and-repl.md)

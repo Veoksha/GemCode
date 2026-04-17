@@ -199,6 +199,11 @@ async def _read_permission_char(loop) -> bool:
     return False
 
 
+def _cfg_auto_allow_tools(cfg) -> bool:
+  """True when mutating/shell tools and ADK confirmations should not prompt."""
+  return bool(getattr(cfg, "yes_to_all", False) or getattr(cfg, "super_mode", False))
+
+
 def _term_width(default: int = 100) -> int:
   try:
     import shutil
@@ -384,10 +389,14 @@ async def run_gemcode_scrollback_tui(
           hint = str(msg.get("hint") or "")
           request_id = str(msg.get("request_id") or "")
           suffix = f"\n  Hint: {hint}" if hint else ""
-          await _kaira_print(
-            f"\n{ansi.dim}[kaira HITL]{ansi.reset} Approve tool call '{tool}'? [y/N]{suffix}"
-          )
-          ok = await _read_permission_char(asyncio.get_running_loop())
+          auto = _cfg_auto_allow_tools(cfg)
+          if auto:
+            ok = True
+          else:
+            await _kaira_print(
+              f"\n{ansi.dim}[kaira HITL]{ansi.reset} Approve tool call '{tool}'? [y/N]{suffix}"
+            )
+            ok = await _read_permission_char(asyncio.get_running_loop())
           try:
             await client.request(
               action="permission_response",
@@ -478,10 +487,13 @@ async def run_gemcode_scrollback_tui(
                 or "failed" in report.lower()
               )
             if looks_bad:
-              await _kaira_print(
-                f"\n{ansi.dim}[manager]{ansi.reset} Enqueue a follow-up fix job for this failure? [y/N]"
-              )
-              ok = await _read_permission_char(asyncio.get_running_loop())
+              if _cfg_auto_allow_tools(cfg):
+                ok = True
+              else:
+                await _kaira_print(
+                  f"\n{ansi.dim}[manager]{ansi.reset} Enqueue a follow-up fix job for this failure? [y/N]"
+                )
+                ok = await _read_permission_char(asyncio.get_running_loop())
               if ok:
                 fix_prompt = (
                   "You are Kaira (worker). The previous job failed. Fix the failure with minimal changes.\n\n"
@@ -1019,16 +1031,22 @@ async def run_gemcode_scrollback_tui(
               f"in {ansi.bold}{tool_name}{ansi.reset}: {ansi.dim}{summary}{ansi.reset}"
             )
             sys.stdout.flush()
-            prompt_str = (
-              f"  ⎿  Try to resolve it now? "
-              f"[{ansi.blue_ok}y{ansi.reset} = yes  "
-              f"{ansi.dim}any other key = no{ansi.reset}]  "
-            )
-            sys.stdout.write(prompt_str)
-            sys.stdout.flush()
-            ok = await _read_permission_char(asyncio.get_running_loop())
-            sys.stdout.write(("y" if ok else "n") + "\n")
-            sys.stdout.flush()
+            auto_fix = _cfg_auto_allow_tools(cfg)
+            if auto_fix:
+              ok = True
+              sys.stdout.write("  ⎿  Auto-resolving (--yes / super mode)\n")
+              sys.stdout.flush()
+            else:
+              prompt_str = (
+                f"  ⎿  Try to resolve it now? "
+                f"[{ansi.blue_ok}y{ansi.reset} = yes  "
+                f"{ansi.dim}any other key = no{ansi.reset}]  "
+              )
+              sys.stdout.write(prompt_str)
+              sys.stdout.flush()
+              ok = await _read_permission_char(asyncio.get_running_loop())
+              sys.stdout.write(("y" if ok else "n") + "\n")
+              sys.stdout.flush()
             if ok:
               pending_prompt = (
                 "We encountered an error during the last turn.\n\n"
@@ -1042,16 +1060,19 @@ async def run_gemcode_scrollback_tui(
             pass
         break
 
+      auto_allow = _cfg_auto_allow_tools(cfg)
       interactive_enabled = bool(getattr(cfg, "interactive_permission_ask", False))
       parts: list[types.Part] = []
       for fc in confirmation_fcs:
         tool_name, hint = _extract_tool_and_hint(fc)
-        if not interactive_enabled:
+        if auto_allow:
+          ok = True
+        elif not interactive_enabled:
           print("")
           print(
             f"  ⎿  {ansi.blue_warn}{ansi.bold}Permission needed{ansi.reset} for "
             f"{ansi.bold}{tool_name}{ansi.reset} — auto-denying "
-            f"(run with --yes or /computer on to allow)."
+            f"(run with --yes, --super, or /computer on to allow)."
           )
           ok = False
         else:

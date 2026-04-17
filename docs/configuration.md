@@ -48,6 +48,7 @@ Important groups:
 - `GEMCODE_PERMISSION_MODE`
 - `GEMCODE_INTERACTIVE_PERMISSION_ASK`
 - `GEMCODE_TRUST_PROMPT`
+- `GEMCODE_SUPER_MODE` — when `1`/`true`/`yes`/`on`, enables [super mode](tools-and-permissions.md#super-mode-fully-autonomous) (same idea as CLI `--super` and REPL `/super`): auto-approve GemCode tool gates, skip AFC stdin tool prompt, non-interactive `get_user_choice`, etc.
 
 ### UI and behavior
 - `GEMCODE_TUI`

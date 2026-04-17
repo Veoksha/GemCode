@@ -81,6 +81,7 @@ Recommended operator guidance:
 - use explicit `-C`
 - use explicit `--session`
 - choose `--yes` or `--interactive-ask` intentionally
+- for non-interactive jobs (no tool-confirmation IPC, autonomous `get_user_choice`), use `--super` or `GEMCODE_SUPER_MODE=1` (see [`tools-and-permissions.md`](tools-and-permissions.md#super-mode-fully-autonomous))
 
 ## Eval and autotune
 

@@ -99,6 +99,7 @@ GemCode merges multiple tool surfaces:
 - `gemcode/src/gemcode/kaira_job_store.py`
 - `gemcode/src/gemcode/org.py`
 - `gemcode/src/gemcode/tools/org_tools.py`
+- `gemcode/src/gemcode/tools/user_choice.py` — `get_user_choice` override in super mode
 - `gemcode/src/gemcode/live_audio_engine.py`
 
 These provide different UX layers over the same core runner architecture.

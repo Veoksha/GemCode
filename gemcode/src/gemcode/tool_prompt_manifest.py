@@ -55,6 +55,14 @@ def build_tool_manifest(cfg: GemCodeConfig) -> str | None:
   yes_to_all = bool(getattr(cfg, "yes_to_all", False))
   interactive_ask_on = bool(getattr(cfg, "interactive_permission_ask", False))
   sticky_hitl = bool(getattr(cfg, "interactive_hitl_sticky_session", True))
+  super_on = bool(getattr(cfg, "super_mode", False))
+  guc_manifest = (
+    "- **`get_user_choice(options)`** — (super mode) returns the **first** option immediately with no user prompt. "
+    "Put the preferred default first."
+    if super_on
+    else "- **`get_user_choice(options)`** — present the user with a structured list of options (2–6 items). "
+    "Returns the user's selected option. Use instead of open-ended questions when responses are bounded."
+  )
 
   # Core custom tools.
   read_only = sorted(READ_ONLY_TOOLS)
@@ -126,7 +134,7 @@ def build_tool_manifest(cfg: GemCodeConfig) -> str | None:
   - Returns the sub-agent's final text as `result`.
   - Use for: context-heavy exploration (reading 50+ files), parallel investigation of independent subsystems, verification passes after you finish work.
   - Always give the sub-agent enough context to work independently; end the task with "Summarise your findings clearly."
-- **`get_user_choice(question, choices)`** — present the user with a structured list of options (2–6 items). Returns the user's selected option. Use instead of open-ended questions when the set of valid responses is known and bounded (e.g. framework choice, migration strategy, naming convention).
+{guc_manifest}
 - **`load_artifacts(filenames)`** — load one or more named artifacts (binary/large files) saved in this or a previous session. Returns the content of each. Use `user:filename` prefix for cross-session artifacts.
 - **`exit_loop()`** — signal the surrounding LoopAgent to stop iterating and emit the final result. Only relevant when running inside a LoopAgent pipeline (e.g. the `/refine` write→test→fix loop).
 

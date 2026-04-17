@@ -460,11 +460,20 @@ async def run_turn(
           and hasattr(sys.stdin, "isatty")
           and sys.stdin.isatty()
         )
+        auto_ok = bool(
+          cfg is not None
+          and (
+            bool(getattr(cfg, "yes_to_all", False))
+            or bool(getattr(cfg, "super_mode", False))
+          )
+        )
 
         parts: list[types.Part] = []
         for fc in confirmation_fcs:
           tool_name, hint = _extract_hint_and_tool(fc)
-          if interactive_enabled:
+          if auto_ok:
+            ok = True
+          elif interactive_enabled:
             suffix = f"\n  Hint: {hint}" if hint else ""
             ok = _prompt_yes_no(
               f"\n[gemcode HITL] Approve tool call '{tool_name}'? [y/N]{suffix}\n> "

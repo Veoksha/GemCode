@@ -374,6 +374,13 @@ class GemCodeConfig:
     default_factory=lambda: _truthy_env("GEMCODE_BACKGROUND_LEARNER", default=False)
   )
 
+  # "Super" mode: fully autonomous session — auto-approve mutating/shell tools,
+  # skip interactive HITL and AFC tool-mode prompts, and prefer non-blocking UX.
+  # Enable with ``GEMCODE_SUPER_MODE=1`` or ``gemcode --super``.
+  super_mode: bool = field(
+    default_factory=lambda: _truthy_env("GEMCODE_SUPER_MODE", default=False)
+  )
+
   def __post_init__(self) -> None:
     self.project_root = self.project_root.resolve()
     # Default agentic depth when env omits GEMCODE_MAX_LLM_CALLS (was: None → SDK default).
@@ -479,6 +486,24 @@ class GemCodeConfig:
             "tar",
           )
         )
+    if self.super_mode:
+      apply_super_mode(self)
+
+
+def apply_super_mode(cfg: GemCodeConfig) -> None:
+  """
+  Apply super-mode policy: no interactive tool HITL, auto-approve GemCode gates,
+  keep all toolsets (skip AFC stdin prompt via ``_afc_choice``), relax strict
+  permission mode so shell tools can run.
+  """
+  if not getattr(cfg, "super_mode", False):
+    return
+  cfg.yes_to_all = True
+  cfg.interactive_permission_ask = False
+  if getattr(cfg, "permission_mode", "") == "strict":
+    cfg.permission_mode = "default"
+  object.__setattr__(cfg, "_afc_choice", "all")
+  object.__setattr__(cfg, "_attachments_allowed", True)
 
 
 def load_dotenv_optional() -> None:

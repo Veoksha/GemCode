@@ -143,6 +143,20 @@ If workers repeatedly fail the report contract (for example missing JSON reports
 
 - `GEMCODE_ORG_AUTO_IMPROVE=1`
 
+## Super mode with Kaira and sub-agents
+
+Background jobs use the same `GemCodeConfig` as the daemon. For fully autonomous workers (no IPC tool-confirmation waits, no interactive `get_user_choice`), start Kaira with:
+
+```bash
+gemcode kaira -C . --super
+```
+
+Or set `GEMCODE_SUPER_MODE=1` in the environment before launching `gemcode kaira`.
+
+Sub-agents spawned via `run_subtask` / `spawn_subtasks` inherit the parent config, so super mode applies to their tool list (including the non-interactive `get_user_choice`) when the parent session was started in super mode.
+
+Details: [`tools-and-permissions.md`](tools-and-permissions.md#super-mode-fully-autonomous).
+
 ## Where the state lives
 
 Common `.gemcode/` locations:

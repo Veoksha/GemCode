@@ -53,6 +53,21 @@ gemcode -C . "Summarize the authentication flow"
 gemcode -C . --yes "Fix the failing tests"
 ```
 
+### Super mode (fully autonomous, no GemCode HITL)
+```bash
+gemcode -C . --super "Refactor the module and run tests"
+# or
+GEMCODE_SUPER_MODE=1 gemcode -C . "Large autonomous task"
+# background jobs (same project): prefer --super so jobs never block on confirmations
+gemcode kaira -C . --super
+```
+
+In the REPL/TUI, run `/super` once to enable (or `/super off` to clear the flag only).
+
+Super mode implies `--yes`, skips the AFC `afc>` stdin prompt (keeps all toolsets), auto-trusts the workspace on first interactive CLI start, auto-approves ADK confirmation handoffs and (in the TUI) Kaira IPC approvals, and replaces `get_user_choice` with **first-option** auto-selection. Full list: [`tools-and-permissions.md`](tools-and-permissions.md#super-mode-fully-autonomous).
+
+**Note:** If you turn `/super` on after the session started, rebuild the agent (new session / restart) if you rely on the non-interactive `get_user_choice` tool.
+
 ### Ask before writes
 ```bash
 gemcode -C . --interactive-ask "Update the docs"
@@ -154,6 +169,7 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/skills` | List GemSkills |
 | `/status` | Model, capabilities, thinking, limits |
 | `/style` | Output styles · `/style <name>` or off |
+| `/super` | Super mode: auto-approve tools/shell, no HITL · `/super off` |
 | `/thinking` | Thinking verbose/brief/off, budget, level |
 | `/tools` | Tool inventory · `/tools smoke` |
 | `/trust` | Workspace trust · `/trust` on/off |

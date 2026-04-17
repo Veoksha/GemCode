@@ -110,6 +110,14 @@ Live audio is not the REPL or TUI. It is a separate streaming interaction mode.
 ### Status
 This capability is currently **experimental** and may be unavailable or unreliable depending on Gemini Live service behavior (for example transient `1011` internal errors). Treat it as **future scope** for production workflows.
 
+## Super mode (cross-cutting)
+
+Super mode is not a separate capability bundle; it changes **permission and UX behavior** across the normal tool surface (CLI, REPL/TUI, Kaira). It enables maximum autonomy: auto-approved mutations/shell, no GemCode HITL, skipped AFC stdin prompt, and automatic `get_user_choice` (first option).
+
+See:
+- [`tools-and-permissions.md`](tools-and-permissions.md#super-mode-fully-autonomous)
+- [`cli-and-repl.md`](cli-and-repl.md) — `--super`, `/super`, `gemcode kaira --super`
+
 ## Capability routing behavior
 Capability routing is applied before runner construction and can:
 - enable research tools

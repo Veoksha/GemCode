@@ -130,6 +130,34 @@ Use:
 
 GemCode can prompt in-run for sensitive operations instead of assuming blanket approval.
 
+### Super mode (fully autonomous)
+Use when you want **no human-in-the-loop** for GemCode’s own gates. Super mode does **not** remove OS-level prompts (for example macOS file access); it removes GemCode’s interactive approval layers listed below.
+
+**What it turns off or auto-approves**
+
+1. **Mutations and shell** — same as `--yes`: `before_tool` allows `write_file`, `search_replace`, `run_command`, `bash`, computer-use tools, etc. (`gemcode/src/gemcode/callbacks.py`).
+2. **ADK `request_confirmation` handoffs** — auto-confirmed in the one-shot CLI (`invoke.py`), scrollback TUI, and Kaira job runner when `yes_to_all` / super mode applies (so runs do not block on stdin or IPC approval).
+3. **AFC tool-mode stdin prompt** — pre-selects **all tools** (`_afc_choice=all`), skipping the `afc>` prompt (`session_runtime.py`).
+4. **Attachment read/upload gate** — treated like `--yes` for the session (`_attachments_allowed`).
+5. **Workspace trust prompt (CLI)** — on first start in a TTY, the project root is trusted without `y/N` (`cli.py`).
+6. **TUI-only extras** — Kaira IPC “approve tool?” and manager “enqueue fix job?” paths auto-approve when super/`--yes` (`tui/scrollback.py`).
+7. **`get_user_choice`** — GemCode swaps ADK’s long-running UI tool for a plain tool that returns the **first non-empty** option in `options`. Put your preferred default first. Implementation: `gemcode/src/gemcode/tools/user_choice.py` (root agent and sub-agents via `agent.py` / `tools/subtask.py`).
+
+**How to enable**
+
+- One-shot / REPL: `gemcode --super …` or `GEMCODE_SUPER_MODE=1 gemcode …`
+- REPL/TUI after start: `/super` (use `/super off` to clear the `super_mode` flag only; it does not restore prior `yes_to_all` / HITL defaults)
+- Kaira daemon: `gemcode kaira -C . --super`
+
+**Configuration**
+
+- Env: `GEMCODE_SUPER_MODE=1` (see `gemcode/.env.example`)
+- Code applies policy in `apply_super_mode()` — `gemcode/src/gemcode/config.py`
+
+**Runtime note:** Tool lists are fixed when the `LlmAgent` is built. If you toggle `/super` mid-session, you may need a **new session** or **restart** so `get_user_choice` and other registrations match the new mode.
+
+**Safety:** this is intentionally dangerous on untrusted codebases. Prefer `--yes`, `/trust`, and optional `--interactive-ask` when you want guardrails.
+
 Attachment access gate: when you provide attachments in an interactive TTY session, GemCode prompts (y/n) before it reads/uploads the attached file(s) from disk. If you answer `n`, GemCode proceeds text-only for that turn. Approval is remembered for the session.
 
 You can disable this prompt with `GEMCODE_ATTACHMENTS_ASK=0`.

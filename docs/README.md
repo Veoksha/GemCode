@@ -11,7 +11,7 @@ This directory is the production documentation set for GemCode.
 - [`install.md`](install.md) — requirements, install, upgrade, first run, and common setup problems
 - [`cli-and-repl.md`](cli-and-repl.md) — execution modes, flags, REPL/TUI behavior, attachments, and session flows
 - [`configuration.md`](configuration.md) — env vars, `.gemcode/` assets, instruction files, rules, styles, skills, hooks, MCP, and OpenAPI
-- [`tools-and-permissions.md`](tools-and-permissions.md) — tool families, permission layers, background tasks, IDE proposal behavior, and AFC implications
+- [`tools-and-permissions.md`](tools-and-permissions.md) — tool families, permission layers, super mode (full autonomy), background tasks, IDE proposal behavior, and AFC implications
 - [`capabilities.md`](capabilities.md) — deep research, embeddings, memory, VeoMem, browser/computer use, (experimental) live audio, and routing behavior
 - [`integrations.md`](integrations.md) — IDE stdio, web/SSE, MCP, OpenAPI, browser integration, and skills as a workflow surface
 - [`operations.md`](operations.md) — audit/debugging, common failures, Kaira operation, eval/autotune, and release workflow
