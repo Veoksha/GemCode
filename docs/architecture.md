@@ -23,7 +23,7 @@ This layer parses commands and flags, loads environment configuration, selects t
 - Scrollback TUI
 - IDE stdio bridge
 - Kaira scheduler
-- Live audio
+- Live audio (experimental / future scope)
 
 ### Configuration and routing
 - `gemcode/src/gemcode/config.py`
@@ -162,6 +162,9 @@ Flow:
 4. Return streamed model output
 
 This path shares configuration, tool loading, and agent assembly with the text-based runtime.
+
+Operational note:
+- This mode is currently **experimental** and depends on upstream Gemini Live availability/reliability. Treat it as **future scope** for production.
 
 ## Runner assembly in detail
 `create_runner()` in `gemcode/src/gemcode/session_runtime.py` performs most system wiring:

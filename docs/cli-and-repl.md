@@ -247,3 +247,7 @@ gemcode live-audio -C .
 ```
 
 This is a streamed audio path and not a variation of the REPL/TUI shell.
+
+Status note:
+- This mode is currently **experimental** and may fail due to upstream Gemini Live availability/reliability (e.g. transient `1011` internal errors).
+- Treat `live-audio` as **future scope** for production usage.

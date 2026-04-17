@@ -107,6 +107,9 @@ gemcode live-audio -C .
 ### Important distinction
 Live audio is not the REPL or TUI. It is a separate streaming interaction mode.
 
+### Status
+This capability is currently **experimental** and may be unavailable or unreliable depending on Gemini Live service behavior (for example transient `1011` internal errors). Treat it as **future scope** for production workflows.
+
 ## Capability routing behavior
 Capability routing is applied before runner construction and can:
 - enable research tools

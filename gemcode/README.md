@@ -21,7 +21,7 @@ GemCode is designed for repository-native work rather than copy-paste chat workf
 | TUI | Scrollback terminal UI over the REPL runtime |
 | IDE stdio | Editor integration over JSONL stdin/stdout |
 | Kaira | Priority-queue scheduler for background jobs |
-| Live audio | Microphone-driven Gemini Live sessions |
+| Live audio (future scope) | Planned: microphone-driven Gemini Live sessions (currently experimental/unreliable) |
 
 ## Recommended reading order
 
@@ -166,6 +166,10 @@ gemcode ide --stdio
 ```bash
 gemcode live-audio -C .
 ```
+
+Status note:
+- `live-audio` is currently **experimental** and may fail due to upstream Gemini Live availability/reliability (for example transient `1011` internal errors).
+- Treat this as **future scope** for production workflows.
 
 ## REPL command highlights
 

@@ -13,7 +13,7 @@ GemCode is an agentic coding tool that lives in your terminal. It understands yo
 - Operates from a chosen project root (`-C`) with persistent state under `.gemcode/`
 - Supports inspection-first iteration (`/diff`, checkpoints, and audit logs)
 - Offers reusable workflows via GemSkills
-- Works across multiple entry points: CLI/REPL/TUI, IDE stdio bridge, Kaira, and live audio
+- Works across multiple entry points: CLI/REPL/TUI, IDE stdio bridge, and Kaira
 
 ## Website
 
@@ -44,7 +44,7 @@ Unlike chat-first tools, GemCode is optimized for codebase-first workflows:
 - **Safety controls**: workspace trust, permission modes, interactive approvals, and command gating
 - **GemSkills**: reusable markdown playbooks stored under `.gemcode/skills/<name>/SKILL.md`
 - **Context and token controls**: budgeting, context telemetry, tool-result offloading, and compaction-aware runtime behavior
-- **Multiple user interfaces**: one-shot CLI, REPL, TUI, IDE stdio bridge, Kaira scheduler, and live audio
+- **Multiple user interfaces**: one-shot CLI, REPL, TUI, IDE stdio bridge, and Kaira scheduler
 - **Integration surfaces**: MCP, OpenAPI, web-compatible contracts, optional browser/computer-use flows, and memory systems
 
 ## Runtime model
@@ -157,7 +157,7 @@ Once you start `gemcode -C /path/to/project`, use slash commands for the high-si
 | TUI | Scrollback terminal UI on top of the REPL runtime |
 | IDE stdio | Editor integration over stdin/stdout |
 | Kaira | Background job queue and scheduler |
-| Live audio | Microphone-driven Gemini Live sessions |
+| Live audio (future scope) | Planned: microphone-driven Gemini Live sessions (currently experimental/unreliable) |
 
 ## Key concepts
 
@@ -240,7 +240,6 @@ gemcode -C .
 gemcode -C . "Explain this repository"
 gemcode -C . --attach ./diagram.png "Analyze this architecture diagram"
 gemcode kaira -C .
-gemcode live-audio -C .
 gemcode ide --stdio
 ```
 
