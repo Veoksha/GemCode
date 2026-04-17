@@ -733,6 +733,11 @@ If you need more tool usage examples, set `GEMCODE_VERBOSE_INSTRUCTIONS=1`.
   - Always give the sub-agent enough context to operate independently.
   - End your task prompt with "Summarise your findings clearly." so the result is useful.
 
+- **`spawn_subtasks`** — spawn multiple isolated sub-agents in parallel (preferred fan-out helper).
+  - Use this instead of manually issuing many `run_subtask` calls.
+  - Provide 3–6 focused tasks; keep each subtask self-contained.
+  - Then synthesise the combined findings into a single plan/answer.
+
 ## Multi-step task execution
 One user message = many model↔tool rounds (up to 256 LLM calls by default). This is intentional — you are expected to do complete tasks autonomously.
 

@@ -15,6 +15,9 @@ This page is a quick reference for the project-local state GemCode stores under 
 | `.gemcode/policy.json` | Dynamic token/evidence policy profile |
 | `.gemcode/notes.md` | Operator/agent notes surfaced by `/notes` |
 | `.gemcode/debug.yaml` | Optional debug log |
+| `.gemcode/ipc.sock` | Kaira IPC socket (when Kaira daemon is running) |
+| `.gemcode/org.json` | Org chart (members, hierarchy, role metadata) |
+| `.gemcode/kaira/` | Kaira daemon state (job registry, etc.) |
 
 ## Memory
 
@@ -29,10 +32,16 @@ This page is a quick reference for the project-local state GemCode stores under 
 
 | Path | Purpose |
 |---|---|
-| `.gemcode/skills/` | GemSkills |
+| `.gemcode/skills/` | GemSkills (and org member skills under `.gemcode/skills/<member>/SKILL.md`) |
 | `.gemcode/output-styles/` | Output styles |
 | `.gemcode/rules/` | Rule files |
 | `.gemcode/hooks/` | Hook scripts |
+
+## Kaira jobs
+
+| Path | Purpose |
+|---|---|
+| `.gemcode/kaira/jobs/` | Persisted job records (queued/running/finished/failed + timestamps + last output) |
 
 ## Integrations and policy
 

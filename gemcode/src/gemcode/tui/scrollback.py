@@ -22,6 +22,7 @@ from gemcode.tui.input_handler import GemCodeInputHandler
 from gemcode.tui.welcome_rich import print_shortcuts_hint, print_welcome_dashboard
 
 _ADK_REQUEST_CONFIRMATION = "adk_request_confirmation"
+_KAIRA_SOCKET_DEFAULT = ".gemcode/ipc.sock"
 
 
 def format_tool_call_extras(fc) -> str:
@@ -272,6 +273,245 @@ async def run_gemcode_scrollback_tui(
       get_cfg=lambda: cfg,
   )
 
+  # ── Kaira auto-connect (IPC subscribe) ───────────────────────────────────
+  # If a Kaira daemon is running for this project, subscribe to its updates and
+  # surface them in the same terminal UI. Also handle permission requests by
+  # prompting the user and replying over IPC.
+  _kaira_task: list = [None]  # asyncio.Task | None
+
+  def _kaira_enabled() -> bool:
+    return os.environ.get("GEMCODE_KAIRA_AUTO_CONNECT", "1").strip().lower() in (
+      "1",
+      "true",
+      "yes",
+      "on",
+    )
+
+  async def _kaira_print(line: str) -> None:
+    if not line:
+      return
+    try:
+      if input_handler.is_interactive():
+        try:
+          from prompt_toolkit.patch_stdout import patch_stdout
+
+          with patch_stdout():
+            print(line, flush=True)
+        except Exception:
+          print(line, flush=True)
+      else:
+        print(line, flush=True)
+    except Exception:
+      pass
+
+  async def _kaira_loop() -> None:
+    if not _kaira_enabled():
+      return
+    try:
+      from gemcode.kaira_client import KairaIpcClient
+
+      sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / _KAIRA_SOCKET_DEFAULT)
+      # Only try connect if socket exists; avoids noisy startup.
+      try:
+        from pathlib import Path as _Path
+
+        if not _Path(sock).exists():
+          return
+      except Exception:
+        pass
+
+      client = await KairaIpcClient.connect(socket_path=sock)
+      try:
+        await client.request(action="subscribe")
+        await _kaira_print(f"{ansi.dim}[kaira] connected ({sock}){ansi.reset}")
+      except Exception:
+        await client.close()
+        return
+
+      def _manager_enabled() -> bool:
+        return os.environ.get("GEMCODE_KAIRA_MANAGER", "1").strip().lower() in (
+          "1",
+          "true",
+          "yes",
+          "on",
+        )
+
+      async for msg in client.iter_messages():
+        if msg.get("type") != "event":
+          continue
+        ev = str(msg.get("event") or "")
+        follow = (os.environ.get("GEMCODE_KAIRA_FOLLOW_JOB") or "").strip()
+        if follow:
+          # Filter by job id prefix (user can paste full id or first N chars).
+          try:
+            jid_full = str(msg.get("job_id") or "")
+            if jid_full and not jid_full.startswith(follow):
+              continue
+          except Exception:
+            pass
+        if ev == "job_text_delta":
+          job_id = str(msg.get("job_id") or "")[:10]
+          delta = str(msg.get("delta") or "")
+          if delta:
+            await _kaira_print(f"{ansi.dim}[kaira {job_id}]{ansi.reset} {delta}")
+          continue
+        if ev in ("job_started", "job_finished", "job_failed", "job_cancelled", "job_queued"):
+          job_id = str(msg.get("job_id") or "")[:10]
+          extra = ""
+          if ev == "job_failed":
+            extra = f" — {msg.get('error')}"
+          await _kaira_print(f"{ansi.dim}[kaira {job_id}] {ev}{extra}{ansi.reset}")
+          continue
+        if ev == "job_tool_call":
+          job_id = str(msg.get("job_id") or "")[:10]
+          tool = str(msg.get("tool") or "")
+          args_summary = str(msg.get("args_summary") or "")
+          await _kaira_print(
+            f"{ansi.dim}[kaira {job_id}] tool {tool} {args_summary}{ansi.reset}"
+          )
+          continue
+        if ev == "job_tool_result":
+          job_id = str(msg.get("job_id") or "")[:10]
+          tool = str(msg.get("tool") or "")
+          summary = str(msg.get("summary") or "")
+          await _kaira_print(
+            f"{ansi.dim}[kaira {job_id}] tool_result {tool} {summary}{ansi.reset}"
+          )
+          continue
+        if ev == "permission_request":
+          job_id = str(msg.get("job_id") or "")[:10]
+          tool = str(msg.get("tool") or "tool")
+          hint = str(msg.get("hint") or "")
+          request_id = str(msg.get("request_id") or "")
+          suffix = f"\n  Hint: {hint}" if hint else ""
+          await _kaira_print(
+            f"\n{ansi.dim}[kaira HITL]{ansi.reset} Approve tool call '{tool}'? [y/N]{suffix}"
+          )
+          ok = await _read_permission_char(asyncio.get_running_loop())
+          try:
+            await client.request(
+              action="permission_response",
+              request_id=request_id,
+              confirmed=bool(ok),
+            )
+          except Exception:
+            pass
+          continue
+        if ev == "job_report":
+          job_id = str(msg.get("job_id") or "")[:10]
+          status = str(msg.get("status") or "")
+          report = str(msg.get("report") or "")
+          report_json = msg.get("report_json")
+          await _kaira_print(f"\n{ansi.dim}[kaira {job_id}] report ({status}){ansi.reset}")
+          # Prefer structured JSON report when present.
+          if isinstance(report_json, dict) and report_json:
+            try:
+              import json as _json
+              await _kaira_print(_json.dumps(report_json, ensure_ascii=False, indent=2))
+            except Exception:
+              pass
+          elif report:
+            await _kaira_print(report)
+
+          # If report_json missing, ask Kaira to reformat once (auto).
+          try:
+            auto_retry = os.environ.get("GEMCODE_KAIRA_REPORT_RETRY", "1").strip().lower() in (
+              "1","true","yes","on"
+            )
+            if auto_retry and _manager_enabled() and not isinstance(report_json, dict):
+              # Use an env-set to avoid infinite loop; keyed by job id.
+              key = f"_kaira_reformat_{job_id}"
+              if not getattr(cfg, key, False):
+                object.__setattr__(cfg, key, True)
+                re_prompt = (
+                  "Return a STRICT JSON worker report for the previous output.\n"
+                  "Schema:\n"
+                  "{ \"status\": \"pass|fail|blocked\", \"summary\": [], \"evidence\": [], \"recommended_next_actions\": [], \"notes\": \"\" }\n\n"
+                  "Previous output:\n"
+                  f"{report}\n"
+                )
+                try:
+                  await client.request(
+                    action="enqueue",
+                    prompt=re_prompt,
+                    priority=2,
+                    session_id=str(msg.get("session_id") or ""),
+                  )
+                  await _kaira_print(f"{ansi.dim}[manager]{ansi.reset} Requested JSON reformat (worker report).")
+                except Exception:
+                  pass
+          except Exception:
+            pass
+
+          # Auto-improve kaira member skill on repeated missing JSON (format issue).
+          try:
+            auto_imp = os.environ.get("GEMCODE_ORG_AUTO_IMPROVE", "1").strip().lower() in ("1","true","yes","on")
+            if auto_imp and _manager_enabled() and not isinstance(report_json, dict):
+              miss = int(getattr(cfg, "_kaira_missing_json_reports", 0) or 0) + 1
+              object.__setattr__(cfg, "_kaira_missing_json_reports", miss)
+              if miss in (2, 5):
+                from gemcode.tools.org_tools import make_org_tools
+                tools = make_org_tools(cfg)
+                org_improve = None
+                for t in tools:
+                  if getattr(t, "__name__", "") == "org_improve":
+                    org_improve = t
+                    break
+                if org_improve is not None:
+                  org_improve("kaira", "Always end with STRICT JSON report: status, summary[], evidence[], recommended_next_actions[]. Keep it small.")  # type: ignore[misc]
+                  await _kaira_print(f"{ansi.dim}[manager]{ansi.reset} Improved member skill: kaira (report formatting).")
+          except Exception:
+            pass
+
+          # Manager decision: if a report looks like failure, offer a follow-up fix job.
+          if _manager_enabled():
+            looks_bad = False
+            if isinstance(report_json, dict):
+              st = str(report_json.get("status") or "").lower()
+              looks_bad = st in ("fail", "blocked")
+            else:
+              looks_bad = (
+                status == "failed"
+                or "FAIL" in report
+                or "Traceback" in report
+                or "error" in report.lower()
+                or "failed" in report.lower()
+              )
+            if looks_bad:
+              await _kaira_print(
+                f"\n{ansi.dim}[manager]{ansi.reset} Enqueue a follow-up fix job for this failure? [y/N]"
+              )
+              ok = await _read_permission_char(asyncio.get_running_loop())
+              if ok:
+                fix_prompt = (
+                  "You are Kaira (worker). The previous job failed. Fix the failure with minimal changes.\n\n"
+                  "Rules:\n"
+                  "- Prefer the smallest safe fix.\n"
+                  "- If code changes are needed, implement and re-run the failing command(s).\n"
+                  "- Summarize what you changed and why.\n\n"
+                  f"Failure report:\n{report}\n"
+                )
+                try:
+                  await client.request(
+                    action="enqueue",
+                    prompt=fix_prompt,
+                    priority=5,
+                    session_id=str(msg.get("session_id") or ""),
+                  )
+                  await _kaira_print(f"{ansi.dim}[manager]{ansi.reset} Fix job enqueued.")
+                except Exception:
+                  pass
+          continue
+    except asyncio.CancelledError:
+      return
+    except Exception:
+      return
+
+  try:
+    _kaira_task[0] = asyncio.create_task(_kaira_loop())
+  except Exception:
+    _kaira_task[0] = None
+
   # Turn-scoped monitors/state.
   # Declared up-front so nested render helpers can update them via `nonlocal`.
   last_tool_error: dict | None = None
@@ -507,6 +747,12 @@ async def run_gemcode_scrollback_tui(
       except EOFError:
         print("")
         try:
+          t = _kaira_task[0]
+          if t is not None:
+            t.cancel()
+        except Exception:
+          pass
+        try:
           from gemcode.hooks import run_session_stop_hook
           run_session_stop_hook(cfg.project_root, model=getattr(cfg, "model", "") or "")
         except Exception:
@@ -516,6 +762,12 @@ async def run_gemcode_scrollback_tui(
       continue
     if prompt in (":q", "quit", "exit", "/exit"):
       try:
+        try:
+          t = _kaira_task[0]
+          if t is not None:
+            t.cancel()
+        except Exception:
+          pass
         from gemcode.hooks import run_session_stop_hook
         run_session_stop_hook(cfg.project_root, model=getattr(cfg, "model", "") or "")
       except Exception:
@@ -932,6 +1184,48 @@ async def run_gemcode_scrollback_tui(
       if suggestion and isinstance(suggestion, str):
         print(f"  {ansi.blue_warn}⚑  Suggestion:{ansi.reset} {ansi.dim}{suggestion}{ansi.reset}")
         print("")
+    except Exception:
+      pass
+
+    # ── Auto slash commands (manager automation) ─────────────────────────────
+    # When context is at a blocking level, automatically run /summarise to
+    # persist durable memory and reset the session (keeps the next turns light).
+    try:
+      auto_sum = os.environ.get("GEMCODE_AUTO_SLASH_SUMMARISE", "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+      )
+      if auto_sum and pending_prompt is None:
+        level = int(getattr(cfg, "_context_alert_level", 0) or 0)
+        already = bool(getattr(cfg, "_auto_summarise_triggered", False))
+        if level >= 3 and not already:
+          object.__setattr__(cfg, "_auto_summarise_triggered", True)
+          print(f"  {ansi.blue_warn}⚑  Auto:{ansi.reset} {ansi.dim}/summarise (context is at limit){ansi.reset}")
+          print("")
+          pending_prompt = "/summarise"
+    except Exception:
+      pass
+
+    # Auto /compact earlier (gentler than summarise). This just forces the
+    # existing autocompact pathway by injecting the slash command.
+    try:
+      auto_compact = os.environ.get("GEMCODE_AUTO_SLASH_COMPACT", "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+      )
+      if auto_compact and pending_prompt is None:
+        level = int(getattr(cfg, "_context_alert_level", 0) or 0)
+        already = bool(getattr(cfg, "_auto_compact_triggered", False))
+        # 2=error, 3=blocking. We run compact at error to avoid hitting the wall.
+        if level >= 2 and not already:
+          object.__setattr__(cfg, "_auto_compact_triggered", True)
+          print(f"  {ansi.blue_warn}⚑  Auto:{ansi.reset} {ansi.dim}/compact (context is high){ansi.reset}")
+          print("")
+          pending_prompt = "/compact"
     except Exception:
       pass
 

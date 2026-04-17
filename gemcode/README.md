@@ -157,6 +157,33 @@ gemcode -C . --attach ./report.pdf "Summarize this"
 gemcode kaira -C .
 ```
 
+### Orchestration (Kaira + org delegation)
+
+Docs:
+- `../docs/orchestration.md`
+
+In one terminal:
+
+```bash
+gemcode kaira -C .
+```
+
+In another terminal:
+
+```bash
+gemcode -C .
+```
+
+Then in the REPL/TUI:
+
+```text
+/org tree
+/org hire verifier "QA / test planner" subagent gemcode "Find risks, propose tests, review plans."
+/org assign verifier "Review the plan and propose tests"
+/kaira jobs
+/kaira follow <job_id_prefix>
+```
+
 ### Start the IDE bridge
 ```bash
 gemcode ide --stdio

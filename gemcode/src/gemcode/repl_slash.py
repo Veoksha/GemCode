@@ -1606,6 +1606,102 @@ async def process_repl_slash(
   # ── /kaira ───────────────────────────────────────────────────────────────
   if name == "kaira":
     args_s = (sc.args or "").strip()
+    # Control-plane subcommands via IPC.
+    if args_s:
+      parts = args_s.split()
+      sub = parts[0].strip().lower()
+      sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+      if sub in ("follow",) and len(parts) >= 2:
+        job_id = parts[1].strip()
+        os.environ["GEMCODE_KAIRA_FOLLOW_JOB"] = job_id
+        out(f"[kaira] follow: {job_id}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if sub in ("unfollow", "unfollow-all", "unfollowall", "clear-follow", "clearfollow"):
+        try:
+          os.environ.pop("GEMCODE_KAIRA_FOLLOW_JOB", None)
+        except Exception:
+          pass
+        out("[kaira] follow cleared")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if sub in ("jobs", "list"):
+        try:
+          from gemcode.kaira_client import KairaIpcClient
+          client = await KairaIpcClient.connect(socket_path=sock)
+          try:
+            res = await client.request(action="list_jobs", limit=30)
+          finally:
+            await client.close()
+          if not res.get("ok"):
+            out(f"[kaira] {res.get('error') or 'list_jobs failed'}")
+            out()
+            return ReplSlashResult(skip_model_turn=True)
+          out("Kaira jobs:")
+          for j in res.get("jobs") or []:
+            if not isinstance(j, dict):
+              continue
+            jid = str(j.get("job_id") or "")[:12]
+            st = str(j.get("status") or "")
+            pr = j.get("priority")
+            out(f"  - {jid}\t{st}\tpriority={pr}")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        except Exception as e:
+          out(f"[kaira] IPC unavailable: {type(e).__name__}: {e}")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+
+      if sub in ("job", "show") and len(parts) >= 2:
+        job_id = parts[1].strip()
+        try:
+          from gemcode.kaira_client import KairaIpcClient
+          client = await KairaIpcClient.connect(socket_path=sock)
+          try:
+            res = await client.request(action="get_job", job_id=job_id)
+          finally:
+            await client.close()
+          if not res.get("ok"):
+            out(f"[kaira] {res.get('error') or 'get_job failed'}")
+            out()
+            return ReplSlashResult(skip_model_turn=True)
+          j = res.get("job") or {}
+          if isinstance(j, dict):
+            out(f"job_id: {j.get('job_id')}")
+            out(f"status: {j.get('status')}")
+            out(f"priority: {j.get('priority')}")
+            out(f"session_id: {j.get('session_id')}")
+            txt = str(j.get('last_text') or '')
+            if txt:
+              out("")
+              out(txt[:2000])
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        except Exception as e:
+          out(f"[kaira] IPC unavailable: {type(e).__name__}: {e}")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+
+      if sub in ("cancel", "kill") and len(parts) >= 2:
+        job_id = parts[1].strip()
+        try:
+          from gemcode.kaira_client import KairaIpcClient
+          client = await KairaIpcClient.connect(socket_path=sock)
+          try:
+            res = await client.request(action="cancel_job", job_id=job_id)
+          finally:
+            await client.close()
+          if not res.get("ok"):
+            out(f"[kaira] {res.get('error') or 'cancel failed'}")
+          else:
+            out(f"[kaira] cancelled: {job_id}")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        except Exception as e:
+          out(f"[kaira] IPC unavailable: {type(e).__name__}: {e}")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+
     out("Kaira — background parallel job scheduler")
     out()
     out("What it does:")
@@ -1640,7 +1736,205 @@ async def process_repl_slash(
     out("  - Bulk code generation, test runs, or research across many documents")
     out("  - Background work while you continue chatting in this session")
     out()
+    out("In the TUI:")
+    out("  /kaira follow <job_id_prefix>   Focus output on one job")
+    out("  /kaira unfollow                Clear focus filter")
+    out()
     return ReplSlashResult(skip_model_turn=True)
+
+  # ── /org, /hire, /delegate (org hierarchy + delegation) ──────────────────
+  if name in ("org", "hire", "delegate", "assign", "spawn"):
+    args = (sc.args or "").strip()
+    if name == "org":
+      out("Org chart (members):")
+      out("  /org tree")
+      out("  /org list")
+      out("  /org hire <name> <title> [kaira_worker|subagent] [reports_to] [description...]")
+      out("  /org assign <member> <task...>     (alias: /delegate)")
+      out("  /org spawn <name> <title> <kind> <task...>   (hire + assign)")
+      out("  /org improve <member> <lessons...>           (append to member skill)")
+      out()
+      if not args or args.lower() in ("help", "?"):
+        return ReplSlashResult(skip_model_turn=True)
+      sub = args.lower().split()[0]
+      if sub == "list":
+        from gemcode.org import list_members
+
+        ms = list_members(cfg.project_root)
+        if not ms:
+          out("(no members)")
+        else:
+          for m in ms:
+            boss = f" reports_to={m.reports_to}" if getattr(m, "reports_to", "") else ""
+            out(f"  - {m.name} ({m.title}) [{m.kind}] id={m.id}{boss}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if sub == "tree":
+        try:
+          from gemcode.org import org_tree
+          import json as _json
+          out(_json.dumps(org_tree(cfg.project_root), ensure_ascii=False, indent=2))
+        except Exception:
+          out("(failed to render org tree)")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if sub == "hire":
+        # /org hire <name> <title> [kind] [reports_to] [desc...]
+        rest = args.split(maxsplit=1)[1] if len(args.split()) > 1 else ""
+        if not rest:
+          out("Usage: /org hire <name> <title> [kaira_worker|subagent] [reports_to] [description...]")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        parts = rest.split()
+        if len(parts) < 2:
+          out("Usage: /org hire <name> <title> [kaira_worker|subagent] [reports_to] [description...]")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        nm = parts[0]
+        title = parts[1]
+        kind = "subagent"
+        reports_to = "manager"
+        desc = ""
+        i = 2
+        if len(parts) > i and parts[i] in ("kaira_worker", "subagent"):
+          kind = parts[i]
+          i += 1
+        if len(parts) > i:
+          reports_to = parts[i]
+          i += 1
+        desc = " ".join(parts[i:]).strip() if len(parts) > i else ""
+        from gemcode.org import hire_member
+        m = hire_member(cfg.project_root, name=nm, title=title, kind=kind, reports_to=reports_to, description=desc)  # type: ignore[arg-type]
+        out(f"Hired: {m.name} ({m.title}) [{m.kind}] reports_to={m.reports_to} id={m.id}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if sub in ("assign", "delegate"):
+        rest = args.split(maxsplit=1)[1] if len(args.split()) > 1 else ""
+        if not rest:
+          out("Usage: /org assign <member> <task...>")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        parts = rest.split(maxsplit=1)
+        if len(parts) < 2:
+          out("Usage: /org assign <member> <task...>")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        member = parts[0].strip()
+        task = parts[1].strip()
+        prompt = (
+          "Assign this task using org_delegate(member, task). "
+          "If delegation returns a job_id, tell the user it's running in background.\n\n"
+          f"member={member}\n"
+          f"task={task}\n"
+        )
+        return ReplSlashResult(model_prompt=prompt)
+      if sub == "spawn":
+        # /org spawn <name> <title> <kind> <task...>
+        rest = args.split(maxsplit=1)[1] if len(args.split()) > 1 else ""
+        parts = rest.split(maxsplit=3) if rest else []
+        if len(parts) < 4:
+          out("Usage: /org spawn <name> <title> <kaira_worker|subagent> <task...>")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        nm, title, kind, task = parts[0], parts[1], parts[2], parts[3]
+        prompt = (
+          "Spawn and assign using org_spawn(name,title,kind,task). "
+          "If delegation returns a job_id, tell the user it's running in background.\n\n"
+          f"name={nm}\n"
+          f"title={title}\n"
+          f"kind={kind}\n"
+          f"task={task}\n"
+        )
+        return ReplSlashResult(model_prompt=prompt)
+
+      if sub == "improve":
+        rest = args.split(maxsplit=1)[1] if len(args.split()) > 1 else ""
+        parts2 = rest.split(maxsplit=1) if rest else []
+        if len(parts2) < 2:
+          out("Usage: /org improve <member> <lessons...>")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        member = parts2[0].strip()
+        lessons = parts2[1].strip()
+        prompt = (
+          "Improve the member's skill based on these lessons.\n"
+          "Call org_improve(member, lessons) and confirm the skill path.\n\n"
+          f"member={member}\n"
+          f"lessons={lessons}\n"
+        )
+        return ReplSlashResult(model_prompt=prompt)
+
+      out("Unknown /org subcommand. Try: /org tree  /org list  /org hire  /org assign  /org spawn")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if name == "hire":
+      if not args:
+        out("Usage: /hire <name> <title> [kaira_worker|subagent] [description...]")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      parts = args.split()
+      if len(parts) < 2:
+        out("Usage: /hire <name> <title> [kaira_worker|subagent] [description...]")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      nm = parts[0]
+      title = parts[1]
+      kind = "subagent"
+      desc = ""
+      if len(parts) >= 3 and parts[2] in ("kaira_worker", "subagent"):
+        kind = parts[2]
+        desc = " ".join(parts[3:]).strip()
+      else:
+        desc = " ".join(parts[2:]).strip()
+      from gemcode.org import hire_member
+
+      m = hire_member(cfg.project_root, name=nm, title=title, kind=kind, description=desc)  # type: ignore[arg-type]
+      out(f"Hired: {m.name} ({m.title}) [{m.kind}] id={m.id}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if name in ("delegate", "assign"):
+      if not args:
+        out("Usage: /delegate <member> <task...>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      parts = args.split(maxsplit=1)
+      if len(parts) < 2:
+        out("Usage: /delegate <member> <task...>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      member = parts[0].strip()
+      task = parts[1].strip()
+      # Route through tool so it can use Kaira IPC or subagent as appropriate.
+      prompt = (
+        "Delegate this task using org_delegate(member, task). "
+        "If delegation returns a job_id, tell the user it's running in background.\n\n"
+        f"member={member}\n"
+        f"task={task}\n"
+      )
+      return ReplSlashResult(model_prompt=prompt)
+
+    if name == "spawn":
+      if not args:
+        out("Usage: /spawn <name> <title> <kaira_worker|subagent> <task...>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      parts = args.split(maxsplit=3)
+      if len(parts) < 4:
+        out("Usage: /spawn <name> <title> <kaira_worker|subagent> <task...>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      nm, title, kind, task = parts[0], parts[1], parts[2], parts[3]
+      prompt = (
+        "Spawn and assign using org_spawn(name,title,kind,task). "
+        "If delegation returns a job_id, tell the user it's running in background.\n\n"
+        f"name={nm}\n"
+        f"title={title}\n"
+        f"kind={kind}\n"
+        f"task={task}\n"
+      )
+      return ReplSlashResult(model_prompt=prompt)
 
   # ── /plan ─────────────────────────────────────────────────────────────────
   if name == "plan":

@@ -54,7 +54,9 @@ def test_build_user_content_unknown_mime_warns(tmp_path: Path) -> None:
   f.write_bytes(b"\xde\xad\xbe\xef" * 20)
   content, warns = build_user_content("h", [f], project_root=tmp_path)
   assert warns and any("could not infer MIME" in w for w in warns)
-  assert content.parts[0].inline_data.mime_type == "application/octet-stream"
+  # Unknown / unsupported MIME types are skipped to avoid Gemini 400 errors.
+  assert len(content.parts) == 1
+  assert content.parts[0].text == "h"
 
 
 def test_build_user_content_missing_file(tmp_path: Path) -> None:

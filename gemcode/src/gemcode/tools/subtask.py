@@ -22,6 +22,7 @@ The sub-agent:
 
 from __future__ import annotations
 
+import asyncio
 from gemcode.config import GemCodeConfig
 
 
@@ -237,3 +238,47 @@ def make_run_subtask_tool(cfg: GemCodeConfig):
         return {"result": result_text}
 
     return run_subtask
+
+
+def make_spawn_subtasks_tool(cfg: GemCodeConfig):
+    run_subtask = make_run_subtask_tool(cfg)
+
+    async def spawn_subtasks(tasks: list[dict], max_concurrency: int = 4) -> dict:
+        """
+        Spawn multiple isolated sub-agents in parallel and return structured results.
+
+        Args:
+            tasks: list of {"task": str, "context": str?}
+            max_concurrency: cap parallel workers (default 4)
+        """
+        if not isinstance(tasks, list) or not tasks:
+            return {"error": "tasks must be a non-empty list"}
+
+        max_concurrency = max(1, min(int(max_concurrency or 4), 8))
+        sem = asyncio.Semaphore(max_concurrency)
+
+        async def _one(i: int, item: dict) -> dict:
+            t = ""
+            c = ""
+            try:
+                if isinstance(item, dict):
+                    t = str(item.get("task") or "").strip()
+                    c = str(item.get("context") or "").strip()
+            except Exception:
+                pass
+            if not t:
+                return {"index": i, "ok": False, "error": "missing task"}
+            async with sem:
+                try:
+                    out = await run_subtask(t, c)
+                    if isinstance(out, dict) and out.get("error"):
+                        return {"index": i, "ok": False, "task": t, "error": out.get("error")}
+                    return {"index": i, "ok": True, "task": t, **(out if isinstance(out, dict) else {"result": str(out)})}
+                except Exception as e:
+                    return {"index": i, "ok": False, "task": t, "error": f"{type(e).__name__}: {e}"}
+
+        results = await asyncio.gather(*[_one(i, item) for i, item in enumerate(tasks)])
+        return {"ok": True, "results": results, "max_concurrency": max_concurrency}
+
+    spawn_subtasks.__name__ = "spawn_subtasks"
+    return spawn_subtasks

@@ -130,6 +130,11 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/image` | Alias of `/attach` (same queue) |
 | `/img` | Alias of `/attach` |
 | `/kaira` | Background job scheduler help · how to run `gemcode kaira` |
+| `/kaira jobs` | List recent Kaira jobs via IPC (when daemon is running) |
+| `/kaira job <id>` | Show a single job record via IPC |
+| `/kaira cancel <id>` | Cancel a job via IPC |
+| `/kaira follow <id>` | (TUI) Only show events for one job id prefix |
+| `/kaira unfollow` | (TUI) Clear the follow filter |
 | `/limits` | Execution limits (calls, context, …) |
 | `/live-audio` | How to run `gemcode live-audio` · `/liveaudio` same |
 | `/login` | How to run `gemcode login` (API key) |
@@ -153,6 +158,11 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/tools` | Tool inventory · `/tools smoke` |
 | `/trust` | Workspace trust · `/trust` on/off |
 | `/version` | GemCode version |
+| `/org` | Org chart commands (list/tree/hire/assign/spawn/improve) |
+| `/hire` | Alias of `/org hire` |
+| `/delegate` | Alias of `/org assign` |
+| `/assign` | Alias of `/org assign` |
+| `/spawn` | Alias of `/org spawn` |
 
 ## Attachments
 
@@ -238,6 +248,17 @@ If you want a queue-driven scheduler, use:
 ```bash
 gemcode kaira -C .
 ```
+
+## Orchestration (Kaira + Org + parallel agents)
+
+GemCode supports “organisation-style” delegation and background work:
+
+- **Kaira (daemon)**: a priority-queue scheduler with an IPC control plane and event stream.
+- **Org chart**: persistent members under `.gemcode/org.json` with role skills under `.gemcode/skills/`.
+- **Parallel subtasks**: the model can run isolated subtasks concurrently (`spawn_subtasks`).
+
+How to use (start here):
+- `docs/orchestration.md`
 
 ## Live audio is a separate execution mode
 Use:

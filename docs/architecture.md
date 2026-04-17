@@ -94,6 +94,11 @@ GemCode merges multiple tool surfaces:
 - `gemcode/src/gemcode/tui/input_handler.py`
 - `gemcode/src/gemcode/ide_stdio.py`
 - `gemcode/src/gemcode/kaira_daemon.py`
+- `gemcode/src/gemcode/kaira_ipc.py`
+- `gemcode/src/gemcode/kaira_client.py`
+- `gemcode/src/gemcode/kaira_job_store.py`
+- `gemcode/src/gemcode/org.py`
+- `gemcode/src/gemcode/tools/org_tools.py`
 - `gemcode/src/gemcode/live_audio_engine.py`
 
 These provide different UX layers over the same core runner architecture.
@@ -151,6 +156,13 @@ Flow:
 5. Stream job status/results back to the terminal
 
 Kaira is a scheduler, not a TUI shell. It is optimized for queued background jobs rather than scrollback interaction.
+
+Operational note:
+- Kaira also exposes a **Unix-socket JSONL IPC control plane** and **event stream**, so the TUI/REPL can subscribe and control jobs.
+- Job records are persisted under `.gemcode/kaira/jobs/` so status survives restarts.
+
+Related docs:
+- `docs/orchestration.md`
 
 ### Live audio
 Entry: `gemcode live-audio`

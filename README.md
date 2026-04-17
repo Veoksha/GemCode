@@ -43,6 +43,7 @@ Unlike chat-first tools, GemCode is optimized for codebase-first workflows:
 - **Local project state**: `.gemcode/` stores sessions, logs, artifacts, skills, rules, styles, eval outputs, and integration config
 - **Safety controls**: workspace trust, permission modes, interactive approvals, and command gating
 - **GemSkills**: reusable markdown playbooks stored under `.gemcode/skills/<name>/SKILL.md`
+- **Orchestration (Kaira + Org)**: background jobs, org-style delegation, parallel subagents, and manager automation
 - **Context and token controls**: budgeting, context telemetry, tool-result offloading, and compaction-aware runtime behavior
 - **Multiple user interfaces**: one-shot CLI, REPL, TUI, IDE stdio bridge, and Kaira scheduler
 - **Integration surfaces**: MCP, OpenAPI, web-compatible contracts, optional browser/computer-use flows, and memory systems
@@ -123,6 +124,34 @@ gemcode -C . --attach ./report.pdf "Summarize this and list the key risks"
 
 ```bash
 gemcode kaira -C .
+```
+
+### Orchestration (Kaira + org delegation)
+
+Docs:
+- `docs/orchestration.md`
+
+Typical flow:
+
+1) Start Kaira in a separate terminal:
+
+```bash
+gemcode kaira -C .
+```
+
+2) Start GemCode (TUI/REPL) and delegate work:
+
+```bash
+gemcode -C .
+```
+
+Then in the REPL/TUI:
+
+```text
+/org tree
+/org hire verifier "QA / test planner" subagent gemcode "Find risks, propose tests, review plans."
+/org assign verifier "Review the plan and propose tests"
+/kaira jobs
 ```
 
 ### Start the IDE bridge

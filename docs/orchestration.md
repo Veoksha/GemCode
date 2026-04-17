@@ -1,0 +1,154 @@
+# Orchestration: Kaira, Org hierarchy, and parallel agents
+
+This page documents the “multi-agent” surfaces in GemCode: the Kaira background scheduler, the org hierarchy (members + delegation), and the automatic manager behaviors that can route work and improve worker skills over time.
+
+## What changed (high-level improvements)
+
+GemCode gained these orchestration features:
+
+- **Kaira IPC (two-way)**: a running `gemcode kaira` daemon exposes a Unix-socket JSONL control plane and event stream.
+- **Persistent job registry**: Kaira jobs are stored under `.gemcode/kaira/jobs/` (queued/running/finished/failed, timestamps, last output).
+- **Live event streaming**: the TUI can subscribe and display job lifecycle + text/tool deltas while you keep using GemCode normally.
+- **HITL bridge**: background jobs can request approvals (tool confirmations) and the interactive TUI can answer them.
+- **Org hierarchy**: you can model an “org chart” of members (roles), then delegate/spawn work through those members.
+- **Parallel subtasks**: the agent can run multiple isolated subtasks concurrently (`spawn_subtasks`).
+- **Manager automation**: optional heuristics can auto-fan-out complex prompts, auto-route pre-review to org members, and auto-improve member skills when formatting/contracts aren’t met.
+
+## Kaira (background scheduler)
+
+### Start the daemon
+
+In a separate terminal:
+
+```bash
+gemcode kaira -C .
+```
+
+Kaira reads prompts from stdin (and can also be controlled over IPC).
+
+### TUI auto-connect + stream events
+
+Start your normal GemCode TUI/REPL:
+
+```bash
+gemcode -C .
+```
+
+If a Kaira socket exists, GemCode will auto-connect and print:
+- job queued/started/finished/failed/cancelled
+- text deltas (streamed output)
+- tool call + tool result summaries
+- permission requests (HITL)
+
+### Control-plane commands (from GemCode REPL/TUI)
+
+These talk to the Kaira daemon via IPC:
+
+```text
+/kaira jobs
+/kaira job <job_id_prefix>
+/kaira cancel <job_id_prefix>
+```
+
+### Follow a single job (reduce noise)
+
+In the TUI:
+
+```text
+/kaira follow <job_id_prefix>
+/kaira unfollow
+```
+
+This filters the Kaira event stream to a single job id prefix.
+
+## Org hierarchy (“GemCode as an organisation”)
+
+Org data is stored under `.gemcode/org.json`.
+
+### List and view the org tree
+
+```text
+/org list
+/org tree
+```
+
+### Hire members (roles)
+
+```text
+/org hire <name> <title> [kaira_worker|subagent] [reports_to] [description...]
+```
+
+Examples:
+
+```text
+/org hire verifier "QA / test planner" subagent gemcode "Find risks, propose tests, review plans."
+/org hire kaira "Background worker" kaira_worker gemcode "Run parallel jobs and return structured reports."
+```
+
+### Delegate work to a member
+
+```text
+/org assign <member> <task...>
+```
+
+Aliases:
+- `/delegate`
+- `/assign`
+
+### Spawn (hire + assign in one step)
+
+```text
+/org spawn <name> <title> <kind> <task...>
+```
+
+Alias:
+- `/spawn`
+
+### Improve a member (append to their skill)
+
+```text
+/org improve <member> <lessons...>
+```
+
+## Automatic manager behaviors (optional)
+
+These are opt-in via environment variables. They are designed to make GemCode behave like a manager: it can fan out work, route to the right “employees”, and enforce structured reports.
+
+### Auto fan-out guidance (prompt decomposition)
+
+When a prompt looks broad, GemCode can guide the model to run parallel subtasks first:
+
+- `GEMCODE_AUTO_FANOUT=1`
+- `GEMCODE_AUTO_FANOUT_THRESHOLD=0.6`
+
+The model will be nudged to call:
+- `spawn_subtasks(tasks=[...], max_concurrency=4)`
+
+### Manager dispatch (deterministic pre-delegation)
+
+When a prompt looks complex, GemCode can pre-delegate a quick “risk + verification steps” review to an org member (for example `verifier`) and inject that into the main agent prompt:
+
+- `GEMCODE_MANAGER_DISPATCH=1`
+- `GEMCODE_MANAGER_DISPATCH_THRESHOLD=0.7`
+
+### Structured worker reports (JSON) + auto retry
+
+When the TUI receives a Kaira `job_report` event, it prefers `report_json`. If missing, it can request a single “reformat as STRICT JSON” follow-up job:
+
+- `GEMCODE_KAIRA_REPORT_RETRY=1`
+
+### Self-improving members (auto skill tweaks)
+
+If workers repeatedly fail the report contract (for example missing JSON reports), the manager can append a small lesson to that member’s skill automatically:
+
+- `GEMCODE_ORG_AUTO_IMPROVE=1`
+
+## Where the state lives
+
+Common `.gemcode/` locations:
+
+- **Kaira jobs**: `.gemcode/kaira/jobs/`
+- **Kaira IPC socket**: `.gemcode/ipc.sock`
+- **Org chart**: `.gemcode/org.json`
+- **Member skills**: `.gemcode/skills/<member-name>/SKILL.md`
+

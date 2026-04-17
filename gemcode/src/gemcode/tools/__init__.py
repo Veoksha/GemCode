@@ -10,7 +10,7 @@ from gemcode.tools.notebook import make_notebook_tools
 from gemcode.tools.repo_map import make_repo_map_tool
 from gemcode.tools.search import make_grep_tool
 from gemcode.tools.shell import make_run_command
-from gemcode.tools.subtask import make_run_subtask_tool
+from gemcode.tools.subtask import make_run_subtask_tool, make_spawn_subtasks_tool
 from gemcode.tools.tasks import make_task_tools
 from gemcode.tools.think import make_think_tool
 from gemcode.tools.todo import make_todo_tool, make_todo_read_tool
@@ -21,6 +21,7 @@ from gemcode.tools.curated_memory import make_curated_memory_tools
 from gemcode.tools.compress_memory import make_compress_memory_tool
 from gemcode.tools.skills import make_skill_tools
 from gemcode.tools.veomem_tools import make_veomem_tools
+from gemcode.tools.org_tools import make_org_tools
 from gemcode.session_summariser import summarise_session
 
 
@@ -189,6 +190,11 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
   ]
 
   try:
+    tools.extend(make_org_tools(cfg))
+  except Exception:
+    pass
+
+  try:
     tools.extend(make_veomem_tools(cfg))
   except Exception:
     pass
@@ -204,5 +210,6 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
   # run_subtask is excluded when building sub-agent tools (prevents recursion).
   if include_subtask:
     tools.append(make_run_subtask_tool(cfg))
+    tools.append(make_spawn_subtasks_tool(cfg))
 
   return tools
