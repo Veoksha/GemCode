@@ -55,6 +55,11 @@ Important groups:
 - `GEMCODE_OUTPUT_STYLE`
 - `GEMCODE_AFC_PROMPT`
 
+### Agent instruction tuning
+Built-in sections of the agent system prompt are assembled in `gemcode/src/gemcode/agent.py`; the parallel **tool system** manifest in `gemcode/src/gemcode/tool_prompt_manifest.py` stays aligned when present.
+
+- **`GEMCODE_ENGINEERING_DISCIPLINE`** — Default **on** (unset or any value other than `0`, `false`, `no`, `off`). When **off**, GemCode omits the optional **Engineering discipline** block from the main instruction and the matching subsection from the tool manifest. When **on**, that block steers the model toward stating assumptions on ambiguous asks, the smallest adequate change, edits that match surrounding style without unrelated refactors, and a quick verification step before calling risky work “done.”
+
 ### Context and budgets
 - `GEMCODE_TOKEN_BUDGET`
 - `GEMCODE_MAX_SESSION_TOKENS`

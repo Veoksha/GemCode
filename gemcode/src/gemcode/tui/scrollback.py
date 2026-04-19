@@ -16,6 +16,7 @@ from gemcode.multimodal_input import build_user_content
 
 from gemcode.capability_routing import apply_capability_routing
 from gemcode.config import load_cli_environment
+from gemcode.model_errors import API_TRANSIENT_RETRY_DELAYS_SEC, format_model_error_for_user, is_transient_error
 from gemcode.model_routing import pick_effective_model
 from gemcode.repl_slash import process_repl_slash
 from gemcode.tui.input_handler import GemCodeInputHandler
@@ -915,40 +916,70 @@ async def run_gemcode_scrollback_tui(
       # as different phases of the turn complete.
       _start_anim("Thinking\u2026")
 
-      try:
-        async for ev in runner.run_async(**kwargs):
-          events.append(ev)
-          _render_tool_calls(ev)
-          _render_tool_results(ev)
-          try:
-            if not ev.content or not ev.content.parts:
-              continue
-            # Only skip user turns. ADK often omits `author` on model events — do NOT
-            # skip those or the assistant text never renders (blank reply, ↓0 tokens).
-            if getattr(ev, "author", None) == "user":
-              continue
-            for part in ev.content.parts:
-              delta = getattr(part, "text", None)
-              if not delta:
+      transient_attempts = 0
+      stream_exc: Exception | None = None
+      while True:
+        stream_exc = None
+        try:
+          async for ev in runner.run_async(**kwargs):
+            events.append(ev)
+            _render_tool_calls(ev)
+            _render_tool_results(ev)
+            try:
+              if not ev.content or not ev.content.parts:
                 continue
-              assistant_wrote_text = True
-              if getattr(part, "thought", None):
-                buffered_thought.append(delta)
-              else:
-                buffered_final.append(delta)
-          except Exception:
+              # Only skip user turns. ADK often omits `author` on model events — do NOT
+              # skip those or the assistant text never renders (blank reply, ↓0 tokens).
+              if getattr(ev, "author", None) == "user":
+                continue
+              for part in ev.content.parts:
+                delta = getattr(part, "text", None)
+                if not delta:
+                  continue
+                assistant_wrote_text = True
+                if getattr(part, "thought", None):
+                  buffered_thought.append(delta)
+                else:
+                  buffered_final.append(delta)
+            except Exception:
+              continue
+          break
+        except Exception as _turn_err:
+          if is_transient_error(_turn_err) and transient_attempts < len(
+            API_TRANSIENT_RETRY_DELAYS_SEC
+          ):
+            _stop_anim()
+            delay = API_TRANSIENT_RETRY_DELAYS_SEC[transient_attempts]
+            transient_attempts += 1
+            print(
+              f"\n  {ansi.dim}[gemcode] Transient API error ({type(_turn_err).__name__}). "
+              f"Retrying in {delay:.0f}s ({transient_attempts}/"
+              f"{len(API_TRANSIENT_RETRY_DELAYS_SEC)})…{ansi.reset}\n",
+              flush=True,
+            )
+            await asyncio.sleep(delay)
+            events.clear()
+            assistant_wrote_text = False
+            buffered_thought.clear()
+            buffered_final.clear()
+            last_tool_error = None
+            _start_anim("Retrying\u2026")
             continue
-      except Exception as _turn_err:
+          stream_exc = _turn_err
+          break
+
+      if stream_exc is not None:
         # Catch runner errors (e.g. ADK ValueError from mismatched function
         # response IDs) so a single bad turn doesn't crash the whole TUI.
         _stop_anim()
+        try:
+          hint = format_model_error_for_user(stream_exc)
+        except Exception:
+          hint = f"{type(stream_exc).__name__}: {stream_exc}"
+        print(f"\n  {ansi.blue_warn}[gemcode] turn error: {hint}{ansi.reset}")
         print(
-            f"\n  {ansi.blue_warn}[gemcode] turn error: "
-            f"{type(_turn_err).__name__}: {_turn_err}{ansi.reset}"
-        )
-        print(
-            f"  {ansi.dim}The agent encountered an internal error on this turn. "
-            f"Please send your message again.{ansi.reset}\n"
+            f"  {ansi.dim}If this was a temporary Google API issue, send your message again. "
+            f"Otherwise try /compact, a shorter prompt, or /model to switch model.{ansi.reset}\n"
         )
         break
 

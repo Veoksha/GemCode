@@ -18,11 +18,6 @@ from google.adk.runners import Runner
 from google.genai import types
 
 
-# Delays (seconds) between successive transient-error retries: 2s, 5s, 12s.
-# Three retries = up to ~19 seconds of total wait before giving up.
-_TRANSIENT_RETRY_DELAYS = [2.0, 5.0, 12.0]
-
-
 _HITL_PROMPT_LOCK = Lock()
 
 async def _maybe_enqueue_kaira_autopilot(*, cfg: "GemCodeConfig", session_id: str) -> None:
@@ -423,14 +418,14 @@ async def run_turn(
             next_message=current_message, do_reset=do_reset
           )
         except Exception as _exc:
-          from gemcode.model_errors import is_transient_error
-          if is_transient_error(_exc) and transient_attempts < len(_TRANSIENT_RETRY_DELAYS):
-            delay = _TRANSIENT_RETRY_DELAYS[transient_attempts]
+          from gemcode.model_errors import API_TRANSIENT_RETRY_DELAYS_SEC, is_transient_error
+          if is_transient_error(_exc) and transient_attempts < len(API_TRANSIENT_RETRY_DELAYS_SEC):
+            delay = API_TRANSIENT_RETRY_DELAYS_SEC[transient_attempts]
             transient_attempts += 1
             _tui_active = os.environ.get("GEMCODE_TUI_ACTIVE", "0").lower() in ("1", "true", "yes", "on")
             _msg = (
               f"\n[gemcode] Transient API error ({type(_exc).__name__}). "
-              f"Retrying in {delay:.0f}s (attempt {transient_attempts}/{len(_TRANSIENT_RETRY_DELAYS)})...\n"
+              f"Retrying in {delay:.0f}s (attempt {transient_attempts}/{len(API_TRANSIENT_RETRY_DELAYS_SEC)})...\n"
             )
             print(_msg, file=sys.stderr)
             # Surface retry notice in TUI if available.

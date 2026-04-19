@@ -52,6 +52,7 @@ This is the composition root. It builds:
 
 This layer constructs the effective instruction seen by the model. It merges:
 - runtime facts
+- optional engineering discipline guidance (toggle `GEMCODE_ENGINEERING_DISCIPLINE`; see [`configuration.md`](configuration.md#agent-instruction-tuning))
 - project instruction files
 - tool manifest text
 - loaded rules
@@ -201,6 +202,7 @@ The effective model instruction is not a single static prompt. It is assembled f
 
 - global behavior
 - runtime facts
+- optional engineering discipline block (same toggle as `GEMCODE_ENGINEERING_DISCIPLINE` in [`configuration.md`](configuration.md#agent-instruction-tuning))
 - project instruction files
 - notes and curated memory
 - active capabilities

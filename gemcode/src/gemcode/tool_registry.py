@@ -38,7 +38,9 @@ SHELL_TOOLS: frozenset[str] = frozenset({"run_command", "bash"})
 # Session planning only (no disk / shell; no extra permission)
 # think — in-context reasoning scratchpad (no-op, no side effects)
 # run_subtask — spawns a sub-agent; inherits parent permission settings
-PLANNING_TOOLS: frozenset[str] = frozenset({"todo_write", "think", "run_subtask"})
+PLANNING_TOOLS: frozenset[str] = frozenset(
+  {"todo_write", "think", "run_subtask", "spawn_subtasks"}
+)
 
 ToolConcurrency = Literal["parallel_safe", "serial_mutating", "shell"]
 

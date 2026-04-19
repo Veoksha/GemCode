@@ -105,12 +105,38 @@ def build_tool_manifest(cfg: GemCodeConfig) -> str | None:
 
   memory_on = bool(getattr(cfg, "enable_memory", False))
 
+  mm = (getattr(cfg, "model_mode", "") or "").strip().lower()
+  cm = (getattr(cfg, "capability_mode", "") or "").strip().lower()
+  auto_routing_note = ""
+  if mm == "auto" or cm == "auto":
+    auto_routing_note = (
+      f"\n- **Dynamic routing:** `model_mode={mm}`, `capability_mode={cm}` — per-turn defaults are **hints**; "
+      "still pick the smallest depth/toolset that fits the ask.\n"
+    )
+
+  calibration_manifest = f"""### Calibration (aligned with main instruction)
+- **Repo vs external:** ground claims about *this repo* with reads/grep/tests; use research/web for **external** docs, APIs, or facts outside the tree.
+- **Orchestration:** use `run_subtask` / `spawn_subtasks` only for **parallel independent** work or explicit verification; merge into **one** answer; skip fan-out for trivial linear tasks.
+- **Finish line:** verify risky edits (test/lint/read-back) before declaring done.{auto_routing_note}"""
+
+  _disc = os.environ.get("GEMCODE_ENGINEERING_DISCIPLINE", "1").strip().lower()
+  discipline_manifest = ""
+  if _disc not in ("0", "false", "no", "off"):
+    discipline_manifest = """
+
+### Engineering discipline (aligned with main instruction)
+- **Ambiguity:** state what you understood or ask **one** precise question; prefer repo evidence over guesses.
+- **Scope:** deliver the ask with the **smallest** adequate change; skip speculative extras.
+- **Surgical:** touch only what you must; match local style; clean up orphans **your** edit introduced."""
+
   manifest = f"""## Tool system (GemCode)
 
 ### Execution model
 - Issue **multiple independent tool calls in one step** (parallel reads, parallel grep, parallel run_subtask). Use sequential calls only when step B needs step A's result.
 - **Reason end-to-end autonomously.** The user expects complete tasks, not a questionnaire. Use `think` before complex actions, `todo_write` to track multi-step work.
 - **Never stop after the first tool call succeeds.** Keep going until the full task is done or you hit a genuine blocker.
+
+{calibration_manifest}{discipline_manifest}
 
 ### Permission policy
 | Setting | Value |

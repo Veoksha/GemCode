@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import re
 
+# Seconds between retries for transient API failures (shared by invoke.py and TUI).
+API_TRANSIENT_RETRY_DELAYS_SEC: tuple[float, ...] = (2.0, 5.0, 12.0)
+
 
 def is_transient_error(error: Exception) -> bool:
   """Return True for HTTP 503 / 429 and similar transient API errors that are safe to retry.
@@ -29,6 +32,21 @@ def is_transient_error(error: Exception) -> bool:
     return True
 
   msg = str(error)
+  ml = msg.lower()
+
+  # httpx / google-genai often raise ``ServerError`` for HTTP 500 without ``APIError.code``.
+  if et == "ServerError" or "ServerError" in et:
+    if any(code in msg for code in ("500", "502", "503", "504")):
+      return True
+
+  # Gemini REST body shape: ``'code': 500`` / ``"INTERNAL"`` / "Internal error encountered."
+  if ("'code': 500" in msg or '"code": 500' in msg or re.search(r"\b500\b", msg)) and any(
+    p in ml for p in ("internal", "unavailable", "try again", "deadline", "timeout", "backend")
+  ):
+    return True
+  if "internal error encountered" in ml:
+    return True
+
   # Match the specific phrases Gemini uses in 503 responses
   if "503" in msg and any(p in msg for p in ("high demand", "service unavailable", "overloaded")):
     return True
