@@ -1245,6 +1245,97 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True)
 
+  # ── /mcp (Model Context Protocol toolsets) ────────────────────────────────
+  if name == "mcp":
+    args_m = (sc.args or "").strip()
+    sub = (args_m.split()[0].strip().lower() if args_m else "status")
+    mcp_path = cfg.project_root / ".gemcode" / "mcp.json"
+
+    if sub in ("help", "?"):
+      out("Usage:")
+      out("  /mcp                 Show MCP config + loaded toolsets (same as /mcp status)")
+      out("  /mcp status          Show MCP config + loaded toolsets")
+      out("  /mcp list            List configured servers from .gemcode/mcp.json")
+      out("  /mcp reload          Rebuild runner to reload MCP toolsets from disk")
+      out()
+      out("Config:")
+      out(f"  {mcp_path}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub in ("reload", "refresh"):
+      out("MCP: runner will rebuild on the next turn (reload .gemcode/mcp.json).")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+    # Read config if present.
+    servers: list[dict] = []
+    parse_error: str | None = None
+    if mcp_path.is_file():
+      try:
+        import json
+
+        data = json.loads(mcp_path.read_text(encoding="utf-8"))
+        servers = list(data.get("servers") or [])
+      except Exception as e:
+        parse_error = str(e)
+
+    # Inspect currently loaded toolsets (best-effort; depends on how caller wired extra_tools).
+    loaded_prefixes: list[str] = []
+    loaded_count = 0
+    try:
+      from google.adk.tools.mcp_tool.mcp_toolset import McpToolset  # type: ignore
+
+      for t in list(extra_tools or []):
+        if isinstance(t, McpToolset):
+          loaded_count += 1
+          try:
+            p = getattr(t, "tool_name_prefix", None)
+            if isinstance(p, str) and p and p not in loaded_prefixes:
+              loaded_prefixes.append(p)
+          except Exception:
+            pass
+    except Exception:
+      # MCP extras not installed or ADK missing MCP toolset types.
+      pass
+
+    if sub in ("list", "ls"):
+      out(f"mcp.json: {mcp_path} ({'exists' if mcp_path.is_file() else 'missing'})")
+      if parse_error:
+        out(f"error: {parse_error}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if not servers:
+        out("(no servers configured)")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out("Servers:")
+      for s in servers[:200]:
+        try:
+          nm = (s.get("name") or "mcp").strip()
+          kind = "stdio" if "stdio" in s else ("http" if "http" in s else ("sse" if "sse" in s else "?"))
+          out(f"  - {nm} ({kind})")
+        except Exception:
+          continue
+      if len(servers) > 200:
+        out(f"  … (+{len(servers) - 200} more)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    # Default: status.
+    out("MCP:")
+    out(f"  mcp.json: {mcp_path} ({'exists' if mcp_path.is_file() else 'missing'})")
+    if parse_error:
+      out(f"  parse_error: {parse_error}")
+    out(f"  configured_servers: {len(servers)}")
+    suffix = f"  (prefixes: {', '.join(sorted(loaded_prefixes))})" if loaded_prefixes else ""
+    out(f"  loaded_toolsets:    {loaded_count}{suffix}")
+    out()
+    if not mcp_path.is_file():
+      out("Tip: create .gemcode/mcp.json to enable MCP toolsets for this project.")
+      out()
+    return ReplSlashResult(skip_model_turn=True)
+
   if name == "tools":
     args_t = (sc.args or "").strip().lower()
     if args_t in ("smoke", "decl", "declarations"):

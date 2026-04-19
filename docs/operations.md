@@ -63,10 +63,21 @@ Fix:
 
 ### Cache cleanup errors
 Symptoms:
-- permission denied or missing cached content during cleanup
+- log line like `Failed to cleanup cache cachedContents/...` with `403 PERMISSION_DENIED` and
+  `CachedContent not found (or permission denied)`
+
+Cause:
+- ADK’s Gemini **context cache** (see `GEMCODE_CONTEXT_CACHE` in [`configuration.md`](configuration.md#context-and-budgets)) reuses a server-side cache. When the entry
+  has **already expired** (TTL) or been evicted, a follow-up **delete** can return 403
+  “not found” even though nothing is wrong for the user.
 
 Impact:
-- usually non-fatal post-run cleanup noise
+- usually **non-fatal** noise; GemCode treats that class of delete failure as a no-op and
+  logs it at **debug** only.
+
+If you still want to avoid context caching entirely (saves this class of message and
+  uses a simpler request path, at higher input-token cost on long sessions), set
+`GEMCODE_CONTEXT_CACHE=0`.
 
 ## Kaira operations
 Kaira is a queue-based daemon.

@@ -61,6 +61,7 @@ Built-in sections of the agent system prompt are assembled in `gemcode/src/gemco
 - **`GEMCODE_ENGINEERING_DISCIPLINE`** — Default **on** (unset or any value other than `0`, `false`, `no`, `off`). When **off**, GemCode omits the optional **Engineering discipline** block from the main instruction and the matching subsection from the tool manifest. When **on**, that block steers the model toward stating assumptions on ambiguous asks, the smallest adequate change, edits that match surrounding style without unrelated refactors, and a quick verification step before calling risky work “done.”
 
 ### Context and budgets
+- **`GEMCODE_CONTEXT_CACHE`** — Default **on**. When **off** (`0`/`false`/`no`/`off`), disables ADK Gemini **context caching** (no server-side `cachedContents` reuse). Disabling avoids rare cleanup/API mismatch noise and slightly simplifies the request path, but **increases** repeated input tokens on long sessions when the prompt prefix is stable. Implemented in `gemcode/src/gemcode/session_runtime.py` (`ContextCacheConfig`).
 - `GEMCODE_TOKEN_BUDGET`
 - `GEMCODE_MAX_SESSION_TOKENS`
 - compaction and policy variables from `.env.example`

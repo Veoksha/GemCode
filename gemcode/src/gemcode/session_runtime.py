@@ -32,6 +32,63 @@ from gemcode.plugins.tool_recovery_plugin import GemCodeReflectAndRetryToolPlugi
 
 
 # ---------------------------------------------------------------------------
+# ADK: Gemini context cache — quiet "stale delete" failures
+# ---------------------------------------------------------------------------
+
+
+def _gemini_cache_delete_already_gone(exc: BaseException) -> bool:
+  """True when delete failed only because the cache entry is already gone.
+
+  The Gemini API often returns ``403 PERMISSION_DENIED`` with a body like
+  ``CachedContent not found`` after TTL expiry or server-side eviction. ADK's
+  default cleanup logs that as WARNING every time — noisy and usually harmless.
+  """
+  msg = str(exc).lower()
+  if "cachedcontent not found" in msg:
+    return True
+  if "not found" in msg and "cached" in msg:
+    return True
+  code = getattr(exc, "code", None)
+  if code == 404:
+    return True
+  status = (getattr(exc, "status", None) or "").upper()
+  if code == 403 and status == "PERMISSION_DENIED" and ("cachedcontent" in msg or "cached content" in msg):
+    return True
+  return False
+
+
+def _patch_gemini_adk_cache_cleanup() -> None:
+  """Downgrade benign cache-delete failures to DEBUG (see ``_gemini_cache_delete_already_gone``)."""
+  try:
+    from google.adk.models import gemini_context_cache_manager as gccm
+  except Exception:
+    return
+  if getattr(gccm.GeminiContextCacheManager, "_gemcode_cleanup_patch", False):
+    return
+
+  async def _cleanup(self, cache_name: str) -> None:
+    gccm.logger.debug("Attempting to delete cache: %s", cache_name)
+    try:
+      await self.genai_client.aio.caches.delete(name=cache_name)
+      gccm.logger.info("Cache cleaned up: %s", cache_name)
+    except BaseException as e:
+      if _gemini_cache_delete_already_gone(e):
+        gccm.logger.debug(
+            "Cache delete no-op (already expired or gone): %s — %s",
+            cache_name,
+            e,
+        )
+        return
+      gccm.logger.warning("Failed to cleanup cache %s: %s", cache_name, e)
+
+  gccm.GeminiContextCacheManager.cleanup_cache = _cleanup  # type: ignore[method-assign]
+  gccm.GeminiContextCacheManager._gemcode_cleanup_patch = True
+
+
+_patch_gemini_adk_cache_cleanup()
+
+
+# ---------------------------------------------------------------------------
 # ADK App-level feature helpers
 # ---------------------------------------------------------------------------
 
