@@ -26,6 +26,33 @@ gemcode kaira -C .
 
 Kaira reads prompts from stdin (and can also be controlled over IPC).
 
+### Local scheduled automations (hourly/nightly/cron)
+
+Kaira can run local scheduled automations from:
+- `.gemcode/automations/*.json`
+
+Enable:
+
+```bash
+gemcode kaira -C . --automations
+```
+
+Optional heartbeat (enqueue a status prompt every N seconds):
+
+```bash
+gemcode kaira -C . --heartbeat-every-s 240 --heartbeat-prompt "Heartbeat: summarise XAUUSD status"
+```
+
+### Single-terminal mode (TUI + embedded Kaira)
+
+If you want Kaira to run without a second terminal, embed it in the scrollback TUI:
+
+```bash
+GEMCODE_TUI_WITH_KAIRA=1 gemcode -C .
+```
+
+The TUI will start Kaira headless (IPC-only) and also auto-subscribe to its event stream, so job output appears inline.
+
 ### TUI auto-connect + stream events
 
 Start your normal GemCode TUI/REPL:

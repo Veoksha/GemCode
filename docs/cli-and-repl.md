@@ -150,6 +150,12 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/kaira cancel <id>` | Cancel a job via IPC |
 | `/kaira follow <id>` | (TUI) Only show events for one job id prefix |
 | `/kaira unfollow` | (TUI) Clear the follow filter |
+| `/automations` | Local scheduled automations (Kaira) + heartbeat |
+| `/automations list` | List `.gemcode/automations/*.json` |
+| `/automations init <name>` | Create starter automation config |
+| `/automations run <name>` | Enqueue an automation now via Kaira IPC |
+| `/automations heartbeat <seconds> [prompt...]` | Heartbeat job interval + prompt |
+| `/afc` | AFC prompt defaults (`GEMCODE_AFC_DEFAULT`, `GEMCODE_AFC_PROMPT`) |
 | `/limits` | Execution limits (calls, context, …) |
 | `/live-audio` | How to run `gemcode live-audio` · `/liveaudio` same |
 | `/login` | How to run `gemcode login` (API key) |
@@ -267,6 +273,23 @@ GEMCODE_TUI_WITH_KAIRA=1 gemcode -C .
 ```
 
 In this mode, GemCode starts a headless Kaira daemon (IPC-only) and the TUI auto-subscribes to job events so Kaira output is printed inline.
+
+### Scheduled automations (local)
+Kaira can also run simple local scheduled automations (like “hourly”, “nightly”, or cron-style triggers) from:
+
+- `.gemcode/automations/*.json`
+
+Enable them when running Kaira:
+
+```bash
+gemcode kaira -C . --automations
+```
+
+Optional “heartbeat” jobs (enqueue a prompt every N seconds):
+
+```bash
+gemcode kaira -C . --heartbeat-every-s 240 --heartbeat-prompt "Heartbeat: summarise XAUUSD status"
+```
 
 If you want a queue-driven scheduler, use:
 

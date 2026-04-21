@@ -977,6 +977,23 @@ def main() -> None:
       metavar="N",
       help="Cap model↔tool iterations for each job message (ADK RunConfig.max_llm_calls).",
     )
+    kaira_parser.add_argument(
+      "--automations",
+      action="store_true",
+      help="Enable local scheduled automations from .gemcode/automations/*.json.",
+    )
+    kaira_parser.add_argument(
+      "--heartbeat-every-s",
+      type=int,
+      default=0,
+      metavar="N",
+      help="Optional heartbeat job interval (seconds). Enqueues heartbeat prompt repeatedly.",
+    )
+    kaira_parser.add_argument(
+      "--heartbeat-prompt",
+      default=None,
+      help="Prompt text for heartbeat jobs (used with --heartbeat-every-s).",
+    )
 
     args = kaira_parser.parse_args(sys.argv[2:])
     load_cli_environment()
@@ -1012,6 +1029,16 @@ def main() -> None:
       cfg.model_mode = args.model_mode
     if args.max_llm_calls is not None:
       cfg.max_llm_calls = args.max_llm_calls
+
+    # Local automations / heartbeat configuration (implemented in KairaDaemon loop).
+    if getattr(args, "automations", False):
+      os.environ["GEMCODE_AUTOMATIONS"] = "1"
+    hb_every = int(getattr(args, "heartbeat_every_s", 0) or 0)
+    if hb_every > 0:
+      os.environ["GEMCODE_AUTOMATIONS"] = "1"
+      os.environ["GEMCODE_KAIRA_HEARTBEAT_EVERY_S"] = str(hb_every)
+      if getattr(args, "heartbeat_prompt", None):
+        os.environ["GEMCODE_KAIRA_HEARTBEAT_PROMPT"] = str(args.heartbeat_prompt)
 
     _maybe_prompt_trust(cfg)
     _maybe_prompt_google_api_key()

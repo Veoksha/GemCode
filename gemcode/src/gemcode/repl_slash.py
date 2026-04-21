@@ -1336,6 +1336,257 @@ async def process_repl_slash(
       out()
     return ReplSlashResult(skip_model_turn=True)
 
+  # ── /automations (local scheduled jobs for Kaira) ──────────────────────────
+  if name in ("automations", "automation", "auto"):
+    args_a = (sc.args or "").strip()
+    parts = args_a.split() if args_a else []
+    sub = (parts[0].strip().lower() if parts else "status")
+    a_dir = cfg.project_root / ".gemcode" / "automations"
+    a_state = a_dir / "state.json"
+
+    def _bool_env(name: str) -> bool:
+      return os.environ.get(name, "0").strip().lower() in ("1", "true", "yes", "on")
+
+    if sub in ("help", "?"):
+      out("Usage:")
+      out("  /automations                 Status (enabled, count, state file)")
+      out("  /automations list            List .gemcode/automations/*.json")
+      out("  /automations on|off          Enable/disable local scheduling (sets GEMCODE_AUTOMATIONS)")
+      out("  /automations init <name>     Create a starter automation json")
+      out("  /automations run <name>      Enqueue an automation now via Kaira IPC (if running)")
+      out("  /automations heartbeat off")
+      out("  /automations heartbeat <seconds> [prompt...]   Set heartbeat interval + optional prompt")
+      out()
+      out("Paths:")
+      out(f"  dir  : {a_dir}")
+      out(f"  state: {a_state}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub in ("on", "enable", "enabled"):
+      os.environ["GEMCODE_AUTOMATIONS"] = "1"
+      out("automations: on  (GEMCODE_AUTOMATIONS=1)")
+      out("Note: requires a running Kaira daemon (external or embedded) to execute.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if sub in ("off", "disable", "disabled"):
+      os.environ["GEMCODE_AUTOMATIONS"] = "0"
+      out("automations: off  (GEMCODE_AUTOMATIONS=0)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub == "heartbeat":
+      if len(parts) >= 2 and parts[1].strip().lower() in ("off", "disable", "clear", "0"):
+        os.environ["GEMCODE_KAIRA_HEARTBEAT_EVERY_S"] = "0"
+        os.environ.pop("GEMCODE_KAIRA_HEARTBEAT_PROMPT", None)
+        out("heartbeat: off")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if len(parts) < 2:
+        cur = int(os.environ.get("GEMCODE_KAIRA_HEARTBEAT_EVERY_S", "0") or "0")
+        pr = os.environ.get("GEMCODE_KAIRA_HEARTBEAT_PROMPT", "") or ""
+        out(f"heartbeat_every_s: {cur}")
+        if pr:
+          out(f"heartbeat_prompt:  {pr}")
+        out()
+        out("Set: /automations heartbeat 240 Heartbeat: summarise running jobs")
+        out("Off: /automations heartbeat off")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      try:
+        seconds = int(parts[1])
+      except ValueError:
+        seconds = 0
+      if seconds <= 0:
+        out("heartbeat: invalid seconds (use integer > 0)")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      os.environ["GEMCODE_AUTOMATIONS"] = "1"
+      os.environ["GEMCODE_KAIRA_HEARTBEAT_EVERY_S"] = str(seconds)
+      rest = args_a.split(None, 2)
+      if len(rest) >= 3 and rest[2].strip():
+        os.environ["GEMCODE_KAIRA_HEARTBEAT_PROMPT"] = rest[2].strip()
+      out(f"heartbeat: on  (every {seconds}s)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub in ("init", "new") and len(parts) >= 2:
+      name_raw = parts[1].strip().lower()
+      import re
+
+      if not re.fullmatch(r"[a-z0-9][a-z0-9-_]{0,63}", name_raw):
+        out("Invalid name. Use lowercase letters/numbers plus - or _ (max 64 chars).")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      a_dir.mkdir(parents=True, exist_ok=True)
+      p = a_dir / f"{name_raw}.json"
+      if p.exists():
+        out(f"Already exists: {p}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      template = {
+        "name": name_raw,
+        "enabled": True,
+        "priority": 0,
+        "prompt": "Describe exactly what to do and what success looks like.",
+        "triggers": [{"kind": "nightly", "at": "02:00"}],
+      }
+      try:
+        import json
+
+        p.write_text(json.dumps(template, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+      except Exception as e:
+        out(f"Failed to write: {e}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out(f"Created: {p}")
+      out("Enable runner-side execution with: gemcode kaira --automations (or GEMCODE_AUTOMATIONS=1)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub in ("run",) and len(parts) >= 2:
+      target = parts[1].strip().lower()
+      cfgs = {}
+      try:
+        from gemcode.automations import load_automations
+
+        for a in load_automations(cfg.project_root):
+          cfgs[a.name.lower()] = a
+      except Exception:
+        cfgs = {}
+      a = cfgs.get(target)
+      if a is None:
+        out(f"Unknown automation: {target}")
+        out("Tip: /automations list")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      # Enqueue via Kaira IPC.
+      sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+      try:
+        from gemcode.kaira_client import KairaIpcClient
+
+        client = await KairaIpcClient.connect(socket_path=sock)
+        try:
+          res = await client.request(action="enqueue", prompt=a.prompt, priority=a.priority, session_id=(a.session_id or session_id))
+        finally:
+          await client.close()
+        if not res.get("ok"):
+          out(f"[kaira] {res.get('error') or 'enqueue failed'}")
+        else:
+          out(f"[kaira] enqueued: {res.get('job_id')}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      except Exception as e:
+        out(f"[kaira] IPC unavailable: {type(e).__name__}: {e}")
+        out("Start Kaira with: gemcode kaira -C . --automations")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+
+    if sub in ("list", "ls", "show"):
+      try:
+        from gemcode.automations import load_automations
+
+        autos = load_automations(cfg.project_root)
+      except Exception:
+        autos = []
+      out(f"automations_enabled: {_bool_env('GEMCODE_AUTOMATIONS')}")
+      out(f"dir: {a_dir} ({'exists' if a_dir.is_dir() else 'missing'})")
+      out(f"state: {a_state} ({'exists' if a_state.is_file() else 'missing'})")
+      if not autos:
+        out("(no automation configs found)")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out("Configs:")
+      for a in autos[:200]:
+        trig = ", ".join(t.key() for t in a.triggers) if a.triggers else "(no triggers)"
+        out(f"  - {a.name}\tenabled={a.enabled}\tpriority={a.priority}\t{trig}")
+      if len(autos) > 200:
+        out(f"  … (+{len(autos) - 200} more)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    # status default
+    try:
+      from gemcode.automations import load_automations
+
+      autos2 = load_automations(cfg.project_root)
+    except Exception:
+      autos2 = []
+    out(f"automations_enabled: {_bool_env('GEMCODE_AUTOMATIONS')}")
+    out(f"configs: {len(autos2)}  (dir: {a_dir})")
+    out(f"state_file: {a_state} ({'exists' if a_state.is_file() else 'missing'})")
+    out()
+    out("Tip: /automations list  ·  Enable: gemcode kaira --automations  ·  Help: /automations help")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /afc (Automatic Function Calling UX) ───────────────────────────────────
+  if name == "afc":
+    args_f = (sc.args or "").strip()
+    parts = args_f.split() if args_f else []
+    sub = (parts[0].strip().lower() if parts else "status")
+
+    def _norm(v: str) -> str:
+      return (v or "").strip().lower()
+
+    if sub in ("help", "?"):
+      out("Usage:")
+      out("  /afc                 Show AFC prompt settings")
+      out("  /afc default all|callables|clear   Set GEMCODE_AFC_DEFAULT")
+      out("  /afc prompt on|off                Set GEMCODE_AFC_PROMPT")
+      out()
+      out("Notes:")
+      out("  These affect runner construction; GemCode will rebuild runner on next turn.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub == "default":
+      if len(parts) < 2:
+        out(f"GEMCODE_AFC_DEFAULT: {os.environ.get('GEMCODE_AFC_DEFAULT', '(unset)')}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      v = _norm(parts[1])
+      if v in ("clear", "unset", "off", "none"):
+        os.environ.pop("GEMCODE_AFC_DEFAULT", None)
+        out("GEMCODE_AFC_DEFAULT: (unset)")
+        out("Runner will rebuild on next turn.")
+        out()
+        return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+      if v not in ("all", "callables"):
+        out("Invalid. Use: all|callables|clear")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      os.environ["GEMCODE_AFC_DEFAULT"] = v
+      out(f"GEMCODE_AFC_DEFAULT: {v}")
+      out("Runner will rebuild on next turn.")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+    if sub == "prompt":
+      if len(parts) < 2:
+        out(f"GEMCODE_AFC_PROMPT: {os.environ.get('GEMCODE_AFC_PROMPT', '(unset => default on)')}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      v2 = _norm(parts[1])
+      if v2 in ("on", "1", "true", "yes"):
+        os.environ["GEMCODE_AFC_PROMPT"] = "1"
+      elif v2 in ("off", "0", "false", "no"):
+        os.environ["GEMCODE_AFC_PROMPT"] = "0"
+      else:
+        out("Invalid. Use: on|off")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out(f"GEMCODE_AFC_PROMPT: {os.environ.get('GEMCODE_AFC_PROMPT')}")
+      out("Runner will rebuild on next turn.")
+      out()
+      return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
+
+    out("AFC:")
+    out(f"  GEMCODE_AFC_PROMPT : {os.environ.get('GEMCODE_AFC_PROMPT', '(unset => default on)')}")
+    out(f"  GEMCODE_AFC_DEFAULT: {os.environ.get('GEMCODE_AFC_DEFAULT', '(unset)')}")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
   if name == "tools":
     args_t = (sc.args or "").strip().lower()
     if args_t in ("smoke", "decl", "declarations"):

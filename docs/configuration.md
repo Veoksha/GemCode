@@ -55,6 +55,10 @@ Important groups:
 - `GEMCODE_OUTPUT_STYLE`
 - `GEMCODE_AFC_PROMPT`
 - `GEMCODE_AFC_DEFAULT` — when set to `all` or `callables`, skips the interactive `afc>` prompt and preselects the tool mode when non-callable toolsets (MCP/OpenAPI) are present.
+- `GEMCODE_TUI_WITH_KAIRA` — when `1`/`true`/`yes`/`on`, starts a headless Kaira daemon inside the scrollback TUI so Kaira jobs stream inline (single-terminal mode).
+- `GEMCODE_AUTOMATIONS` — when `1`/`true`/`yes`/`on`, enables local scheduled automations from `.gemcode/automations/*.json` (executed by Kaira).
+- `GEMCODE_KAIRA_HEARTBEAT_EVERY_S` — optional heartbeat interval (seconds) for Kaira (enqueues a heartbeat prompt repeatedly when automations are enabled).
+- `GEMCODE_KAIRA_HEARTBEAT_PROMPT` — optional prompt text used by the heartbeat job.
 
 ### Agent instruction tuning
 Built-in sections of the agent system prompt are assembled in `gemcode/src/gemcode/agent.py`; the parallel **tool system** manifest in `gemcode/src/gemcode/tool_prompt_manifest.py` stays aligned when present.

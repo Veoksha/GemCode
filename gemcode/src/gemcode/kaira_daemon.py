@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import sys
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Awaitable, Callable
@@ -221,6 +222,65 @@ class KairaDaemon:
     # Future: adjust live semaphore. For now we just return the current value.
     # We'll implement dynamic resizing once the rest of the control plane is stable.
     return int(self.concurrency)
+
+  async def _automations_loop(
+    self,
+    *,
+    session_id: str,
+    heartbeat_every_s: int | None = None,
+    heartbeat_prompt: str | None = None,
+  ) -> None:
+    """
+    Run saved scheduled automations from `.gemcode/automations/*.json`.
+
+    This is a simple local scheduler. It is intentionally conservative:
+    - interval triggers can be as fast as seconds
+    - cron/daily triggers are minute-level
+    """
+    import os
+
+    from gemcode.automations import (
+      is_due,
+      load_automation_state,
+      load_automations,
+      save_automation_state,
+    )
+
+    state = load_automation_state(self.cfg.project_root)
+    hb_last: float | None = None
+    while not self._stop_event.is_set():
+      try:
+        if os.environ.get("GEMCODE_AUTOMATIONS", "0").strip().lower() not in ("1", "true", "yes", "on"):
+          await asyncio.sleep(1.0)
+          continue
+        now_s = time.time()
+
+        # Heartbeat (ephemeral; CLI-configured).
+        if heartbeat_every_s and heartbeat_every_s > 0:
+          if hb_last is None or (now_s - hb_last) >= float(heartbeat_every_s):
+            hb_last = now_s
+            p = (heartbeat_prompt or "Heartbeat: summarize running jobs and system status.").strip()
+            if p:
+              self.enqueue_prompt(prompt=p, priority=self.default_priority, session_id=session_id)
+
+        autos = load_automations(self.cfg.project_root)
+        changed = False
+        for a in autos:
+          if not a.enabled:
+            continue
+          for trig in a.triggers:
+            key = f"{a.name}:{trig.key()}"
+            last_s = state.get(key)
+            if is_due(now_s=now_s, last_s=last_s, trig=trig):
+              state[key] = now_s
+              changed = True
+              sid = a.session_id or session_id
+              self.enqueue_prompt(prompt=a.prompt, priority=a.priority, session_id=sid)
+        if changed:
+          save_automation_state(self.cfg.project_root, state)
+      except Exception:
+        pass
+      await asyncio.sleep(5.0)
 
   def enqueue_prompt(
     self,
@@ -667,13 +727,22 @@ class KairaDaemon:
       self._ipc = None
       print(f"[kaira] ipc disabled: {e}", file=sys.stderr, flush=True)
 
+    import os as _os
+
     scheduler_task = asyncio.create_task(self._scheduler_loop())
+    automations_task = asyncio.create_task(
+      self._automations_loop(
+        session_id=session_id,
+        heartbeat_every_s=int(_os.environ.get("GEMCODE_KAIRA_HEARTBEAT_EVERY_S", "0") or "0") or None,
+        heartbeat_prompt=_os.environ.get("GEMCODE_KAIRA_HEARTBEAT_PROMPT", None),
+      )
+    )
     stdin_task = None
     if enable_stdin:
       stdin_task = asyncio.create_task(self._stdin_loop(session_id=session_id))
 
     # Wait for either scheduler to stop (shouldn't happen) or stdin loop to end.
-    wait_set = {scheduler_task}
+    wait_set = {scheduler_task, automations_task}
     if stdin_task is not None:
       wait_set.add(stdin_task)
     done, pending = await asyncio.wait(
