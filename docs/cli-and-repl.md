@@ -259,6 +259,15 @@ If you want the TUI, use:
 gemcode -C .
 ```
 
+### One-terminal mode (TUI + embedded Kaira)
+If you want continuous background jobs **and** you want to see everything in the same terminal UI, you can run Kaira inside the TUI process:
+
+```bash
+GEMCODE_TUI_WITH_KAIRA=1 gemcode -C .
+```
+
+In this mode, GemCode starts a headless Kaira daemon (IPC-only) and the TUI auto-subscribes to job events so Kaira output is printed inline.
+
 If you want a queue-driven scheduler, use:
 
 ```bash

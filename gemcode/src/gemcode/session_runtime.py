@@ -474,9 +474,12 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
     import sys
 
     prompt_afc = os.environ.get("GEMCODE_AFC_PROMPT", "1").strip().lower() in ("1", "true", "yes", "on")
+    afc_default = (os.environ.get("GEMCODE_AFC_DEFAULT") or "").strip().lower()
     if prompt_afc and hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
       tools_list = list(merged_extra_tools or [])
       noncallable = [t for t in tools_list if not callable(t)]
+      if noncallable and getattr(cfg, "_afc_choice", None) not in ("all", "callables") and afc_default in ("all", "callables"):
+        object.__setattr__(cfg, "_afc_choice", afc_default)
       if noncallable and getattr(cfg, "_afc_choice", None) not in ("all", "callables"):
         print(
           "\n[gemcode] AFC compatibility\n"

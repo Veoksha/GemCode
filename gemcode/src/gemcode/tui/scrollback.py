@@ -279,6 +279,50 @@ async def run_gemcode_scrollback_tui(
       get_cfg=lambda: cfg,
   )
 
+  # ── Optional: embed Kaira daemon in this TUI ─────────────────────────────
+  # This enables continuous background automation without requiring a second
+  # terminal. The TUI will also auto-subscribe to IPC events (below) so job
+  # output appears inline.
+  _embedded_kaira_task: list = [None]  # asyncio.Task | None
+
+  def _embed_kaira_enabled() -> bool:
+    return os.environ.get("GEMCODE_TUI_WITH_KAIRA", "0").strip().lower() in (
+      "1",
+      "true",
+      "yes",
+      "on",
+    )
+
+  async def _start_embedded_kaira() -> None:
+    if not _embed_kaira_enabled():
+      return
+    # Avoid starting if a socket already exists (external daemon running).
+    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / _KAIRA_SOCKET_DEFAULT)
+    try:
+      from pathlib import Path as _Path
+
+      if _Path(sock).exists():
+        return
+    except Exception:
+      pass
+    try:
+      from gemcode.kaira_daemon import KairaDaemon
+
+      # Use this TUI's session id as the default session for stdin-less jobs.
+      daemon = KairaDaemon(cfg=cfg, concurrency=2, default_priority=0)
+      # Run headless: IPC-only. Jobs are enqueued via IPC (monitor scripts, org tools, etc.).
+      await daemon.run_forever(session_id=session_id, enable_stdin=False)
+    except asyncio.CancelledError:
+      return
+    except Exception:
+      return
+
+  try:
+    if _embed_kaira_enabled():
+      _embedded_kaira_task[0] = asyncio.create_task(_start_embedded_kaira())
+  except Exception:
+    _embedded_kaira_task[0] = None
+
   # ── Kaira auto-connect (IPC subscribe) ───────────────────────────────────
   # If a Kaira daemon is running for this project, subscribe to its updates and
   # surface them in the same terminal UI. Also handle permission requests by
@@ -766,6 +810,12 @@ async def run_gemcode_scrollback_tui(
         except Exception:
           pass
         try:
+          t2 = _embedded_kaira_task[0]
+          if t2 is not None:
+            t2.cancel()
+        except Exception:
+          pass
+        try:
           from gemcode.hooks import run_session_stop_hook
           run_session_stop_hook(cfg.project_root, model=getattr(cfg, "model", "") or "")
         except Exception:
@@ -779,6 +829,12 @@ async def run_gemcode_scrollback_tui(
           t = _kaira_task[0]
           if t is not None:
             t.cancel()
+        except Exception:
+          pass
+        try:
+          t2 = _embedded_kaira_task[0]
+          if t2 is not None:
+            t2.cancel()
         except Exception:
           pass
         from gemcode.hooks import run_session_stop_hook

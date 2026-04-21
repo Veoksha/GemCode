@@ -94,6 +94,22 @@ def _fmt_tool_result(resp: object) -> str:
   return ""
 
 
+def _should_stream_to_terminal() -> bool:
+  """Stream live job output to the local terminal when interactive."""
+  try:
+    return bool(hasattr(sys.stdin, "isatty") and sys.stdin.isatty())
+  except Exception:
+    return False
+
+
+def _stream_print(s: str) -> None:
+  try:
+    sys.stdout.write(s)
+    sys.stdout.flush()
+  except Exception:
+    pass
+
+
 async def _broadcast_text_delta(
   *,
   ipc: KairaIpcServer,
@@ -402,6 +418,9 @@ class KairaDaemon:
     async def _stream_one_message(*, current_message: types.Content) -> tuple[list, str]:
       emitted_text = ""
       events: list = []
+      stream_live = _should_stream_to_terminal()
+      if stream_live:
+        _stream_print(f"\n[kaira {job.job_id}] started\n")
       async for ev in runner.run_async(
         user_id=self.user_id,
         session_id=job.session_id,
@@ -409,6 +428,28 @@ class KairaDaemon:
         **({"run_config": run_config} if run_config is not None else {}),
       ):
         events.append(ev)
+        # Live terminal streaming (independent of IPC).
+        if stream_live:
+          try:
+            from gemcode.web.sse_adapter import extract_text_from_event
+
+            txt_live = extract_text_from_event(ev)
+            if txt_live:
+              if txt_live.startswith(emitted_text):
+                delta_live = txt_live[len(emitted_text) :]
+              else:
+                # Fallback: find common prefix.
+                common = 0
+                max_common = min(len(txt_live), len(emitted_text))
+                while common < max_common and txt_live[common] == emitted_text[common]:
+                  common += 1
+                delta_live = txt_live[common:]
+              if delta_live:
+                _stream_print(delta_live)
+                emitted_text = txt_live
+          except Exception:
+            pass
+
         if self._ipc is None:
           continue
 
@@ -460,7 +501,7 @@ class KairaDaemon:
         except Exception:
           pass
 
-        # Text deltas
+        # Text deltas (IPC subscribers)
         try:
           from gemcode.web.sse_adapter import extract_text_from_event
 
@@ -602,8 +643,12 @@ class KairaDaemon:
         session_id=session_id,
       )
 
-  async def run_forever(self, *, session_id: str) -> None:
-    """Start the scheduler and keep running until stdin EOF/quit."""
+  async def run_forever(self, *, session_id: str, enable_stdin: bool = True) -> None:
+    """Start the scheduler and keep running until stopped.
+
+    When enable_stdin=False, Kaira runs headless (IPC-only) and does not read
+    from stdin. This mode is used when embedding Kaira inside the GemCode TUI.
+    """
 
     # Start IPC server for two-way control + event streaming.
     try:
@@ -623,11 +668,16 @@ class KairaDaemon:
       print(f"[kaira] ipc disabled: {e}", file=sys.stderr, flush=True)
 
     scheduler_task = asyncio.create_task(self._scheduler_loop())
-    stdin_task = asyncio.create_task(self._stdin_loop(session_id=session_id))
+    stdin_task = None
+    if enable_stdin:
+      stdin_task = asyncio.create_task(self._stdin_loop(session_id=session_id))
 
     # Wait for either scheduler to stop (shouldn't happen) or stdin loop to end.
+    wait_set = {scheduler_task}
+    if stdin_task is not None:
+      wait_set.add(stdin_task)
     done, pending = await asyncio.wait(
-      {scheduler_task, stdin_task},
+      wait_set,
       return_when=asyncio.FIRST_COMPLETED,
     )
     for p in pending:

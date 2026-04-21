@@ -54,6 +54,7 @@ Important groups:
 - `GEMCODE_TUI`
 - `GEMCODE_OUTPUT_STYLE`
 - `GEMCODE_AFC_PROMPT`
+- `GEMCODE_AFC_DEFAULT` — when set to `all` or `callables`, skips the interactive `afc>` prompt and preselects the tool mode when non-callable toolsets (MCP/OpenAPI) are present.
 
 ### Agent instruction tuning
 Built-in sections of the agent system prompt are assembled in `gemcode/src/gemcode/agent.py`; the parallel **tool system** manifest in `gemcode/src/gemcode/tool_prompt_manifest.py` stays aligned when present.
