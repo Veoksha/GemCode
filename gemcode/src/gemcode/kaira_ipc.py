@@ -19,6 +19,8 @@ class IpcClient:
   writer: asyncio.StreamWriter
   emitter: IdeEmitter
   subscribed: bool = False
+  topics: set[str] | None = None
+  to_addrs: set[str] | None = None
 
 
 class KairaIpcServer:
@@ -37,6 +39,7 @@ class KairaIpcServer:
     {"type":"event","event":"job_finished",...}
     {"type":"event","event":"job_failed",...}
     {"type":"event","event":"job_text_delta",...}
+    {"type":"event","event":"bus_message","topic":"...","to":"...","payload":{...}}
   """
 
   def __init__(
@@ -44,6 +47,7 @@ class KairaIpcServer:
     *,
     socket_path: Path,
     enqueue_fn: Callable[..., str],
+    publish_hook: Callable[[dict[str, Any]], "asyncio.Future[None] | asyncio.Task[None] | Any"] | None = None,
     list_jobs_fn: Callable[..., list[dict[str, Any]]] | None = None,
     get_job_fn: Callable[..., dict[str, Any] | None] | None = None,
     cancel_job_fn: Callable[..., bool] | None = None,
@@ -51,6 +55,7 @@ class KairaIpcServer:
   ) -> None:
     self.socket_path = Path(socket_path)
     self._enqueue_fn = enqueue_fn
+    self._publish_hook = publish_hook
     self._list_jobs_fn = list_jobs_fn
     self._get_job_fn = get_job_fn
     self._cancel_job_fn = cancel_job_fn
@@ -99,11 +104,37 @@ class KairaIpcServer:
     for c in clients:
       if not c.subscribed:
         continue
+      if not self._client_accepts(c, msg):
+        continue
       try:
         c.emitter.send(msg)
       except Exception:
         # Drop dead client.
         await self._drop_client(c)
+
+  def _client_accepts(self, c: IpcClient, msg: dict[str, Any]) -> bool:
+    """
+    Apply per-client subscription filters.
+
+    We intentionally only filter `bus_message` events. Job lifecycle / streaming
+    events remain broadcast to all subscribed clients so UIs behave predictably.
+    """
+    try:
+      if msg.get("type") != "event":
+        return True
+      if str(msg.get("event") or "") != "bus_message":
+        return True
+      if c.topics:
+        topic = str(msg.get("topic") or "")
+        if topic not in c.topics:
+          return False
+      if c.to_addrs:
+        to = str(msg.get("to") or "")
+        if to not in c.to_addrs:
+          return False
+      return True
+    except Exception:
+      return True
 
   async def request_confirmation(
     self,
@@ -185,6 +216,27 @@ class KairaIpcServer:
 
         if action == "subscribe":
           client.subscribed = True
+          # Optional filters (apply only to bus_message events).
+          topics = msg.get("topics")
+          to_addrs = msg.get("to")
+          try:
+            if isinstance(topics, list):
+              client.topics = {str(x) for x in topics if str(x).strip()}
+            elif isinstance(topics, str) and topics.strip():
+              client.topics = {topics.strip()}
+            else:
+              client.topics = None
+          except Exception:
+            client.topics = None
+          try:
+            if isinstance(to_addrs, list):
+              client.to_addrs = {str(x) for x in to_addrs if str(x).strip()}
+            elif isinstance(to_addrs, str) and to_addrs.strip():
+              client.to_addrs = {to_addrs.strip()}
+            else:
+              client.to_addrs = None
+          except Exception:
+            client.to_addrs = None
           client.emitter.send(make_response(id=req_id, ok=True))
           continue
 
@@ -204,6 +256,40 @@ class KairaIpcServer:
             client.emitter.send(
               make_response(id=req_id, ok=False, error=f"enqueue_failed: {e}")
             )
+          continue
+
+        if action == "publish":
+          # General event bus: publish a bus_message to all subscribed clients.
+          # Intended for multi-agent / multi-client coordination.
+          try:
+            topic = str(msg.get("topic") or "").strip()
+            to = str(msg.get("to") or "").strip()
+            from_addr = str(msg.get("from") or "").strip()
+            payload = msg.get("payload", None)
+            if not topic:
+              client.emitter.send(make_response(id=req_id, ok=False, error="missing topic"))
+              continue
+            if payload is None:
+              payload = {}
+            ev = make_event(
+              event="bus_message",
+              topic=topic,
+              to=to,
+              from_addr=from_addr,
+              payload=payload,
+            )
+            await self.broadcast(ev)
+            # Optional: let the daemon react to bus messages (best-effort).
+            if self._publish_hook is not None:
+              try:
+                maybe = self._publish_hook(ev)
+                if asyncio.iscoroutine(maybe):
+                  await maybe
+              except Exception:
+                pass
+            client.emitter.send(make_response(id=req_id, ok=True))
+          except Exception as e:
+            client.emitter.send(make_response(id=req_id, ok=False, error=f"publish_failed: {e}"))
           continue
 
         if action == "list_jobs":

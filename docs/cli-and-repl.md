@@ -59,7 +59,7 @@ gemcode -C . --super "Refactor the module and run tests"
 # or
 GEMCODE_SUPER_MODE=1 gemcode -C . "Large autonomous task"
 # background jobs (same project): prefer --super so jobs never block on confirmations
-gemcode kaira -C . --super
+gemcode runtime -C . --super
 ```
 
 In the REPL/TUI, run `/super` once to enable (or `/super off` to clear the flag only).
@@ -140,7 +140,7 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/help` | Short help · `/?` same |
 | `/hooks` | Post-turn hook configuration |
 | `/attach` | Queue file(s) for next message (PDF, images, …) · `/image` / `/file` / `/img` · list · clear |
-| `/init` | Generate `GEMINI.md` project instructions |
+| `/init` | Generate `gemcode.md` project instructions |
 | `/file` | Alias of `/attach` |
 | `/image` | Alias of `/attach` (same queue) |
 | `/img` | Alias of `/attach` |
@@ -180,11 +180,7 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/tools` | Tool inventory · `/tools smoke` |
 | `/trust` | Workspace trust · `/trust` on/off |
 | `/version` | GemCode version |
-| `/org` | Org chart commands (list/tree/hire/assign/spawn/improve) |
-| `/hire` | Alias of `/org hire` |
-| `/delegate` | Alias of `/org assign` |
-| `/assign` | Alias of `/org assign` |
-| `/spawn` | Alias of `/org spawn` |
+| `/agent` | Agent registry + workspaces (create/list/tree/status/assign/spawn/improve/send/trigger) |
 
 ## Attachments
 
@@ -257,7 +253,7 @@ In interactive mode, GemCode can ask whether to:
 This behavior is implemented in `gemcode/src/gemcode/session_runtime.py`.
 
 ## Kaira is not the TUI
-`gemcode kaira` is a queued background scheduler, not the scrollback UI.
+`gemcode runtime` (alias: `gemcode kaira`) is a queued background scheduler, not the scrollback UI.
 
 If you want the TUI, use:
 
@@ -275,34 +271,34 @@ GEMCODE_TUI_WITH_KAIRA=1 gemcode -C .
 In this mode, GemCode starts a headless Kaira daemon (IPC-only) and the TUI auto-subscribes to job events so Kaira output is printed inline.
 
 ### Scheduled automations (local)
-Kaira can also run simple local scheduled automations (like “hourly”, “nightly”, or cron-style triggers) from:
+The runtime can also run simple local scheduled automations (like “hourly”, “nightly”, or cron-style triggers) from:
 
 - `.gemcode/automations/*.json`
 
 Enable them when running Kaira:
 
 ```bash
-gemcode kaira -C . --automations
+gemcode runtime -C . --automations
 ```
 
 Optional “heartbeat” jobs (enqueue a prompt every N seconds):
 
 ```bash
-gemcode kaira -C . --heartbeat-every-s 240 --heartbeat-prompt "Heartbeat: summarise XAUUSD status"
+gemcode runtime -C . --heartbeat-every-s 240 --heartbeat-prompt "Heartbeat: summarise XAUUSD status"
 ```
 
 If you want a queue-driven scheduler, use:
 
 ```bash
-gemcode kaira -C .
+gemcode runtime -C .
 ```
 
 ## Orchestration (Kaira + Org + parallel agents)
 
 GemCode supports “organisation-style” delegation and background work:
 
-- **Kaira (daemon)**: a priority-queue scheduler with an IPC control plane and event stream.
-- **Org chart**: persistent members under `.gemcode/org.json` with role skills under `.gemcode/skills/`.
+- **Runtime (daemon)**: a priority-queue scheduler with an IPC control plane and event stream.
+- **Agent fleet**: persistent members under `.gemcode/org.json` with role skills under `.gemcode/skills/` and workspaces under `.gemcode/agents/`.
 - **Parallel subtasks**: the model can run isolated subtasks concurrently (`spawn_subtasks`).
 
 How to use (start here):

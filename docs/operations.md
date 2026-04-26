@@ -79,8 +79,8 @@ If you still want to avoid context caching entirely (saves this class of message
   uses a simpler request path, at higher input-token cost on long sessions), set
 `GEMCODE_CONTEXT_CACHE=0`.
 
-## Kaira operations
-Kaira is a queue-based daemon.
+## Kaira daemon operations (GemCode Runtime)
+Kaira is the name of GemCode’s runtime daemon. It is a queue-based service that runs **GemCode jobs** in the background. It is not an external add-on; it uses the same GemCode tool surface and configuration.
 
 Operational expectations:
 - reads prompts from stdin
@@ -88,11 +88,42 @@ Operational expectations:
 - not a TUI
 - best used for background or repeated work
 
+### Multi-terminal attach (same project)
+The Kaira daemon exposes a local Unix-socket control plane and event stream at:
+- `.gemcode/ipc.sock`
+
+Multiple GemCode REPL/TUI instances can attach to the same daemon at the same time.
+
+Behavior:
+- when the scrollback TUI is running, it auto-connects (by default) and streams runtime job output inline
+- the TUI also handles runtime HITL permission prompts via IPC so background jobs can request approvals
+
+Relevant settings:
+- `GEMCODE_KAIRA_AUTO_CONNECT=1` (default): TUI auto-connects when `.gemcode/ipc.sock` exists
+- `GEMCODE_KAIRA_SOCKET=/path/to/ipc.sock`: override socket path
+
+### Runtime alias
+`gemcode runtime` is the preferred spelling. `gemcode kaira` is an alias kept for compatibility.
+
+Operational note:
+- If you start the runtime from inside an agent workspace (`.gemcode/agents/...`), it resolves back to the shared “fleet root” (parent project containing `.gemcode/org.json`) so it still has access to the full feature surface: agent registry, MCP config, automations, and job storage.
+
 Recommended operator guidance:
 - use explicit `-C`
 - use explicit `--session`
 - choose `--yes` or `--interactive-ask` intentionally
 - for non-interactive jobs (no tool-confirmation IPC, autonomous `get_user_choice`), use `--super` or `GEMCODE_SUPER_MODE=1` (see [`tools-and-permissions.md`](tools-and-permissions.md#super-mode-fully-autonomous))
+
+### Runtime bus (client-to-client messages)
+In addition to job events, the IPC stream also supports a lightweight message bus:
+- event: `bus_message`
+- filters: subscribe can optionally filter bus messages by `topics` and `to` address
+
+This enables multi-client coordination (e.g. two terminals running GemCode) without requiring a second transport.
+
+Practical usage:
+- `/agent assign <member> <task...>` publishes `topic=org.assign` to the runtime (if available)
+- runtime reacts by enqueueing a background run that performs the delegation and emits `topic=org.report`
 
 ## Eval and autotune
 

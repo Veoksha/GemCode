@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import os
 import sys
 import time
 import uuid
@@ -164,6 +165,16 @@ class KairaDaemon:
     user_id: str = "local",
     job_runner: Callable[[KairaJob], Awaitable[None]] | None = None,
   ) -> None:
+    # If the runtime is started from inside an agent workspace (`.gemcode/agents/...`),
+    # make it operate on the shared parent project root so it has access to the
+    # full GemCode feature surface (org registry, MCP config, automations, etc.).
+    try:
+      from gemcode.org import resolve_fleet_root
+
+      cfg.project_root = resolve_fleet_root(cfg.project_root)
+    except Exception:
+      pass
+
     self.cfg = cfg
     self.concurrency = max(1, int(concurrency))
     self.default_priority = int(default_priority)
@@ -183,6 +194,122 @@ class KairaDaemon:
     self._job_records: dict[str, JobRecord] = {}
     self._cancelled: set[str] = set()
     self._running_tasks: dict[str, asyncio.Task] = {}
+    self._default_session_id: str = ""
+    self._manager_fix_requested: set[str] = set()
+
+  def _manager_enabled(self) -> bool:
+    return os.environ.get("GEMCODE_RUNTIME_MANAGER", "1").strip().lower() in (
+      "1",
+      "true",
+      "yes",
+      "on",
+    )
+
+  async def _handle_bus_message(self, ev: dict) -> None:
+    """
+    Minimal runtime "manager loop".
+
+    - Translates selected bus messages into queued runs.
+    - Keeps logic conservative to avoid runaway loops.
+    """
+    try:
+      if not self._manager_enabled():
+        return
+      if not isinstance(ev, dict) or ev.get("type") != "event":
+        return
+      if str(ev.get("event") or "") != "bus_message":
+        return
+      topic = str(ev.get("topic") or "")
+      payload = ev.get("payload")
+      if not isinstance(payload, dict):
+        return
+
+      # A2A trigger: request an org delegation.
+      if topic == "org.assign":
+        member = str(payload.get("member") or "").strip()
+        task = str(payload.get("task") or "").strip()
+        context = str(payload.get("context") or "").strip()
+        sid = str(payload.get("session_id") or "").strip() or self._default_session_id
+        if not member or not task:
+          return
+        prompt = (
+          "Delegate this task using org_delegate(member, task, context). "
+          "After delegation, publish a bus_message topic=org.report to the manager with a concise result.\n\n"
+          f"member={member}\n"
+          f"task={task}\n"
+          + (f"context={context}\n" if context else "")
+        )
+        self.enqueue_prompt(prompt=prompt, priority=5, session_id=sid)
+        return
+
+      # Failure recovery: if a job reports failure, enqueue one fix attempt.
+      if topic == "job.report":
+        status = str(payload.get("status") or "").strip().lower()
+        job_id = str(payload.get("job_id") or "").strip()
+        if status not in ("failed", "fail", "error"):
+          return
+        if not job_id or job_id in self._manager_fix_requested:
+          return
+        self._manager_fix_requested.add(job_id)
+        sid = str(payload.get("session_id") or "").strip() or self._default_session_id
+        report = str(payload.get("report") or "").strip()
+        fix_prompt = (
+          "You are GemCode runtime manager. The previous job failed.\n\n"
+          "Task: diagnose and fix the failure with minimal changes.\n"
+          "Rules:\n"
+          "- Prefer the smallest safe fix.\n"
+          "- If code changes are needed, implement and re-run the failing command(s).\n"
+          "- End with a concise summary.\n\n"
+          f"Failure job_id={job_id}\n\n"
+          f"Failure report:\n{report}\n"
+        )
+        self.enqueue_prompt(prompt=fix_prompt, priority=6, session_id=sid)
+        return
+    except Exception:
+      return
+
+  async def _agent_heartbeat_loop(self, *, every_s: int) -> None:
+    """
+    Publish a lightweight heartbeat.
+
+    - Always publishes to the local runtime bus (IPC subscribers).
+    - Optionally publishes to a parent runtime socket when GEMCODE_PARENT_SOCKET is set.
+    """
+    every_s = max(1, int(every_s or 0))
+    parent_sock = (os.environ.get("GEMCODE_PARENT_SOCKET") or "").strip()
+    while not self._stop_event.is_set():
+      try:
+        payload = {
+          "project_root": str(self.cfg.project_root),
+          "model": getattr(self.cfg, "model", ""),
+          "concurrency": int(self.concurrency),
+        }
+        ev = {
+          "type": "event",
+          "event": "bus_message",
+          "topic": "agent.heartbeat",
+          "to": "manager",
+          "from_addr": "runtime",
+          "payload": payload,
+        }
+        if self._ipc is not None:
+          try:
+            await self._ipc.broadcast(ev)
+          except Exception:
+            pass
+        if parent_sock:
+          try:
+            from gemcode.kaira_client import KairaIpcClient
+            c = await KairaIpcClient.connect(socket_path=parent_sock)
+            try:
+              await c.publish(topic="agent.heartbeat", payload=payload, to="manager", from_addr="child-runtime")
+            finally:
+              await c.close()
+          except Exception:
+            pass
+      except Exception:
+        pass
+      await asyncio.sleep(float(every_s))
 
   def list_jobs(self, *, limit: int = 200) -> list[dict]:
     out: list[dict] = []
@@ -392,6 +519,42 @@ class KairaDaemon:
                   report_json=report_obj,
                 )
               )
+              # Also emit to the general bus so other GemCode clients can subscribe
+              # without parsing job_* events.
+              await self._ipc.broadcast(
+                {
+                  "type": "event",
+                  "event": "bus_message",
+                  "topic": "job.report",
+                  "to": "manager",
+                  "from_addr": "runtime",
+                  "payload": {
+                    "job_id": job.job_id,
+                    "session_id": job.session_id,
+                    "status": "finished",
+                    "report_json": report_obj,
+                    "report": (text or "")[:8000],
+                  },
+                }
+              )
+              # Process internally too (so the runtime can self-manage without
+              # requiring an external client to re-publish).
+              await self._handle_bus_message(
+                {
+                  "type": "event",
+                  "event": "bus_message",
+                  "topic": "job.report",
+                  "to": "manager",
+                  "from_addr": "runtime",
+                  "payload": {
+                    "job_id": job.job_id,
+                    "session_id": job.session_id,
+                    "status": "finished",
+                    "report_json": report_obj,
+                    "report": (text or "")[:8000],
+                  },
+                }
+              )
             except Exception:
               pass
       except Exception:
@@ -420,6 +583,38 @@ class KairaDaemon:
               report=(f"{type(e).__name__}: {e}")[:8000],
               report_json=report_obj,
             )
+          )
+          await self._ipc.broadcast(
+            {
+              "type": "event",
+              "event": "bus_message",
+              "topic": "job.report",
+              "to": "manager",
+              "from_addr": "runtime",
+              "payload": {
+                "job_id": job.job_id,
+                "session_id": job.session_id,
+                "status": "failed",
+                "report_json": report_obj,
+                "report": (f"{type(e).__name__}: {e}")[:8000],
+              },
+            }
+          )
+          await self._handle_bus_message(
+            {
+              "type": "event",
+              "event": "bus_message",
+              "topic": "job.report",
+              "to": "manager",
+              "from_addr": "runtime",
+              "payload": {
+                "job_id": job.job_id,
+                "session_id": job.session_id,
+                "status": "failed",
+                "report_json": report_obj,
+                "report": (f"{type(e).__name__}: {e}")[:8000],
+              },
+            }
           )
         except Exception:
           pass
@@ -710,19 +905,31 @@ class KairaDaemon:
     from stdin. This mode is used when embedding Kaira inside the GemCode TUI.
     """
 
+    self._default_session_id = session_id
+
     # Start IPC server for two-way control + event streaming.
     try:
-      sock = default_ipc_socket_path(self.cfg.project_root)
+      from pathlib import Path
+
+      sock_env = os.environ.get("GEMCODE_KAIRA_SOCKET")
+      sock_path = (
+        Path(sock_env).expanduser()
+        if sock_env and str(sock_env).strip()
+        else default_ipc_socket_path(self.cfg.project_root)
+      )
+      async def _on_bus(ev: dict) -> None:
+        await self._handle_bus_message(ev)
       self._ipc = KairaIpcServer(
-        socket_path=sock,
+        socket_path=sock_path,
         enqueue_fn=self.enqueue_prompt,
+        publish_hook=_on_bus,
         list_jobs_fn=lambda limit=200: self.list_jobs(limit=limit),
         get_job_fn=lambda job_id: self.get_job(job_id=job_id),
         cancel_job_fn=lambda job_id: self.cancel_job(job_id=job_id),
         set_concurrency_fn=lambda n: self.set_concurrency(n),
       )
       await self._ipc.start()
-      print(f"[kaira] ipc_socket={sock}", file=sys.stderr, flush=True)
+      print(f"[kaira] ipc_socket={sock_path}", file=sys.stderr, flush=True)
     except Exception as e:
       self._ipc = None
       print(f"[kaira] ipc disabled: {e}", file=sys.stderr, flush=True)
@@ -737,12 +944,21 @@ class KairaDaemon:
         heartbeat_prompt=_os.environ.get("GEMCODE_KAIRA_HEARTBEAT_PROMPT", None),
       )
     )
+    hb_task = None
+    try:
+      every = int(_os.environ.get("GEMCODE_AGENT_HEARTBEAT_EVERY_S", "0") or "0")
+      if every > 0:
+        hb_task = asyncio.create_task(self._agent_heartbeat_loop(every_s=every))
+    except Exception:
+      hb_task = None
     stdin_task = None
     if enable_stdin:
       stdin_task = asyncio.create_task(self._stdin_loop(session_id=session_id))
 
     # Wait for either scheduler to stop (shouldn't happen) or stdin loop to end.
     wait_set = {scheduler_task, automations_task}
+    if hb_task is not None:
+      wait_set.add(hb_task)
     if stdin_task is not None:
       wait_set.add(stdin_task)
     done, pending = await asyncio.wait(

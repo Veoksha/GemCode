@@ -2,6 +2,70 @@
 
 This directory is the production documentation set for GemCode.
 
+## Quickstart: multi-agent in 5 minutes
+
+This is the fastest path to “agents managing agents” with background scheduling.
+
+### Start the GemCode Runtime (background jobs + automations)
+
+In a separate terminal:
+
+```bash
+gemcode runtime -C . --automations
+# (alias)
+gemcode kaira -C . --automations
+```
+
+### Create an agent (workspace + registry)
+
+In your main terminal (REPL/TUI):
+
+```text
+/agent create verifier "Verifier" subagent manager verifier "Independent review and sanity checks."
+```
+
+This creates:
+- an agent registry entry in `.gemcode/org.json`
+- a workspace under `.gemcode/agents/<id>-<slug>/` (with `AGENT.md` and `workspace/` files)
+
+### Run GemCode “as that agent”
+
+In another terminal:
+
+```bash
+gemcode -C .gemcode/agents/<id>-<slug>
+```
+
+The agent’s local constitution under `workspace/` is automatically injected into its instruction.
+
+### Trigger agent-to-agent work
+
+Back in the main terminal:
+
+```text
+/agent list
+/agent assign verifier Review the last change for risks + missing tests
+```
+
+Notes:
+- `/agent assign` publishes to the runtime bus when available, so it runs autonomously in the background.
+- Agents can also delegate to other agents using the `org_*` tools in normal mode (no slash commands required).
+
+### Schedule a recurring job
+
+From REPL/TUI (manual):
+
+```text
+/automations init nightly-health
+/automations run nightly-health
+```
+
+Or from the model in normal mode (tools):
+- `automations_init(name, ...)`
+- `automations_run(name)`
+
+Next: read [`orchestration.md`](orchestration.md) for the full runtime + fleet model.
+
 ## Start here
 - [`../README.md`](../README.md) — repository overview, quickstart, and documentation map
 - [`../gemcode/README.md`](../gemcode/README.md) — primary user manual and navigation page

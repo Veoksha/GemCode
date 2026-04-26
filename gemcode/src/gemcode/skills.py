@@ -75,7 +75,7 @@ _BUILTIN_SKILLS: dict[str, tuple[GemSkillMeta, str]] = {
     GemSkillMeta(
       name="compress-memory",
       description=(
-        "Compress a markdown memory file (GEMINI.md, .gemcode notes, todos) into a terse style "
+        "Compress a markdown memory file (gemcode.md, .gemcode notes, todos) into a terse style "
         "to reduce input tokens, while preserving code blocks, headings, and URLs."
       ),
       disable_model_invocation=False,
@@ -85,7 +85,7 @@ _BUILTIN_SKILLS: dict[str, tuple[GemSkillMeta, str]] = {
       "## Compress memory file\n"
       "Use this skill to rewrite a markdown-like memory file into a more token-efficient form.\n\n"
       "### When to use\n"
-      "- The user asks to compress GEMINI.md, .gemcode notes, preferences, or other prose-heavy markdown.\n"
+      "- The user asks to compress gemcode.md, .gemcode notes, preferences, or other prose-heavy markdown.\n"
       "- The user wants fewer input tokens each session.\n\n"
       "### Safety and boundaries\n"
       "- ONLY run on markdown-like files (.md/.txt/.rst, or extensionless files under .gemcode/).\n"

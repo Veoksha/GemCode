@@ -372,7 +372,13 @@ async def run_gemcode_scrollback_tui(
 
       client = await KairaIpcClient.connect(socket_path=sock)
       try:
-        await client.request(action="subscribe")
+        # Optional filters for bus messages.
+        # These filters apply ONLY to bus_message events; job_* events are still shown.
+        topics_env = (os.environ.get("GEMCODE_BUS_TOPICS") or "").strip()
+        to_env = (os.environ.get("GEMCODE_BUS_TO") or "").strip()
+        topics = [t.strip() for t in topics_env.split(",") if t.strip()] if topics_env else None
+        to = [t.strip() for t in to_env.split(",") if t.strip()] if to_env else None
+        await client.subscribe(topics=topics, to=to)
         await _kaira_print(f"{ansi.dim}[kaira] connected ({sock}){ansi.reset}")
       except Exception:
         await client.close()
@@ -404,6 +410,25 @@ async def run_gemcode_scrollback_tui(
           delta = str(msg.get("delta") or "")
           if delta:
             await _kaira_print(f"{ansi.dim}[kaira {job_id}]{ansi.reset} {delta}")
+          continue
+        if ev == "bus_message":
+          topic = str(msg.get("topic") or "")
+          to = str(msg.get("to") or "")
+          from_addr = str(msg.get("from_addr") or "")
+          payload = msg.get("payload")
+          label = f"bus/{topic}" if topic else "bus"
+          route = ""
+          if from_addr or to:
+            route = f" {from_addr or '?'}→{to or '*'}"
+          try:
+            if isinstance(payload, (dict, list)):
+              import json as _json
+              body = _json.dumps(payload, ensure_ascii=False)
+            else:
+              body = str(payload) if payload is not None else ""
+          except Exception:
+            body = str(payload) if payload is not None else ""
+          await _kaira_print(f"{ansi.dim}[{label}{route}]{ansi.reset} {body}".rstrip())
           continue
         if ev in ("job_started", "job_finished", "job_failed", "job_cancelled", "job_queued"):
           job_id = str(msg.get("job_id") or "")[:10]
@@ -981,6 +1006,18 @@ async def run_gemcode_scrollback_tui(
             events.append(ev)
             _render_tool_calls(ev)
             _render_tool_results(ev)
+            # If the model requests tool confirmation (HITL), prompt the user
+            # immediately instead of letting the model continue to stream
+            # thoughts/text for a while. This keeps the UX snappy and avoids
+            # "it says approval needed, but asks later".
+            try:
+              for fc in ev.get_function_calls() or []:
+                if getattr(fc, "name", None) == _ADK_REQUEST_CONFIRMATION:
+                  raise StopAsyncIteration()
+            except StopAsyncIteration:
+              break
+            except Exception:
+              pass
             try:
               if not ev.content or not ev.content.parts:
                 continue

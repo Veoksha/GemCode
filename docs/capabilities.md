@@ -116,7 +116,7 @@ Super mode is not a separate capability bundle; it changes **permission and UX b
 
 See:
 - [`tools-and-permissions.md`](tools-and-permissions.md#super-mode-fully-autonomous)
-- [`cli-and-repl.md`](cli-and-repl.md) — `--super`, `/super`, `gemcode kaira --super`
+- [`cli-and-repl.md`](cli-and-repl.md) — `--super`, `/super`, `gemcode runtime --super` (alias: `gemcode kaira --super`)
 
 ## Capability routing behavior
 Capability routing is applied before runner construction and can:

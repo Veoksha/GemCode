@@ -15,9 +15,10 @@ This page is a quick reference for the project-local state GemCode stores under 
 | `.gemcode/policy.json` | Dynamic token/evidence policy profile |
 | `.gemcode/notes.md` | Operator/agent notes surfaced by `/notes` |
 | `.gemcode/debug.yaml` | Optional debug log |
-| `.gemcode/ipc.sock` | Kaira IPC socket (when Kaira daemon is running) |
-| `.gemcode/org.json` | Org chart (members, hierarchy, role metadata) |
-| `.gemcode/kaira/` | Kaira daemon state (job registry, etc.) |
+| `.gemcode/ipc.sock` | Kaira daemon IPC socket (when `gemcode runtime` is running) |
+| `.gemcode/org.json` | Agent fleet registry (members, hierarchy, addresses, workspaces) |
+| `.gemcode/agents/` | Per-agent workspaces (`<id>-<slug>/` with `AGENT.md`, optional `workspace/`, agent-local `.gemcode/`) |
+| `.gemcode/kaira/` | Runtime daemon state (job registry, etc.) |
 
 ## Memory
 

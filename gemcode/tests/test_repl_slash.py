@@ -220,6 +220,85 @@ async def test_gemskill_loads_into_session(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_workspace_init_scaffolds_files(tmp_path: Path) -> None:
+  cfg = GemCodeConfig(project_root=tmp_path)
+  buf: list[str] = []
+
+  def capture(*a: object, **_k: object) -> None:
+    if a:
+      buf.append(str(a[0]))
+
+  # Create an agent first (this will create the workspace folder).
+  res1 = await process_repl_slash(
+      cfg=cfg,
+      runner=object(),
+      session_id="s",
+      prompt_text="/agent create alpha",
+      print_fn=capture,
+  )
+  assert res1 is not None and res1.skip_model_turn is True
+
+  # Now run workspace init (should be idempotent and ensure workspace/*.md exist).
+  res2 = await process_repl_slash(
+      cfg=cfg,
+      runner=object(),
+      session_id="s",
+      prompt_text="/agent workspace init alpha",
+      print_fn=capture,
+  )
+  assert res2 is not None and res2.skip_model_turn is True
+
+  # Find the created agent workspace by scanning `.gemcode/agents`.
+  agents_dir = tmp_path / ".gemcode" / "agents"
+  assert agents_dir.is_dir()
+  agent_ws = next(iter(sorted([p for p in agents_dir.iterdir() if p.is_dir()])), None)
+  assert agent_ws is not None
+  wdir = agent_ws / "workspace"
+  assert (wdir / "GOALS.md").is_file()
+  assert (wdir / "POLICIES.md").is_file()
+  assert (wdir / "SKILLS.md").is_file()
+  assert (wdir / "HEARTBEAT.md").is_file()
+
+
+@pytest.mark.asyncio
+async def test_agent_commands_work_from_inside_agent_workspace(tmp_path: Path) -> None:
+  # Create an agent at fleet root.
+  fleet_cfg = GemCodeConfig(project_root=tmp_path)
+  await process_repl_slash(
+      cfg=fleet_cfg,
+      runner=object(),
+      session_id="s",
+      prompt_text="/agent create alpha",
+      print_fn=lambda *_a, **_k: None,
+  )
+
+  # Locate the created workspace.
+  agents_dir = tmp_path / ".gemcode" / "agents"
+  agent_ws = next(iter(sorted([p for p in agents_dir.iterdir() if p.is_dir()])), None)
+  assert agent_ws is not None
+
+  # Now run GemCode "from inside" that agent workspace and verify /agent list still
+  # sees the fleet (shared org.json at the parent root).
+  agent_cfg = GemCodeConfig(project_root=agent_ws)
+  buf: list[str] = []
+
+  def capture(*a: object, **_k: object) -> None:
+    if a:
+      buf.append(str(a[0]))
+
+  res = await process_repl_slash(
+      cfg=agent_cfg,
+      runner=object(),
+      session_id="s",
+      prompt_text="/agent list",
+      print_fn=capture,
+  )
+  assert res is not None and res.skip_model_turn is True
+  joined = "\n".join(buf)
+  assert "alpha" in joined
+
+
+@pytest.mark.asyncio
 async def test_append_gemskill_returns_model_prompt(tmp_path: Path) -> None:
   cfg = GemCodeConfig(project_root=tmp_path)
   skill_dir = tmp_path / ".gemcode" / "skills" / "x-skill"

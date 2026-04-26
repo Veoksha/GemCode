@@ -66,6 +66,29 @@ def test_instruction_notes_auto_routing_when_configured(tmp_path: Path) -> None:
   assert "capability_mode=auto" in text
 
 
+def test_instruction_includes_agent_workspace_constitution_when_present(tmp_path: Path) -> None:
+  (tmp_path / "workspace").mkdir(parents=True, exist_ok=True)
+  (tmp_path / "workspace" / "GOALS.md").write_text("Keep it tight.\n", encoding="utf-8")
+  cfg = GemCodeConfig(project_root=tmp_path, model="gemini-2.5-flash")
+  text = build_instruction(cfg)
+  assert "Agent workspace (local constitution)" in text
+  assert "Keep it tight." in text
+
+
+def test_instruction_omits_agent_workspace_constitution_when_missing(tmp_path: Path) -> None:
+  cfg = GemCodeConfig(project_root=tmp_path, model="gemini-2.5-flash")
+  text = build_instruction(cfg)
+  assert "Agent workspace (local constitution)" not in text
+
+
+def test_instruction_mentions_automations_tools(tmp_path: Path) -> None:
+  cfg = GemCodeConfig(project_root=tmp_path, model="gemini-2.5-flash")
+  text = build_instruction(cfg)
+  assert "Scheduling / automations" in text
+  assert "automations_init" in text
+  assert "automations_run" in text
+
+
 def test_instruction_includes_veomem_tool_flow_when_recall_present(tmp_path: Path) -> None:
   cfg = GemCodeConfig(project_root=tmp_path, model="gemini-2.5-flash")
   object.__setattr__(cfg, "_veomem_wakeup_text", "<veomem-context>hello</veomem-context>")

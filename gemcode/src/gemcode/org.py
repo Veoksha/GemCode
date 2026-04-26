@@ -18,12 +18,42 @@ def org_path(project_root: Path) -> Path:
   return project_root / ".gemcode" / "org.json"
 
 
+def resolve_fleet_root(start_root: Path) -> Path:
+  """
+  Resolve the "fleet root" for org/agent operations.
+
+  When GemCode is run from an agent workspace (e.g. `.gemcode/agents/<id>-<slug>`),
+  we still want org tools to operate on the shared `.gemcode/org.json` at the
+  parent project root.
+
+  Strategy: walk up ancestors until we find `.gemcode/org.json`. If none is found,
+  fall back to the provided start_root.
+  """
+  try:
+    cur = start_root.resolve()
+  except Exception:
+    cur = start_root
+  try:
+    while True:
+      if (cur / ".gemcode" / "org.json").is_file():
+        return cur
+      if cur == cur.parent:
+        break
+      nxt = cur.parent
+      cur = nxt
+  except Exception:
+    return start_root
+  return start_root
+
+
 @dataclass
 class OrgMember:
   id: str
   name: str
   title: str
   kind: MemberKind
+  address: str = ""  # stable bus address (defaults to name)
+  workspace_rel: str = ""  # agent workspace directory relative to project root
   reports_to: str = ""  # member id or name
   skill_name: str = ""  # kebab-case GemSkill name, if created
   description: str = ""
@@ -35,11 +65,174 @@ class OrgMember:
       "name": self.name,
       "title": self.title,
       "kind": self.kind,
+      "address": self.address or self.name,
+      "workspace_rel": self.workspace_rel,
       "reports_to": self.reports_to,
       "skill_name": self.skill_name,
       "description": self.description,
       "created_ms": int(self.created_ms or 0),
     }
+
+
+def agents_root(project_root: Path) -> Path:
+  return project_root / ".gemcode" / "agents"
+
+
+def _agent_dir_name(member: OrgMember) -> str:
+  slug = _skill_slug(member.name)
+  mid = (member.id or "m").strip()
+  return f"{mid}-{slug}" if slug else mid
+
+
+def ensure_agent_workspace(project_root: Path, *, member: OrgMember) -> str:
+  """
+  Ensure a per-agent workspace exists under `.gemcode/agents/`.
+
+  Returns the `workspace_rel` path that should be stored on the member.
+  """
+  base = agents_root(project_root)
+  base.mkdir(parents=True, exist_ok=True)
+  rel = member.workspace_rel.strip() if member.workspace_rel else ""
+  if not rel:
+    rel = str(Path(".gemcode") / "agents" / _agent_dir_name(member))
+  ws = project_root / rel
+  ws.mkdir(parents=True, exist_ok=True)
+  # Ensure agent-local `.gemcode/` exists (so agent-local skills can live here
+  # when you run GemCode with `-C <agent_workspace>`).
+  try:
+    (ws / ".gemcode").mkdir(parents=True, exist_ok=True)
+  except Exception:
+    pass
+
+  # Optional agent "constitution" workspace. When you run `gemcode -C <ws>`,
+  # GemCode can assemble these files into a stable, ordered prompt section.
+  try:
+    wdir = ws / "workspace"
+    wdir.mkdir(parents=True, exist_ok=True)
+
+    templates: list[tuple[str, str]] = [
+      (
+        "GOALS.md",
+        "# Goals\n\n"
+        "List a few durable goals for this agent.\n\n"
+        "- (example) Keep outputs concise and decision-ready.\n"
+        "- (example) Prefer evidence over assumptions.\n",
+      ),
+      (
+        "POLICIES.md",
+        "# Policies\n\n"
+        "Rules and constraints this agent must follow.\n\n"
+        "- (example) Do not run destructive commands without explicit approval.\n",
+      ),
+      (
+        "SKILLS.md",
+        "# Skills\n\n"
+        "High-level skill modules for this agent (optional).\n\n"
+        "- Keep this short; put larger modules under `workspace/skills/<name>/SKILL.md`.\n",
+      ),
+      (
+        "HEARTBEAT.md",
+        "# Heartbeat\n\n"
+        "Checklist for periodic/self-initiated work (optional).\n\n"
+        "- (example) Summarize recent runtime events.\n"
+        "- (example) Check for failing jobs and propose fixes.\n",
+      ),
+    ]
+    for fn, body in templates:
+      p = wdir / fn
+      if not p.exists():
+        p.write_text(body, encoding="utf-8")
+
+    (wdir / "skills").mkdir(parents=True, exist_ok=True)
+  except Exception:
+    pass
+  # Minimal marker file for humans.
+  try:
+    readme = ws / "README.md"
+    if not readme.exists():
+      readme.write_text(
+        f"# GemCode agent workspace: {member.name}\n\n"
+        f"- id: `{member.id}`\n"
+        f"- address: `{member.address or member.name}`\n"
+        f"- reports_to: `{member.reports_to or 'manager'}`\n\n"
+        "This directory is a per-agent workspace. You can run GemCode here with:\n\n"
+        f"```bash\ngemcode -C \"{ws}\"\n```\n",
+        encoding="utf-8",
+      )
+  except Exception:
+    pass
+
+  # Agent metadata file (description optional; can be edited later).
+  try:
+    agent_md = ws / "AGENT.md"
+    if not agent_md.exists():
+      desc = (member.description or "").strip()
+      if not desc:
+        desc = "(no description yet — add later with: /agent describe <name|id> <text...>)"
+      agent_md.write_text(
+        "# Agent\n\n"
+        f"- **name**: `{member.name}`\n"
+        f"- **id**: `{member.id}`\n"
+        f"- **title**: `{member.title}`\n"
+        f"- **kind**: `{member.kind}`\n"
+        f"- **address**: `{member.address or member.name}`\n"
+        f"- **reports_to**: `{member.reports_to or 'manager'}`\n\n"
+        "## Description\n"
+        f"{desc}\n\n"
+        "## Local skills\n"
+        "Agent-local GemSkills live under this workspace at:\n"
+        "- `.gemcode/skills/`\n",
+        encoding="utf-8",
+      )
+  except Exception:
+    pass
+
+  return rel
+
+
+def ensure_agent_local_skill(project_root: Path, *, member: OrgMember) -> str | None:
+  """
+  Create an agent-local GemSkill inside the agent workspace.
+
+  This is *not* the same as org member skills under the main project root.
+  When you run `gemcode -C <agent_workspace>`, this local skill becomes visible
+  only to that agent.
+  """
+  try:
+    ws_rel = (member.workspace_rel or "").strip()
+    if not ws_rel:
+      return None
+    ws = (project_root / ws_rel).resolve()
+    skill_name = f"agent-{_skill_slug(member.name)}"
+    skill_dir = ws / ".gemcode" / "skills" / skill_name
+    skill_md = skill_dir / "SKILL.md"
+    if skill_md.exists():
+      return skill_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    desc = (member.description or "").strip() or f"Local skill for agent {member.name}."
+    body = (
+      f"---\n"
+      f"name: {skill_name}\n"
+      f"description: >\n"
+      f"  {desc}\n"
+      f"user-invocable: false\n"
+      f"disable-model-invocation: false\n"
+      f"context: agent\n"
+      f"agent: {member.name}\n"
+      f"---\n\n"
+      f"## Role\n"
+      f"You are **{member.name}**.\n"
+      f"- **Title**: {member.title}\n"
+      f"- **Reports to**: {member.reports_to or 'manager'}\n"
+      f"- **Kind**: {member.kind}\n\n"
+      f"## Working style\n"
+      f"- Keep outputs concise.\n"
+      f"- Prefer evidence and small steps.\n"
+    )
+    skill_md.write_text(body, encoding="utf-8")
+    return skill_name
+  except Exception:
+    return None
 
 
 def _default_org() -> dict[str, Any]:
@@ -54,6 +247,8 @@ def _default_org() -> dict[str, Any]:
         "name": "kaira",
         "title": "BackgroundWorker",
         "kind": "kaira_worker",
+        "address": "kaira",
+        "workspace_rel": "",
         "reports_to": "manager",
         "skill_name": "member-kaira",
         "description": "Runs background jobs (tests/lint/scans) and reports back.",
@@ -64,6 +259,8 @@ def _default_org() -> dict[str, Any]:
         "name": "verifier",
         "title": "Verifier",
         "kind": "subagent",
+        "address": "verifier",
+        "workspace_rel": "",
         "reports_to": "manager",
         "skill_name": "member-verifier",
         "description": "Independent review / sanity checks on proposed changes.",
@@ -99,7 +296,8 @@ def save_org(project_root: Path, org: dict[str, Any]) -> None:
 
 
 def list_members(project_root: Path) -> list[OrgMember]:
-  org = load_org(project_root)
+  root = resolve_fleet_root(project_root)
+  org = load_org(root)
   out: list[OrgMember] = []
   for m in org.get("members") or []:
     if not isinstance(m, dict):
@@ -111,6 +309,8 @@ def list_members(project_root: Path) -> list[OrgMember]:
           name=str(m.get("name") or ""),
           title=str(m.get("title") or ""),
           kind=str(m.get("kind") or "subagent"),  # type: ignore[arg-type]
+          address=str(m.get("address") or m.get("name") or ""),
+          workspace_rel=str(m.get("workspace_rel") or ""),
           reports_to=str(m.get("reports_to") or ""),
           skill_name=str(m.get("skill_name") or ""),
           description=str(m.get("description") or ""),
@@ -128,10 +328,13 @@ def hire_member(
   name: str,
   title: str,
   kind: MemberKind,
+  address: str = "",
+  workspace_rel: str = "",
   reports_to: str = "manager",
   description: str = "",
 ) -> OrgMember:
-  org = load_org(project_root)
+  root = resolve_fleet_root(project_root)
+  org = load_org(root)
   members = list(org.get("members") or [])
   now = _now_ms()
   mid = f"m_{uuid.uuid4().hex[:10]}"
@@ -140,23 +343,30 @@ def hire_member(
     name=name.strip(),
     title=title.strip(),
     kind=kind,
+    address=(address or "").strip(),
+    workspace_rel=(workspace_rel or "").strip(),
     reports_to=(reports_to or "").strip(),
     skill_name="",
     description=(description or "").strip(),
     created_ms=now,
   )
+  # Always create an agent workspace (lightweight; safe).
+  try:
+    m.workspace_rel = ensure_agent_workspace(root, member=m)
+  except Exception:
+    pass
   # Auto-create a role GemSkill for this member (optional, default on).
   try:
     import os
     if os.environ.get("GEMCODE_ORG_AUTO_SKILLS", "1").strip().lower() in ("1", "true", "yes", "on"):
-      skill = ensure_member_skill(project_root, member=m)
+      skill = ensure_member_skill(root, member=m)
       if skill:
         m.skill_name = skill
   except Exception:
     pass
   members.append(m.to_dict())
   org["members"] = members
-  save_org(project_root, org)
+  save_org(root, org)
   return m
 
 

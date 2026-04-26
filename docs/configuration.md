@@ -56,6 +56,12 @@ Important groups:
 - `GEMCODE_AFC_PROMPT`
 - `GEMCODE_AFC_DEFAULT` — when set to `all` or `callables`, skips the interactive `afc>` prompt and preselects the tool mode when non-callable toolsets (MCP/OpenAPI) are present.
 - `GEMCODE_TUI_WITH_KAIRA` — when `1`/`true`/`yes`/`on`, starts a headless Kaira daemon inside the scrollback TUI so Kaira jobs stream inline (single-terminal mode).
+- `GEMCODE_KAIRA_AUTO_CONNECT` — when `1`/`true`/`yes`/`on` (default), the scrollback TUI auto-connects to a running Kaira daemon via `.gemcode/ipc.sock` and streams job output inline.
+- `GEMCODE_KAIRA_SOCKET` — override the Kaira IPC socket path (defaults to `<project>/.gemcode/ipc.sock`).
+- `GEMCODE_ORG_BUS_REPORTS` — when `1`/`true`/`yes`/`on` (default), `org_delegate` emits `bus_message` events (`topic=org.report`) so multiple GemCode clients (and supervisors) can receive delegation results without scraping job logs.
+- `GEMCODE_RUNTIME_MANAGER` — when `1`/`true`/`yes`/`on` (default), enables a minimal runtime manager loop that reacts to bus messages (e.g. `topic=org.assign` triggers an org delegation run; `topic=job.report` with `failed` triggers one automatic fix attempt).
+- `GEMCODE_AGENT_HEARTBEAT_EVERY_S` — when set to a positive integer, the runtime publishes `topic=agent.heartbeat` periodically on the local bus. Useful for monitoring multi-agent setups.
+- `GEMCODE_PARENT_SOCKET` — optional parent runtime IPC socket path. When set (typically in a child agent workspace), the child runtime will also publish `agent.heartbeat` to the parent runtime.
 - `GEMCODE_AUTOMATIONS` — when `1`/`true`/`yes`/`on`, enables local scheduled automations from `.gemcode/automations/*.json` (executed by Kaira).
 - `GEMCODE_KAIRA_HEARTBEAT_EVERY_S` — optional heartbeat interval (seconds) for Kaira (enqueues a heartbeat prompt repeatedly when automations are enabled).
 - `GEMCODE_KAIRA_HEARTBEAT_PROMPT` — optional prompt text used by the heartbeat job.
@@ -76,11 +82,10 @@ GemCode loads project instructions in `gemcode/src/gemcode/agent.py`.
 
 The current code supports:
 - `gemcode.md`
-- `GEMINI.md`
-- `.gemcode/GEMINI.md`
+- legacy instruction filenames (compatibility)
 - ancestor and user-global variants
 
-For operational accuracy, document and standardize around `gemcode.md` as the primary project instruction file, while treating `GEMINI.md` as compatibility.
+For operational accuracy, document and standardize around `gemcode.md` as the primary project instruction file.
 
 ## The `.gemcode/` directory
 
@@ -97,6 +102,21 @@ For operational accuracy, document and standardize around `gemcode.md` as the pr
 - `output-styles/`
 - `rules/`
 - `hooks/`
+
+### Agent fleet and workspaces
+When you create agents with `/agent create`, GemCode persists the fleet registry and creates per-agent workspaces:
+
+- `.gemcode/org.json` — fleet registry (members, hierarchy, bus addresses, workspace paths)
+- `.gemcode/agents/<id>-<slug>/` — per-agent workspace
+
+Inside each agent workspace, GemCode supports an optional constitution folder:
+- `workspace/GOALS.md`
+- `workspace/POLICIES.md`
+- `workspace/SKILLS.md`
+- `workspace/HEARTBEAT.md`
+- `workspace/skills/*/SKILL.md`
+
+When you run `gemcode -C .gemcode/agents/<id>-<slug>`, GemCode automatically loads and injects that `workspace/` content into the agent instruction.
 
 ### Integrations
 - `mcp.json`

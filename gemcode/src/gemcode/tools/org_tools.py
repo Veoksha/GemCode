@@ -5,11 +5,131 @@ from pathlib import Path
 from typing import Any
 
 from gemcode.config import GemCodeConfig
-from gemcode.org import ensure_member_skill, find_member, hire_member, list_members, org_tree
+from gemcode.org import ensure_member_skill, find_member, hire_member, list_members, org_tree, resolve_fleet_root
 
 
 def make_org_tools(cfg: GemCodeConfig) -> list:
-  root = cfg.project_root
+  root = resolve_fleet_root(cfg.project_root)
+
+  def _bus_enabled() -> bool:
+    import os
+    return os.environ.get("GEMCODE_ORG_BUS_REPORTS", "1").strip().lower() in (
+      "1",
+      "true",
+      "yes",
+      "on",
+    )
+
+  def _manager_address_for(m) -> str:
+    # Default: manager is a virtual address for supervisor UIs.
+    key = str(getattr(m, "reports_to", "") or "").strip()
+    if not key or key.lower() == "manager":
+      return "manager"
+    boss = find_member(root, key)
+    if boss is None:
+      return "manager"
+    try:
+      addr = str(getattr(boss, "address", "") or "").strip()
+      return addr or str(getattr(boss, "name", "") or "manager")
+    except Exception:
+      return "manager"
+
+  def _ancestor_addresses_for(m) -> list[str]:
+    """
+    Return addresses for parent → grandparent → ... → manager (deduped).
+
+    Uses `reports_to` chaining through org members. Falls back to "manager".
+    """
+    addrs: list[str] = []
+    seen: set[str] = set()
+    try:
+      key = str(getattr(m, "reports_to", "") or "").strip()
+      cur = key or "manager"
+      hop = 0
+      while hop < 16:  # hard cap to avoid cycles
+        hop += 1
+        if not cur or cur.lower() == "manager":
+          if "manager" not in seen:
+            addrs.append("manager")
+            seen.add("manager")
+          break
+        boss = find_member(root, cur)
+        if boss is None:
+          if "manager" not in seen:
+            addrs.append("manager")
+            seen.add("manager")
+          break
+        addr = str(getattr(boss, "address", "") or getattr(boss, "name", "") or "").strip() or "manager"
+        if addr not in seen:
+          addrs.append(addr)
+          seen.add(addr)
+        # climb
+        cur = str(getattr(boss, "reports_to", "") or "").strip() or "manager"
+    except Exception:
+      if "manager" not in seen:
+        addrs.append("manager")
+    return addrs or ["manager"]
+
+  async def _publish_org_report(
+    *,
+    m,
+    status: str,
+    task: str,
+    context: str,
+    job_id: str = "",
+    result: object | None = None,
+    error: str = "",
+  ) -> None:
+    if not _bus_enabled():
+      return
+    try:
+      from gemcode.kaira_client import KairaIpcClient
+      import os
+
+      sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(
+        getattr(cfg, "project_root", Path.cwd()) / ".gemcode" / "ipc.sock"
+      )
+      # Only attempt publish if socket exists (avoid noisy failures).
+      try:
+        if not Path(sock).exists():
+          return
+      except Exception:
+        pass
+      c = await KairaIpcClient.connect(socket_path=str(sock))
+      try:
+        from_addr = str(getattr(m, "address", "") or getattr(m, "name", "") or "")
+        member_dict = (m.to_dict() if hasattr(m, "to_dict") else {})
+        # Capabilities snapshot: keep it small and stable.
+        caps = {
+          "kind": member_dict.get("kind"),
+          "address": member_dict.get("address") or from_addr,
+          "workspace_rel": member_dict.get("workspace_rel", ""),
+          "reports_to": member_dict.get("reports_to", ""),
+        }
+        chain = _ancestor_addresses_for(m)
+        payload = {
+          "member": member_dict,
+          "capabilities": caps,
+          "status": status,
+          "task": task,
+          "context": context,
+          "job_id": job_id,
+          "error": error,
+          "result": result,
+          "notify_chain": chain,
+        }
+        # Notify parent, grandparent, ... (and manager).
+        for to_addr in chain:
+          await c.publish(
+            topic="org.report",
+            to=str(to_addr or "manager"),
+            from_addr=from_addr,
+            payload=payload,
+          )
+      finally:
+        await c.close()
+    except Exception:
+      return
 
   def org_list() -> dict:
     """List available org members (workers)."""
@@ -20,6 +140,7 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
     name: str,
     title: str,
     kind: str = "subagent",
+    address: str = "",
     reports_to: str = "manager",
     description: str = "",
   ) -> dict:
@@ -32,6 +153,7 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
       name=str(name or "").strip(),
       title=str(title or "").strip(),
       kind=k,  # type: ignore[arg-type]
+      address=str(address or "").strip(),
       reports_to=str(reports_to or "manager").strip(),
       description=str(description or "").strip(),
     )
@@ -86,11 +208,34 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
             session_id=session_id,
           )
           if not res.get("ok"):
+            await _publish_org_report(
+              m=m,
+              status="failed",
+              task=task,
+              context=ctx,
+              error=str(res.get("error") or "enqueue_failed"),
+            )
             return {"ok": False, "error": res.get("error") or "enqueue_failed"}
-          return {"ok": True, "delegated_to": m.to_dict(), "job_id": res.get("job_id")}
+          job_id = str(res.get("job_id") or "")
+          await _publish_org_report(
+            m=m,
+            status="delegated",
+            task=task,
+            context=ctx,
+            job_id=job_id,
+            result={"kind": "kaira_worker", "job_id": job_id},
+          )
+          return {"ok": True, "delegated_to": m.to_dict(), "job_id": job_id}
         finally:
           await client.close()
       except Exception as e:
+        await _publish_org_report(
+          m=m,
+          status="failed",
+          task=task,
+          context=ctx,
+          error=f"kaira_ipc_unavailable: {type(e).__name__}: {e}",
+        )
         return {"ok": False, "error": f"kaira_ipc_unavailable: {type(e).__name__}: {e}"}
 
     # Delegate to an in-process isolated subagent.
@@ -99,8 +244,23 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
 
       run_subtask = make_run_subtask_tool(cfg)
       out = await run_subtask(prompt, "")
-      return {"ok": True, "delegated_to": m.to_dict(), "result": out.get("result") if isinstance(out, dict) else out}
+      result = out.get("result") if isinstance(out, dict) else out
+      await _publish_org_report(
+        m=m,
+        status="finished",
+        task=task,
+        context=ctx,
+        result=result,
+      )
+      return {"ok": True, "delegated_to": m.to_dict(), "result": result}
     except Exception as e:
+      await _publish_org_report(
+        m=m,
+        status="failed",
+        task=task,
+        context=ctx,
+        error=f"subagent_failed: {type(e).__name__}: {e}",
+      )
       return {"ok": False, "error": f"subagent_failed: {type(e).__name__}: {e}"}
 
   async def org_spawn(
@@ -108,12 +268,20 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
     title: str,
     kind: str,
     task: str,
+    address: str = "",
     reports_to: str = "manager",
     description: str = "",
     context: str = "",
   ) -> dict:
     """Hire a member and immediately delegate a task to them."""
-    h = org_hire(name=name, title=title, kind=kind, reports_to=reports_to, description=description)
+    h = org_hire(
+      name=name,
+      title=title,
+      kind=kind,
+      address=address,
+      reports_to=reports_to,
+      description=description,
+    )
     if not h.get("ok"):
       return h
     mem = (h.get("member") or {}) if isinstance(h.get("member"), dict) else {}

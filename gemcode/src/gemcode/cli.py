@@ -357,7 +357,7 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
           "- Make it **token-efficient**: prefer short checklists and explicit decision gates.\n",
           "- Avoid vague 'ALWAYS trigger' language; provide precise triggers.\n",
           "- If you need templates/checklists, create supporting files in a `references/` subfolder and keep them small.\n",
-          "- Do not create CLAUDE.md/AGENTS.md or other vendor-specific files.\n\n",
+          "- Do not create vendor-specific instruction files for other assistants.\n\n",
           "## Tooling / research policy\n",
           (
             "- You MAY use web research to find best practices, but only if it materially improves the skill.\n"
@@ -895,10 +895,55 @@ def main() -> None:
     return
 
   # Kaira proactive scheduler daemon.
-  if len(sys.argv) > 1 and sys.argv[1] == "kaira":
+  if len(sys.argv) > 1 and sys.argv[1] in ("kaira", "runtime"):
+    is_runtime = sys.argv[1] == "runtime"
+    # Optional attach mode: stream runtime events in this terminal.
+    if is_runtime and len(sys.argv) > 2 and sys.argv[2] == "attach":
+      attach_parser = argparse.ArgumentParser(
+        prog="gemcode runtime attach",
+        description="Attach to a running GemCode runtime and stream events.",
+      )
+      attach_parser.add_argument(
+        "-C",
+        "--directory",
+        type=Path,
+        default=Path.cwd(),
+        help="Project root (used for default socket path).",
+      )
+      attach_parser.add_argument(
+        "--socket",
+        default=None,
+        help="Override IPC socket path (default: <project>/.gemcode/ipc.sock).",
+      )
+      attach_args = attach_parser.parse_args(sys.argv[3:])
+      load_cli_environment()
+      sock = (
+        str(attach_args.socket)
+        if attach_args.socket
+        else str(attach_args.directory.resolve() / ".gemcode" / "ipc.sock")
+      )
+      async def _attach() -> None:
+        from gemcode.kaira_client import KairaIpcClient
+        c = await KairaIpcClient.connect(socket_path=sock)
+        try:
+          await c.subscribe()
+          async for msg in c.iter_messages():
+            if not isinstance(msg, dict):
+              continue
+            # Print raw JSONL to keep this universal for logs/tools.
+            print(json.dumps(msg, ensure_ascii=False), flush=True)
+        finally:
+          await c.close()
+      asyncio.run(_attach())
+      return
+
     kaira_parser = argparse.ArgumentParser(
-      prog="gemcode kaira",
-      description="Background proactive scheduler daemon (stdin -> queued jobs).",
+      prog=("gemcode runtime" if is_runtime else "gemcode kaira"),
+      description=(
+        "GemCode runtime daemon (shared always-on brain; stdin -> queued runs)."
+        if is_runtime
+        else "Background proactive scheduler daemon (stdin -> queued jobs)."
+      ),
     )
     kaira_parser.add_argument(
       "-C",
@@ -923,6 +968,11 @@ def main() -> None:
       type=int,
       default=0,
       help="Priority used for stdin-enqueued jobs.",
+    )
+    kaira_parser.add_argument(
+      "--socket",
+      default=None,
+      help="Override IPC socket path (default: <project>/.gemcode/ipc.sock).",
     )
     kaira_parser.add_argument(
       "--yes",
@@ -999,6 +1049,8 @@ def main() -> None:
     load_cli_environment()
 
     cfg = GemCodeConfig(project_root=args.directory)
+    if getattr(args, "socket", None):
+      os.environ["GEMCODE_KAIRA_SOCKET"] = str(args.socket)
     if args.model:
       cfg.model_overridden = True
       cfg.model = args.model
@@ -1053,7 +1105,10 @@ def main() -> None:
       default_priority=args.default_priority,
     )
     asyncio.run(daemon.run_forever(session_id=session_id))
-    print(f"\n[gemcode kaira] session_id={session_id}", file=sys.stderr)
+    print(
+      f"\n[gemcode {'runtime' if is_runtime else 'kaira'}] session_id={session_id}",
+      file=sys.stderr,
+    )
     return
 
   parser = argparse.ArgumentParser(prog="gemcode", description="Gemini + ADK coding agent")
@@ -1064,6 +1119,12 @@ def main() -> None:
     help="Task or question (read from stdin if omitted)",
   )
   parser.add_argument("-C", "--directory", type=Path, default=Path.cwd(), help="Project root")
+  parser.add_argument(
+    "--connect",
+    default=None,
+    metavar="SOCKET",
+    help="Connect this REPL/TUI to an existing GemCode runtime (IPC socket path).",
+  )
   parser.add_argument("--session", default=None, help="Session id for SQLite-backed history")
   parser.add_argument("--yes", action="store_true", help="Allow write_file / search_replace")
   parser.add_argument(
@@ -1129,6 +1190,9 @@ def main() -> None:
   args = parser.parse_args()
 
   load_cli_environment()
+  if getattr(args, "connect", None):
+    os.environ["GEMCODE_KAIRA_SOCKET"] = str(args.connect)
+    os.environ["GEMCODE_KAIRA_AUTO_CONNECT"] = "1"
   prompt = args.prompt
   interactive_tty = prompt is None and sys.stdin.isatty()
 

@@ -22,7 +22,7 @@ This layer parses commands and flags, loads environment configuration, selects t
 - Interactive REPL
 - Scrollback TUI
 - IDE stdio bridge
-- Kaira scheduler
+- Kaira daemon (GemCode Runtime)
 - Live audio (experimental / future scope)
 
 ### Configuration and routing
@@ -147,8 +147,8 @@ Flow:
 
 In IDE mode, mutating shell/file tools may emit proposals instead of directly changing the filesystem.
 
-### Kaira scheduler
-Entry: `gemcode kaira`
+### Kaira daemon (GemCode Runtime)
+Entry: `gemcode runtime` (alias: `gemcode kaira`)
 
 Flow:
 1. Start a background queue
@@ -157,10 +157,10 @@ Flow:
 4. Spawn isolated job executions with fresh runners
 5. Stream job status/results back to the terminal
 
-Kaira is a scheduler, not a TUI shell. It is optimized for queued background jobs rather than scrollback interaction.
+The runtime is a scheduler, not a TUI shell. It is optimized for queued background jobs rather than scrollback interaction.
 
 Operational note:
-- Kaira also exposes a **Unix-socket JSONL IPC control plane** and **event stream**, so the TUI/REPL can subscribe and control jobs.
+- The runtime also exposes a **Unix-socket JSONL IPC control plane** and **event stream**, so the TUI/REPL can subscribe and control jobs.
 - Job records are persisted under `.gemcode/kaira/jobs/` so status survives restarts.
 
 Related docs:
@@ -212,7 +212,7 @@ The effective model instruction is not a single static prompt. It is assembled f
 - skill manifest metadata
 - session-loaded skill bodies
 
-Project instruction files are loaded from a hierarchy in `gemcode/src/gemcode/agent.py`. The code currently treats `gemcode.md` as the primary project instruction file and `GEMINI.md` as a compatibility path.
+Project instruction files are loaded from a hierarchy in `gemcode/src/gemcode/agent.py`. The code treats `gemcode.md` as the primary project instruction file and supports legacy instruction filenames for compatibility.
 
 ## Tool-loading surfaces
 

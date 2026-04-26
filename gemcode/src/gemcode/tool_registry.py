@@ -19,6 +19,11 @@ READ_ONLY_TOOLS: frozenset[str] = frozenset(
     "glob_files",
     "grep_content",
     "web_fetch",
+    # Org/agent registry reads
+    "org_list",
+    "org_tree",
+    # Automations reads
+    "automations_list",
   }
 )
 
@@ -29,6 +34,15 @@ MUTATING_TOOLS: frozenset[str] = frozenset(
     "search_replace",
     "delete_file",
     "move_file",
+    # Org/agent registry mutations
+    "org_hire",
+    "org_improve",
+    # Delegation / orchestration side-effects (enqueue jobs, create members)
+    "org_delegate",
+    "org_spawn",
+    # Automations mutations / orchestration
+    "automations_init",
+    "automations_run",
   }
 )
 

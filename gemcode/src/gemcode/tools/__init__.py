@@ -22,6 +22,7 @@ from gemcode.tools.compress_memory import make_compress_memory_tool
 from gemcode.tools.skills import make_skill_tools
 from gemcode.tools.veomem_tools import make_veomem_tools
 from gemcode.tools.org_tools import make_org_tools
+from gemcode.tools.automations_tools import make_automations_tools
 from gemcode.session_summariser import summarise_session
 
 
@@ -191,6 +192,11 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
 
   try:
     tools.extend(make_org_tools(cfg))
+  except Exception:
+    pass
+
+  try:
+    tools.extend(make_automations_tools(cfg))
   except Exception:
     pass
 

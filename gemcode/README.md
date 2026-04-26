@@ -108,7 +108,7 @@ Reference:
 - [`../docs/reference-gemcode-state.md`](../docs/reference-gemcode-state.md)
 
 ### Project instruction files
-GemCode supports project instruction files loaded by the agent layer. The live code treats `gemcode.md` as the primary project instruction file and supports `GEMINI.md` as a compatibility path.
+GemCode supports project instruction files loaded by the agent layer. The live code treats `gemcode.md` as the primary project instruction file and also supports legacy instruction filenames for compatibility.
 
 Reference:
 - [`../docs/configuration.md`](../docs/configuration.md)

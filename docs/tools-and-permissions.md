@@ -130,6 +130,9 @@ Use:
 
 GemCode can prompt in-run for sensitive operations instead of assuming blanket approval.
 
+#### Prompt timing (immediate)
+When a tool call requires approval, GemCode will surface the **Y/N** approval prompt as soon as the model requests confirmation (ADK `request_confirmation`). The UI will not continue streaming extra “thinking” text before asking — it pauses promptly so you can approve/deny without waiting.
+
 ### Super mode (fully autonomous)
 Use when you want **no human-in-the-loop** for GemCode’s own gates. Super mode does **not** remove OS-level prompts (for example macOS file access); it removes GemCode’s interactive approval layers listed below.
 
@@ -147,7 +150,7 @@ Use when you want **no human-in-the-loop** for GemCode’s own gates. Super mode
 
 - One-shot / REPL: `gemcode --super …` or `GEMCODE_SUPER_MODE=1 gemcode …`
 - REPL/TUI after start: `/super` (use `/super off` to clear the `super_mode` flag only; it does not restore prior `yes_to_all` / HITL defaults)
-- Kaira daemon: `gemcode kaira -C . --super`
+- Runtime daemon: `gemcode runtime -C . --super` (alias: `gemcode kaira -C . --super`)
 
 **Configuration**
 

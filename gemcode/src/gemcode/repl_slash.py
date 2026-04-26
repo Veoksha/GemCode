@@ -374,7 +374,7 @@ async def process_repl_slash(
         "## Guardrails\n"
         "- Never invent APIs, files, or commands—verify with tools.\n"
         "- Avoid large rewrites unless explicitly requested.\n"
-        "- Do not create vendor-specific files like `CLAUDE.md` or `AGENTS.md`.\n"
+        "- Do not create vendor-specific instruction files for other assistants.\n"
         "- Don’t leak secrets; refuse if the user asks for credentials.\n\n"
         "## Tooling guidance\n"
         "- Prefer `read_file`/`grep_content`/`glob_files`/`repo_map` for discovery.\n"
@@ -1204,7 +1204,7 @@ async def process_repl_slash(
       "4. Check for test directories and test runner config\n"
       "5. Look for linting/formatting config files (.eslintrc, .prettierrc, ruff.toml, etc.)\n\n"
       "Write **only** to `gemcode.md` at the project root. Do **not** create "
-      "`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, or similar.\n\n"
+      "vendor-specific instruction files for other assistants.\n\n"
       "Then write a gemcode.md file at the project root containing:\n"
       "# Project Name\n"
       "One-sentence description.\n\n"
@@ -2101,178 +2101,94 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True)
 
-  # ── /org, /hire, /delegate (org hierarchy + delegation) ──────────────────
-  if name in ("org", "hire", "delegate", "assign", "spawn"):
-    args = (sc.args or "").strip()
-    if name == "org":
-      out("Org chart (members):")
-      out("  /org tree")
-      out("  /org list")
-      out("  /org hire <name> <title> [kaira_worker|subagent] [reports_to] [description...]")
-      out("  /org assign <member> <task...>     (alias: /delegate)")
-      out("  /org spawn <name> <title> <kind> <task...>   (hire + assign)")
-      out("  /org improve <member> <lessons...>           (append to member skill)")
-      out()
-      if not args or args.lower() in ("help", "?"):
-        return ReplSlashResult(skip_model_turn=True)
-      sub = args.lower().split()[0]
-      if sub == "list":
-        from gemcode.org import list_members
+  # ── /bus ────────────────────────────────────────────────────────────────
+  if name == "bus":
+    """
+    Lightweight runtime bus over Kaira IPC.
 
-        ms = list_members(cfg.project_root)
-        if not ms:
-          out("(no members)")
+    Examples:
+      /bus send alice hello there
+      /bus topic ops.health {"status":"ok"}
+      /bus to alice topic chat hello
+    """
+    args_b = (sc.args or "").strip()
+    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+    if not args_b or args_b.lower() in ("help", "?"):
+      out("Bus — lightweight client-to-client messages (via Kaira IPC)")
+      out()
+      out("Usage:")
+      out("  /bus send <to> <text...>          (topic=chat)")
+      out("  /bus topic <topic> <json|text...> (broadcast; no 'to')")
+      out("  /bus to <to> topic <topic> <...>  (explicit to+topic)")
+      out()
+      out("Notes:")
+      out("  - Requires a running `gemcode kaira` (or TUI embedded Kaira).")
+      out("  - The scrollback TUI displays `bus_message` events inline when connected.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    parts = args_b.split()
+    sub = parts[0].strip().lower()
+    to = ""
+    topic = "chat"
+    payload: object = ""
+
+    try:
+      if sub == "send" and len(parts) >= 3:
+        to = parts[1].strip()
+        payload = " ".join(parts[2:]).strip()
+      elif sub == "topic" and len(parts) >= 3:
+        topic = parts[1].strip()
+        raw = " ".join(parts[2:]).strip()
+        payload = raw
+        # Best-effort JSON parse when it looks like JSON.
+        if raw.startswith("{") or raw.startswith("["):
+          try:
+            import json as _json
+            payload = _json.loads(raw)
+          except Exception:
+            payload = raw
+      elif sub == "to":
+        # /bus to <to> topic <topic> <...>
+        if len(parts) >= 5 and parts[2].strip().lower() == "topic":
+          to = parts[1].strip()
+          topic = parts[3].strip()
+          raw = " ".join(parts[4:]).strip()
+          payload = raw
+          if raw.startswith("{") or raw.startswith("["):
+            try:
+              import json as _json
+              payload = _json.loads(raw)
+            except Exception:
+              payload = raw
         else:
-          for m in ms:
-            boss = f" reports_to={m.reports_to}" if getattr(m, "reports_to", "") else ""
-            out(f"  - {m.name} ({m.title}) [{m.kind}] id={m.id}{boss}")
-        out()
-        return ReplSlashResult(skip_model_turn=True)
-      if sub == "tree":
-        try:
-          from gemcode.org import org_tree
-          import json as _json
-          out(_json.dumps(org_tree(cfg.project_root), ensure_ascii=False, indent=2))
-        except Exception:
-          out("(failed to render org tree)")
-        out()
-        return ReplSlashResult(skip_model_turn=True)
-      if sub == "hire":
-        # /org hire <name> <title> [kind] [reports_to] [desc...]
-        rest = args.split(maxsplit=1)[1] if len(args.split()) > 1 else ""
-        if not rest:
-          out("Usage: /org hire <name> <title> [kaira_worker|subagent] [reports_to] [description...]")
+          out("[bus] usage: /bus to <to> topic <topic> <payload...>")
           out()
           return ReplSlashResult(skip_model_turn=True)
-        parts = rest.split()
-        if len(parts) < 2:
-          out("Usage: /org hire <name> <title> [kaira_worker|subagent] [reports_to] [description...]")
-          out()
-          return ReplSlashResult(skip_model_turn=True)
-        nm = parts[0]
-        title = parts[1]
-        kind = "subagent"
-        reports_to = "manager"
-        desc = ""
-        i = 2
-        if len(parts) > i and parts[i] in ("kaira_worker", "subagent"):
-          kind = parts[i]
-          i += 1
-        if len(parts) > i:
-          reports_to = parts[i]
-          i += 1
-        desc = " ".join(parts[i:]).strip() if len(parts) > i else ""
-        from gemcode.org import hire_member
-        m = hire_member(cfg.project_root, name=nm, title=title, kind=kind, reports_to=reports_to, description=desc)  # type: ignore[arg-type]
-        out(f"Hired: {m.name} ({m.title}) [{m.kind}] reports_to={m.reports_to} id={m.id}")
-        out()
-        return ReplSlashResult(skip_model_turn=True)
-      if sub in ("assign", "delegate"):
-        rest = args.split(maxsplit=1)[1] if len(args.split()) > 1 else ""
-        if not rest:
-          out("Usage: /org assign <member> <task...>")
-          out()
-          return ReplSlashResult(skip_model_turn=True)
-        parts = rest.split(maxsplit=1)
-        if len(parts) < 2:
-          out("Usage: /org assign <member> <task...>")
-          out()
-          return ReplSlashResult(skip_model_turn=True)
-        member = parts[0].strip()
-        task = parts[1].strip()
-        prompt = (
-          "Assign this task using org_delegate(member, task). "
-          "If delegation returns a job_id, tell the user it's running in background.\n\n"
-          f"member={member}\n"
-          f"task={task}\n"
-        )
-        return ReplSlashResult(model_prompt=prompt)
-      if sub == "spawn":
-        # /org spawn <name> <title> <kind> <task...>
-        rest = args.split(maxsplit=1)[1] if len(args.split()) > 1 else ""
-        parts = rest.split(maxsplit=3) if rest else []
-        if len(parts) < 4:
-          out("Usage: /org spawn <name> <title> <kaira_worker|subagent> <task...>")
-          out()
-          return ReplSlashResult(skip_model_turn=True)
-        nm, title, kind, task = parts[0], parts[1], parts[2], parts[3]
-        prompt = (
-          "Spawn and assign using org_spawn(name,title,kind,task). "
-          "If delegation returns a job_id, tell the user it's running in background.\n\n"
-          f"name={nm}\n"
-          f"title={title}\n"
-          f"kind={kind}\n"
-          f"task={task}\n"
-        )
-        return ReplSlashResult(model_prompt=prompt)
-
-      if sub == "improve":
-        rest = args.split(maxsplit=1)[1] if len(args.split()) > 1 else ""
-        parts2 = rest.split(maxsplit=1) if rest else []
-        if len(parts2) < 2:
-          out("Usage: /org improve <member> <lessons...>")
-          out()
-          return ReplSlashResult(skip_model_turn=True)
-        member = parts2[0].strip()
-        lessons = parts2[1].strip()
-        prompt = (
-          "Improve the member's skill based on these lessons.\n"
-          "Call org_improve(member, lessons) and confirm the skill path.\n\n"
-          f"member={member}\n"
-          f"lessons={lessons}\n"
-        )
-        return ReplSlashResult(model_prompt=prompt)
-
-      out("Unknown /org subcommand. Try: /org tree  /org list  /org hire  /org assign  /org spawn")
-      out()
-      return ReplSlashResult(skip_model_turn=True)
-
-    if name == "hire":
-      if not args:
-        out("Usage: /hire <name> <title> [kaira_worker|subagent] [description...]")
-        out()
-        return ReplSlashResult(skip_model_turn=True)
-      parts = args.split()
-      if len(parts) < 2:
-        out("Usage: /hire <name> <title> [kaira_worker|subagent] [description...]")
-        out()
-        return ReplSlashResult(skip_model_turn=True)
-      nm = parts[0]
-      title = parts[1]
-      kind = "subagent"
-      desc = ""
-      if len(parts) >= 3 and parts[2] in ("kaira_worker", "subagent"):
-        kind = parts[2]
-        desc = " ".join(parts[3:]).strip()
       else:
-        desc = " ".join(parts[2:]).strip()
-      from gemcode.org import hire_member
+        out("[bus] unknown subcommand (try: /bus help)")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
 
-      m = hire_member(cfg.project_root, name=nm, title=title, kind=kind, description=desc)  # type: ignore[arg-type]
-      out(f"Hired: {m.name} ({m.title}) [{m.kind}] id={m.id}")
+      from gemcode.kaira_client import KairaIpcClient
+      client = await KairaIpcClient.connect(socket_path=sock)
+      try:
+        res = await client.publish(topic=topic, payload=payload, to=to)
+      finally:
+        await client.close()
+      if not res.get("ok"):
+        out(f"[bus] {res.get('error') or 'publish failed'}")
+      else:
+        out(f"[bus] sent topic={topic}" + (f" to={to}" if to else ""))
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    except Exception as e:
+      out(f"[bus] IPC unavailable: {type(e).__name__}: {e}")
       out()
       return ReplSlashResult(skip_model_turn=True)
 
-    if name in ("delegate", "assign"):
-      if not args:
-        out("Usage: /delegate <member> <task...>")
-        out()
-        return ReplSlashResult(skip_model_turn=True)
-      parts = args.split(maxsplit=1)
-      if len(parts) < 2:
-        out("Usage: /delegate <member> <task...>")
-        out()
-        return ReplSlashResult(skip_model_turn=True)
-      member = parts[0].strip()
-      task = parts[1].strip()
-      # Route through tool so it can use Kaira IPC or subagent as appropriate.
-      prompt = (
-        "Delegate this task using org_delegate(member, task). "
-        "If delegation returns a job_id, tell the user it's running in background.\n\n"
-        f"member={member}\n"
-        f"task={task}\n"
-      )
-      return ReplSlashResult(model_prompt=prompt)
+  # (Removed deprecated /org, /hire, /delegate, /assign, /spawn command surfaces.
+  # All user-facing org orchestration now lives under `/agent ...`.)
 
     if name == "spawn":
       if not args:
@@ -2450,6 +2366,528 @@ async def process_repl_slash(
 
     out(f"Unknown /computer subcommand: '{args_s}'")
     out("Usage: /computer [on|off|url|status]")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /inbox ──────────────────────────────────────────────────────────────
+  if name == "inbox":
+    """
+    Configure which bus messages this UI should show.
+
+    This sets env vars consumed by the scrollback TUI auto-connect:
+      - GEMCODE_BUS_TO
+      - GEMCODE_BUS_TOPICS
+
+    Note: existing connections won't be re-subscribed automatically; easiest is
+    to restart the TUI/REPL after changing inbox filters.
+    """
+    args_i = (sc.args or "").strip()
+    if not args_i or args_i.lower() in ("help", "?"):
+      out("Inbox (bus filters):")
+      out("  /inbox show")
+      out("  /inbox to <addr>[,<addr2>...]")
+      out("  /inbox topics <topic>[,<topic2>...]")
+      out("  /inbox clear")
+      out()
+      out("Notes:")
+      out("  - Filters apply only to bus_message events; job_* events are always shown.")
+      out("  - Restart the TUI to apply changes to the subscription.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    parts = args_i.split(maxsplit=1)
+    sub = parts[0].strip().lower()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    if sub == "show":
+      out("Inbox filters:")
+      out(f"  GEMCODE_BUS_TO: {os.environ.get('GEMCODE_BUS_TO') or '(unset)'}")
+      out(f"  GEMCODE_BUS_TOPICS: {os.environ.get('GEMCODE_BUS_TOPICS') or '(unset)'}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if sub == "clear":
+      os.environ.pop("GEMCODE_BUS_TO", None)
+      os.environ.pop("GEMCODE_BUS_TOPICS", None)
+      out("[inbox] cleared (restart TUI to re-subscribe)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if sub == "to":
+      os.environ["GEMCODE_BUS_TO"] = rest
+      out(f"[inbox] to={rest or '(empty)'} (restart TUI to re-subscribe)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    if sub in ("topic", "topics"):
+      os.environ["GEMCODE_BUS_TOPICS"] = rest
+      out(f"[inbox] topics={rest or '(empty)'} (restart TUI to re-subscribe)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    out("[inbox] unknown subcommand (try: /inbox help)")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /runtime ────────────────────────────────────────────────────────────
+  if name == "runtime":
+    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+    out("Runtime:")
+    out(f"  socket: {sock}")
+    out()
+    out("Commands:")
+    out(f"  gemcode runtime -C {cfg.project_root}")
+    out(f"  gemcode runtime attach --socket {sock}")
+    out(f"  gemcode -C {cfg.project_root} --connect {sock}")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
+  # ── /agent, /agents (alias) ─────────────────────────────────────────────
+  if name in ("agent",):
+    """
+    Lightweight multi-agent workspaces backed by `.gemcode/org.json`.
+
+    - `/agent create ...` creates a new org member AND a workspace folder under `.gemcode/agents/`.
+    - `/agent list|tree|status` shows the agent fleet view.
+    - `/agent start <name|id>` prints the exact command to run GemCode from that workspace.
+    - `/agent send <name|id> <prompt...>` enqueues work directly into that agent's runtime socket (if running).
+    - `/agent trigger <name|id> <task...>` triggers work via the MAIN runtime bus (org.assign).
+    """
+    args_a = (sc.args or "").strip()
+    if not args_a or args_a.lower() in ("help", "?"):
+      out("Agent workspaces + orchestration:")
+      out("  /agent create <name> <title> [kaira_worker|subagent] [reports_to] [address] [description...]")
+      out("  /agent list|tree|status")
+      out("  /agent workspace init <name|id>   (scaffold workspace/*.md files)")
+      out("  /agent start <name|id>")
+      out("  /agent send <name|id> <prompt...>")
+      out("  /agent trigger <name|id> <task...>   (recommended)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    sub, *rest = args_a.split()
+    sub = sub.strip().lower()
+    rest_s = " ".join(rest).strip()
+
+    # Fleet view: support both `/agent list|tree|status` and `/agents ...` as alias.
+    if sub in ("list", "ls", "status", "ps", "tree"):
+      if sub in ("list", "ls"):
+        from gemcode.org import list_members, resolve_fleet_root
+        from pathlib import Path as _Path
+        ms = list_members(resolve_fleet_root(cfg.project_root))
+        if not ms:
+          out("(no agents)")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        out("Agents:")
+        for m in ms:
+          ws = (cfg.project_root / (m.workspace_rel or "")).resolve() if getattr(m, "workspace_rel", "") else None
+          sock = (ws / ".gemcode" / "ipc.sock") if ws else None
+          sock_state = ""
+          try:
+            if sock and _Path(sock).exists():
+              sock_state = " (runtime socket exists)"
+          except Exception:
+            pass
+          out(
+            f"  - {m.name} ({m.title}) [{m.kind}] id={m.id} address={m.address or m.name} "
+            f"workspace={getattr(m,'workspace_rel','') or '(none)'}{sock_state}"
+          )
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if sub in ("status", "ps"):
+        # Live status: best-effort connect to each agent runtime socket and summarize jobs.
+        from gemcode.org import list_members, resolve_fleet_root
+        from pathlib import Path as _Path
+        ms = list_members(resolve_fleet_root(cfg.project_root))
+        if not ms:
+          out("(no agents)")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        out("Agents status:")
+        for m in ms:
+          ws_rel = getattr(m, "workspace_rel", "") or ""
+          ws = (cfg.project_root / ws_rel).resolve() if ws_rel else None
+          sock = (ws / ".gemcode" / "ipc.sock") if ws else None
+          sock_exists = bool(sock and _Path(sock).exists())
+          line = f"  - {m.name} [{m.kind}] id={m.id} addr={m.address or m.name}"
+          if ws_rel:
+            line += f"  ws={ws_rel}"
+          if not sock_exists:
+            out(line + "  runtime=down")
+            continue
+          # Best-effort IPC query.
+          try:
+            from gemcode.kaira_client import KairaIpcClient
+            client = await KairaIpcClient.connect(socket_path=str(sock))
+            try:
+              res = await client.request(action="list_jobs", limit=50)
+            finally:
+              await client.close()
+            if not res.get("ok"):
+              out(line + "  runtime=up  jobs=?")
+              continue
+            jobs = res.get("jobs") or []
+            counts = {"queued": 0, "running": 0, "finished": 0, "failed": 0, "cancelled": 0}
+            for j in jobs:
+              if not isinstance(j, dict):
+                continue
+              st = str(j.get("status") or "").strip().lower()
+              if st in counts:
+                counts[st] += 1
+            out(
+              line
+              + f"  runtime=up  jobs(q={counts['queued']} r={counts['running']} ok={counts['finished']} fail={counts['failed']})"
+            )
+          except Exception:
+            out(line + "  runtime=up  jobs=?")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if sub == "tree":
+        try:
+          from gemcode.org import org_tree, resolve_fleet_root
+          import json as _json
+          out(_json.dumps(org_tree(resolve_fleet_root(cfg.project_root)), ensure_ascii=False, indent=2))
+        except Exception:
+          out("(failed to render agent tree)")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      # unreachable
+
+    if sub in ("create", "new"):
+      parts = rest_s.split()
+      if len(parts) < 1:
+        out("Usage: /agent create <name> [title] [kaira_worker|subagent] [reports_to] [address] [description...]")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      nm = parts[0]
+      title = "Agent"
+      kind = "subagent"
+      reports_to = "manager"
+      address = ""
+      i = 2
+      # Optional title (2nd token) when present and not a kind.
+      if len(parts) > 1 and parts[1] not in ("kaira_worker", "subagent"):
+        title = parts[1]
+        i = 2
+      else:
+        i = 1
+      if len(parts) > i and parts[i] in ("kaira_worker", "subagent"):
+        kind = parts[i]; i += 1
+      if len(parts) > i:
+        reports_to = parts[i]; i += 1
+      if len(parts) > i:
+        address = parts[i]; i += 1
+      desc = " ".join(parts[i:]).strip() if len(parts) > i else ""
+      from gemcode.org import hire_member, resolve_fleet_root
+      m = hire_member(  # type: ignore[arg-type]
+        resolve_fleet_root(cfg.project_root),
+        name=nm,
+        title=title,
+        kind=kind,
+        reports_to=reports_to,
+        address=address,
+        description=desc,
+      )
+      # If user provided a description, scaffold an agent-local skill too.
+      try:
+        if desc:
+          from gemcode.org import ensure_agent_local_skill
+          ensure_agent_local_skill(cfg.project_root, member=m)
+      except Exception:
+        pass
+      ws = (cfg.project_root / (getattr(m, "workspace_rel", "") or "")).resolve()
+      out(f"Created agent: {m.name} ({m.title}) [{m.kind}] id={m.id} address={m.address or m.name}")
+      out(f"Workspace: {ws}")
+      out("Start it (in another terminal):")
+      out(f"  gemcode runtime -C \"{ws}\"")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub in ("describe", "desc", "description"):
+      # /agent describe <name|id> <text...>
+      parts = rest_s.split(maxsplit=1)
+      if len(parts) < 2:
+        out("Usage: /agent describe <name|id> <description...>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      key = parts[0].strip()
+      desc = parts[1].strip()
+      from gemcode.org import find_member, resolve_fleet_root
+      m = find_member(resolve_fleet_root(cfg.project_root), key)
+      if m is None:
+        out(f"[agent] unknown: {key}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      ws_rel = getattr(m, "workspace_rel", "") or ""
+      if not ws_rel:
+        out(f"[agent] member has no workspace: {m.name}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      ws = (cfg.project_root / ws_rel).resolve()
+      p = ws / "AGENT.md"
+      try:
+        # If file exists, replace the Description section best-effort; else recreate.
+        old = p.read_text(encoding="utf-8", errors="replace") if p.exists() else ""
+        if "## Description" in old:
+          pre, _sep, tail = old.partition("## Description")
+          # Drop everything until next section header.
+          after = tail.split("\n## ", 1)
+          rest_tail = ("\n## " + after[1]) if len(after) == 2 else ""
+          new = pre + "## Description\n" + desc + "\n" + rest_tail.lstrip("\n")
+          p.write_text(new, encoding="utf-8")
+        else:
+          p.write_text("# Agent\n\n## Description\n" + desc + "\n", encoding="utf-8")
+      except Exception as e:
+        out(f"[agent] failed to write AGENT.md: {type(e).__name__}: {e}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      # Scaffold local skill (optional) now that we have a description.
+      try:
+        from gemcode.org import ensure_agent_local_skill
+        ensure_agent_local_skill(cfg.project_root, member=m)
+      except Exception:
+        pass
+      out(f"[agent] updated description: {p}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub in ("skill", "skills"):
+      # /agent skill init <name|id>
+      parts = rest_s.split(maxsplit=2)
+      if len(parts) < 2:
+        out("Usage: /agent skill init <name|id>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      op = parts[0].strip().lower()
+      key = parts[1].strip()
+      if op not in ("skill", "skills"):
+        # unreachable
+        pass
+      action = (parts[2].strip().lower() if len(parts) >= 3 else "init")
+      from gemcode.org import find_member, ensure_agent_local_skill, resolve_fleet_root
+      m = find_member(resolve_fleet_root(cfg.project_root), key)
+      if m is None:
+        out(f"[agent] unknown: {key}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      if action not in ("init", "create"):
+        out("Usage: /agent skill init <name|id>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      sk = ensure_agent_local_skill(cfg.project_root, member=m)
+      if not sk:
+        out("[agent] could not create local skill (missing workspace?)")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      ws = (cfg.project_root / (getattr(m, "workspace_rel", "") or "")).resolve()
+      out(f"[agent] local skill ready: {ws / '.gemcode' / 'skills' / sk / 'SKILL.md'}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub in ("workspace", "ws"):
+      # /agent workspace init <name|id>
+      parts = rest_s.split(maxsplit=2)
+      if len(parts) < 2:
+        out("Usage: /agent workspace init <name|id>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      action = (parts[0] or "").strip().lower()
+      key = (parts[1] or "").strip()
+      if action not in ("init", "create"):
+        out("Usage: /agent workspace init <name|id>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      from gemcode.org import find_member, ensure_agent_workspace, load_org, save_org, resolve_fleet_root
+
+      fleet_root = resolve_fleet_root(cfg.project_root)
+      m = find_member(fleet_root, key)
+      if m is None:
+        out(f"[agent] unknown: {key}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+
+      # Ensure on-disk workspace exists (idempotent).
+      ws_rel = ensure_agent_workspace(fleet_root, member=m)
+      ws = (fleet_root / ws_rel).resolve()
+
+      # Persist workspace_rel back into org.json in case it was missing/empty.
+      try:
+        org = load_org(fleet_root)
+        members = list(org.get("members") or [])
+        for md in members:
+          if not isinstance(md, dict):
+            continue
+          mid = str(md.get("id") or "")
+          nm = str(md.get("name") or "")
+          if mid == m.id or nm.lower() == m.name.lower():
+            md["workspace_rel"] = ws_rel
+        org["members"] = members
+        save_org(fleet_root, org)
+      except Exception:
+        pass
+
+      out(f"[agent] workspace ready: {ws / 'workspace'}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub in ("assign", "delegate"):
+      parts = rest_s.split(maxsplit=1)
+      if len(parts) < 2:
+        out("Usage: /agent assign <member> <task...>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      member = parts[0].strip()
+      task = parts[1].strip()
+      try:
+        from gemcode.kaira_client import KairaIpcClient
+        sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+        client = await KairaIpcClient.connect(socket_path=sock)
+        try:
+          res = await client.publish(
+            topic="org.assign",
+            payload={"member": member, "task": task, "context": "", "session_id": session_id},
+            to="manager",
+            from_addr="agent-ui",
+          )
+        finally:
+          await client.close()
+        if not res.get("ok"):
+          out(f"[agent] runtime publish failed: {res.get('error') or 'publish_failed'}")
+        else:
+          out(f"[agent] assigned via runtime: member={member}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      except Exception as e:
+        prompt = (
+          "Delegate this task using org_delegate(member, task). "
+          "If delegation returns a job_id, tell the user it's running in background.\n\n"
+          f"member={member}\n"
+          f"task={task}\n"
+        )
+        out(f"[agent] runtime unavailable ({type(e).__name__}); falling back to in-turn delegation")
+        out()
+        return ReplSlashResult(model_prompt=prompt)
+
+    if sub == "spawn":
+      # /agent spawn <name> <title> <kaira_worker|subagent> <task...>
+      parts = rest_s.split(maxsplit=3) if rest_s else []
+      if len(parts) < 4:
+        out("Usage: /agent spawn <name> <title> <kaira_worker|subagent> <task...>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      nm, title, kind, task = parts[0], parts[1], parts[2], parts[3]
+      prompt = (
+        "Spawn and assign using org_spawn(name,title,kind,task). "
+        "If delegation returns a job_id, tell the user it's running in background.\n\n"
+        f"name={nm}\n"
+        f"title={title}\n"
+        f"kind={kind}\n"
+        f"task={task}\n"
+      )
+      return ReplSlashResult(model_prompt=prompt)
+
+    if sub == "improve":
+      parts2 = rest_s.split(maxsplit=1) if rest_s else []
+      if len(parts2) < 2:
+        out("Usage: /agent improve <member> <lessons...>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      member = parts2[0].strip()
+      lessons = parts2[1].strip()
+      prompt = (
+        "Improve the member's skill based on these lessons.\n"
+        "Call org_improve(member, lessons) and confirm the skill path.\n\n"
+        f"member={member}\n"
+        f"lessons={lessons}\n"
+      )
+      return ReplSlashResult(model_prompt=prompt)
+
+    if sub == "start":
+      from gemcode.org import find_member
+      key = rest_s.strip()
+      if not key:
+        out("Usage: /agent start <name|id>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      m = find_member(cfg.project_root, key)
+      if m is None:
+        out(f"[agent] unknown: {key}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      ws = (cfg.project_root / (getattr(m, "workspace_rel", "") or "")).resolve()
+      out(f"Agent {m.name} ({m.id}) workspace:")
+      out(f"  {ws}")
+      out("Run (separate terminal recommended):")
+      out(f"  gemcode runtime -C \"{ws}\"")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub == "trigger":
+      parts = rest_s.split(maxsplit=1)
+      if len(parts) < 2:
+        out("Usage: /agent trigger <name|id> <task...>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      member = parts[0].strip()
+      task = parts[1].strip()
+      try:
+        from gemcode.kaira_client import KairaIpcClient
+        sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+        client = await KairaIpcClient.connect(socket_path=sock)
+        try:
+          res = await client.publish(
+            topic="org.assign",
+            payload={"member": member, "task": task, "context": "", "session_id": session_id},
+            to="manager",
+            from_addr="agent-ui",
+          )
+        finally:
+          await client.close()
+        if not res.get("ok"):
+          out(f"[agent] runtime publish failed: {res.get('error') or 'publish_failed'}")
+        else:
+          out(f"[agent] triggered via runtime: member={member}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      except Exception as e:
+        out(f"[agent] runtime unavailable: {type(e).__name__}: {e}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+
+    if sub == "send":
+      parts = rest_s.split(maxsplit=1)
+      if len(parts) < 2:
+        out("Usage: /agent send <name|id> <prompt...>")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      key = parts[0].strip()
+      prompt = parts[1].strip()
+      from gemcode.org import find_member
+      m = find_member(cfg.project_root, key)
+      if m is None:
+        out(f"[agent] unknown: {key}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      ws_rel = getattr(m, "workspace_rel", "") or ""
+      if not ws_rel:
+        out(f"[agent] member has no workspace: {m.name}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      sock = (cfg.project_root / ws_rel / ".gemcode" / "ipc.sock")
+      try:
+        from gemcode.kaira_client import KairaIpcClient
+        client = await KairaIpcClient.connect(socket_path=str(sock))
+        try:
+          res = await client.request(action="enqueue", prompt=prompt, priority=0, session_id=session_id)
+        finally:
+          await client.close()
+        if not res.get("ok"):
+          out(f"[agent] enqueue failed: {res.get('error') or 'enqueue_failed'}")
+        else:
+          out(f"[agent] enqueued job_id={res.get('job_id')}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      except Exception as e:
+        out(f"[agent] agent runtime not reachable at {sock}: {type(e).__name__}: {e}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+
+    out("[agent] unknown subcommand (try: /agent help)")
     out()
     return ReplSlashResult(skip_model_turn=True)
 

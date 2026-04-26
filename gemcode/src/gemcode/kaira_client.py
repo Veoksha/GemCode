@@ -41,6 +41,42 @@ class KairaIpcClient:
         return obj
       # Other messages (events) are ignored here; caller should use iter_messages.
 
+  async def subscribe(
+    self,
+    *,
+    topics: list[str] | None = None,
+    to: list[str] | None = None,
+  ) -> dict[str, Any]:
+    """
+    Subscribe to server events.
+
+    Optional filters apply only to `bus_message` events; job_* events are always
+    delivered to all subscribed clients.
+    """
+    payload: dict[str, Any] = {}
+    if topics:
+      payload["topics"] = list(topics)
+    if to:
+      payload["to"] = list(to)
+    return await self.request(action="subscribe", **payload)
+
+  async def publish(
+    self,
+    *,
+    topic: str,
+    payload: Any,
+    to: str = "",
+    from_addr: str = "",
+  ) -> dict[str, Any]:
+    """Publish a `bus_message` event to all subscribed clients."""
+    return await self.request(
+      action="publish",
+      topic=str(topic),
+      to=str(to or ""),
+      **({"from": str(from_addr)} if from_addr else {}),
+      payload=payload,
+    )
+
   async def iter_messages(self) -> AsyncIterator[dict[str, Any]]:
     while True:
       line = await self.reader.readline()

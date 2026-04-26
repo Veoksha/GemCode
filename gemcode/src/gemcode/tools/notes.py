@@ -3,7 +3,7 @@ Agent auto-notes tool — project-scoped markdown notes the agent can curate.
 
 GemCode provides: the agent can write structured notes to
 .gemcode/notes.md which are loaded back at the start of each session
-(via the GEMINI.md hierarchy in agent.py).
+(via the project instruction hierarchy in agent.py).
 
 This is different from the persistent memory system (memories.jsonl):
   - memories.jsonl: semantic search-backed cross-session knowledge (requires /memory on)

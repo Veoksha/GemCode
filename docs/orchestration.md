@@ -1,30 +1,32 @@
-# Orchestration: Kaira, Org hierarchy, and parallel agents
+# Orchestration: Kaira daemon (GemCode Runtime), agent fleet, and parallel work
 
-This page documents the “multi-agent” surfaces in GemCode: the Kaira background scheduler, the org hierarchy (members + delegation), and the automatic manager behaviors that can route work and improve worker skills over time.
+This page documents the “multi-agent” surfaces in GemCode: the **Kaira daemon** (GemCode Runtime), the **agent fleet** registry (members + workspaces), and the automatic manager behaviors that can route work and improve worker skills over time.
 
 ## What changed (high-level improvements)
 
 GemCode gained these orchestration features:
 
-- **Kaira IPC (two-way)**: a running `gemcode kaira` daemon exposes a Unix-socket JSONL control plane and event stream.
-- **Persistent job registry**: Kaira jobs are stored under `.gemcode/kaira/jobs/` (queued/running/finished/failed, timestamps, last output).
+- **Kaira IPC (two-way)**: a running `gemcode runtime` daemon (alias: `gemcode kaira`) exposes a Unix-socket JSONL control plane and event stream.
+- **Persistent job registry**: runtime jobs are stored under `.gemcode/kaira/jobs/` (queued/running/finished/failed, timestamps, last output).
 - **Live event streaming**: the TUI can subscribe and display job lifecycle + text/tool deltas while you keep using GemCode normally.
 - **HITL bridge**: background jobs can request approvals (tool confirmations) and the interactive TUI can answer them.
-- **Org hierarchy**: you can model an “org chart” of members (roles), then delegate/spawn work through those members.
+- **Agent fleet registry**: you can model a “fleet/org chart” of members (roles), each with a workspace under `.gemcode/agents/`.
 - **Parallel subtasks**: the agent can run multiple isolated subtasks concurrently (`spawn_subtasks`).
 - **Manager automation**: optional heuristics can auto-fan-out complex prompts, auto-route pre-review to org members, and auto-improve member skills when formatting/contracts aren’t met.
 
-## Kaira (background scheduler)
+## Kaira daemon (GemCode Runtime)
 
 ### Start the daemon
 
 In a separate terminal:
 
 ```bash
+gemcode runtime -C .
+# (alias)
 gemcode kaira -C .
 ```
 
-Kaira reads prompts from stdin (and can also be controlled over IPC).
+The runtime reads prompts from stdin (and can also be controlled over IPC). Each prompt becomes a queued job.
 
 ### Local scheduled automations (hourly/nightly/cron)
 
@@ -34,14 +36,21 @@ Kaira can run local scheduled automations from:
 Enable:
 
 ```bash
-gemcode kaira -C . --automations
+gemcode runtime -C . --automations
 ```
 
 Optional heartbeat (enqueue a status prompt every N seconds):
 
 ```bash
-gemcode kaira -C . --heartbeat-every-s 240 --heartbeat-prompt "Heartbeat: summarise XAUUSD status"
+gemcode runtime -C . --heartbeat-every-s 240 --heartbeat-prompt "Heartbeat: summarise XAUUSD status"
 ```
+
+#### Managing automations from the model (normal GemCode mode)
+In addition to the `/automations ...` slash commands, the main GemCode agent can manage schedules via function tools:
+
+- `automations_list()` — list automation configs under `.gemcode/automations/*.json`
+- `automations_init(name, prompt=..., trigger_kind=nightly|daily|interval|cron, ...)` — create an automation config
+- `automations_run(name)` — enqueue an automation immediately via runtime IPC (requires a running runtime socket)
 
 ### Single-terminal mode (TUI + embedded Kaira)
 
@@ -88,53 +97,64 @@ In the TUI:
 
 This filters the Kaira event stream to a single job id prefix.
 
-## Org hierarchy (“GemCode as an organisation”)
+## Agent fleet (“GemCode as an organisation”)
 
-Org data is stored under `.gemcode/org.json`.
+Agent registry data is stored under `.gemcode/org.json`.
 
-### List and view the org tree
+Each agent also has a dedicated workspace under:
+- `.gemcode/agents/<id>-<slug>/`
+
+Inside an agent workspace, GemCode supports an optional “constitution” folder:
+- `workspace/GOALS.md`
+- `workspace/POLICIES.md`
+- `workspace/SKILLS.md`
+- `workspace/HEARTBEAT.md`
+- `workspace/skills/*/SKILL.md`
+
+When you run `gemcode -C .gemcode/agents/<id>-<slug>`, those files are automatically injected into the agent instruction.
+
+### List and view the agent tree
 
 ```text
-/org list
-/org tree
+/agent list
+/agent tree
 ```
 
-### Hire members (roles)
+### Create agents (roles)
 
 ```text
-/org hire <name> <title> [kaira_worker|subagent] [reports_to] [description...]
+/agent create <name> <title> [kaira_worker|subagent] [reports_to] [address] [description...]
 ```
 
 Examples:
 
 ```text
-/org hire verifier "QA / test planner" subagent gemcode "Find risks, propose tests, review plans."
-/org hire kaira "Background worker" kaira_worker gemcode "Run parallel jobs and return structured reports."
+/agent create verifier "QA / test planner" subagent manager verifier "Find risks, propose tests, review plans."
+/agent create kaira "Background worker" kaira_worker manager kaira "Run parallel jobs and return structured reports."
 ```
 
-### Delegate work to a member
+### Delegate / trigger work to an agent
 
 ```text
-/org assign <member> <task...>
+/agent assign <member> <task...>
 ```
 
-Aliases:
-- `/delegate`
-- `/assign`
+Notes:
+- `/agent assign` publishes `topic=org.assign` to the runtime (if available) so work can run autonomously in the background.
+- The runtime manager translates `org.assign` into a queued job that runs `org_delegate(...)` and emits `topic=org.report` bus messages up the reporting chain.
 
-### Spawn (hire + assign in one step)
+### Improve an agent (append to their skill)
 
 ```text
-/org spawn <name> <title> <kind> <task...>
+/agent improve <member> <lessons...>
 ```
 
-Alias:
-- `/spawn`
+### Repair/scaffold an agent workspace constitution
 
-### Improve a member (append to their skill)
+For older agents (or if you deleted the folder), you can re-scaffold the `workspace/` files:
 
 ```text
-/org improve <member> <lessons...>
+/agent workspace init <name|id>
 ```
 
 ## Automatic manager behaviors (optional)
@@ -153,7 +173,7 @@ The model will be nudged to call:
 
 ### Manager dispatch (deterministic pre-delegation)
 
-When a prompt looks complex, GemCode can pre-delegate a quick “risk + verification steps” review to an org member (for example `verifier`) and inject that into the main agent prompt:
+When a prompt looks complex, GemCode can pre-delegate a quick “risk + verification steps” review to an agent (for example `verifier`) and inject that into the main agent prompt:
 
 - `GEMCODE_MANAGER_DISPATCH=1`
 - `GEMCODE_MANAGER_DISPATCH_THRESHOLD=0.7`
@@ -172,13 +192,13 @@ If workers repeatedly fail the report contract (for example missing JSON reports
 
 ## Super mode with Kaira and sub-agents
 
-Background jobs use the same `GemCodeConfig` as the daemon. For fully autonomous workers (no IPC tool-confirmation waits, no interactive `get_user_choice`), start Kaira with:
+Background jobs use the same `GemCodeConfig` as the daemon. For fully autonomous workers (no IPC tool-confirmation waits, no interactive `get_user_choice`), start the runtime with:
 
 ```bash
-gemcode kaira -C . --super
+gemcode runtime -C . --super
 ```
 
-Or set `GEMCODE_SUPER_MODE=1` in the environment before launching `gemcode kaira`.
+Or set `GEMCODE_SUPER_MODE=1` in the environment before launching `gemcode runtime`.
 
 Sub-agents spawned via `run_subtask` / `spawn_subtasks` inherit the parent config, so super mode applies to their tool list (including the non-interactive `get_user_choice`) when the parent session was started in super mode.
 
@@ -190,6 +210,7 @@ Common `.gemcode/` locations:
 
 - **Kaira jobs**: `.gemcode/kaira/jobs/`
 - **Kaira IPC socket**: `.gemcode/ipc.sock`
-- **Org chart**: `.gemcode/org.json`
-- **Member skills**: `.gemcode/skills/<member-name>/SKILL.md`
+- **Agent registry**: `.gemcode/org.json`
+- **Role skills**: `.gemcode/skills/<member-name>/SKILL.md`
+- **Agent workspaces**: `.gemcode/agents/<id>-<slug>/`
 

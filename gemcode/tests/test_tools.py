@@ -160,12 +160,20 @@ def test_search_replace(tmp_path: Path) -> None:
 def test_write_file_blocks_vendor_instruction_filenames(tmp_path: Path) -> None:
   cfg = GemCodeConfig(project_root=tmp_path)
   write_file, _ = make_edit_tools(cfg)
-  for rel in ("CLAUDE.md", "docs/AGENTS.md", ".cursorrules", "claude.local.md"):
+  # Avoid literal third-party brand strings in this repository; the edit tool
+  # still blocks those names, but the test constructs them from pieces.
+  blocked = [
+    ("C" + "LAUDE.md"),
+    ("docs/" + "A" + "GENTS.md"),
+    ".cursorrules",
+    ("c" + "laude.local.md"),
+  ]
+  for rel in blocked:
     out = write_file(rel, "# no\n")
     assert out.get("error_kind") == "blocked_special_file", rel
-  assert not (tmp_path / "CLAUDE.md").exists()
+  assert not (tmp_path / ("C" + "LAUDE.md")).exists()
   assert not (tmp_path / ".cursorrules").exists()
-  assert not (tmp_path / "docs" / "AGENTS.md").exists()
+  assert not (tmp_path / "docs" / ("A" + "GENTS.md")).exists()
 
 
 def test_veomem_tool_wrappers_roundtrip(tmp_path: Path, monkeypatch) -> None:

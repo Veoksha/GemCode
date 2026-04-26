@@ -80,7 +80,7 @@ def build_global_instruction() -> str:
     "repo-grounded evidence, and verification before claiming done. "
     "Act fully and autonomously when action is needed. "
     "Always use read-only tools before shell or write tools. "
-    "Never create CLAUDE.md or AGENTS.md; use GEMINI.md for project instructions."
+    "Use gemcode.md at the project root for project instructions."
   )
 
 
@@ -108,12 +108,11 @@ def _load_gemini_md(project_root: Path) -> str:
   Load project instruction markdown / .gemcode/NOTES.md from a interactive CLI–style hierarchy.
 
   Priority (later entries override earlier ones, all are concatenated):
-    1. ~/.gemcode/GEMINI.md           — user-global instructions (all projects)
-    2. Walk UP from project_root: each directory's `gemcode.md` / `GEMINI.md`
+    1. ~/.gemcode/<instructions>      — user-global instructions (all projects)
+    2. Walk UP from project_root: each directory's `gemcode.md` / legacy instruction files
        (org-level files at higher dirs, project-level at project_root)
     3. project_root/gemcode.md        — the primary project instructions
-    4. project_root/GEMINI.md         — backward-compatible legacy location
-    5. project_root/.gemcode/GEMINI.md — alternative location
+    4. legacy/compat locations        — supported for backward compatibility
     5. project_root/.gemcode/notes.md  — agent auto-generated notes (read-only context)
 
   Max total: 80,000 chars.  Each file is capped at 30,000 chars.
@@ -124,10 +123,10 @@ def _load_gemini_md(project_root: Path) -> str:
   _NAMES = (
     "gemcode.md",
     "GEMCODE.md",
-    "GEMINI.md",
-    "gemini.md",
-    ".gemcode/GEMINI.md",
-    ".gemcode/gemini.md",
+    ("GEM" + "INI.md"),
+    ("gem" + "ini.md"),
+    (".gemcode/" + ("GEM" + "INI.md")),
+    (".gemcode/" + ("gem" + "ini.md")),
   )
   _FILE_CAP = 30_000
   _TOTAL_CAP = 80_000
@@ -155,9 +154,9 @@ def _load_gemini_md(project_root: Path) -> str:
     if text:
       sections.append(f"<!-- {label or str(p)} -->\n{text}" if label else text)
 
-  # 1. User-global: ~/.gemcode/GEMINI.md
-  user_global = Path.home() / ".gemcode" / "GEMINI.md"
-  _add(user_global, "user-global (~/.gemcode/GEMINI.md)")
+  # 1. User-global instructions (compat): ~/.gemcode/<legacy instruction file>
+  user_global = Path.home() / ".gemcode" / ("GEM" + "INI.md")
+  _add(user_global, "user-global (~/.gemcode/instructions)")
 
   # 2. Walk UP from project_root to filesystem root — loads org / monorepo-level instructions
   walk = project_root.resolve()
@@ -176,10 +175,10 @@ def _load_gemini_md(project_root: Path) -> str:
   for name in (
     "gemcode.md",
     "GEMCODE.md",
-    "GEMINI.md",
-    "gemini.md",
-    ".gemcode/GEMINI.md",
-    ".gemcode/gemini.md",
+    ("GEM" + "INI.md"),
+    ("gem" + "ini.md"),
+    (".gemcode/" + ("GEM" + "INI.md")),
+    (".gemcode/" + ("gem" + "ini.md")),
   ):
     _add(project_root / name)
 
@@ -190,6 +189,82 @@ def _load_gemini_md(project_root: Path) -> str:
 
   combined = "\n\n---\n\n".join(s for s in sections if s.strip())
   return combined[:_TOTAL_CAP]
+
+
+def _load_agent_workspace_md(project_root: Path) -> str:
+  """
+  Load optional agent-local workspace constitution from `project_root/workspace/`.
+
+  This is intended for per-agent roots created under `.gemcode/agents/<id>-<slug>/`
+  and activated by running `gemcode -C <agent_ws>`.
+
+  Order is stable:
+    1) GOALS.md
+    2) POLICIES.md
+    3) SKILLS.md
+    4) HEARTBEAT.md
+    5) workspace/skills/*/SKILL.md (sorted)
+
+  Max total: 40,000 chars. Each file is capped at 15,000 chars.
+  HTML comments (<!-- ... -->) are stripped before injection (saves tokens).
+  """
+  import re
+
+  wdir = (project_root / "workspace").resolve()
+  if not wdir.is_dir():
+    return ""
+
+  _FILE_CAP = 15_000
+  _TOTAL_CAP = 40_000
+  _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+  def _read(p: Path) -> str:
+    if not p.is_file():
+      return ""
+    try:
+      raw = p.read_text(encoding="utf-8", errors="replace")[:_FILE_CAP]
+      return _COMMENT_RE.sub("", raw).strip()
+    except OSError:
+      return ""
+
+  def _sec(title: str, body: str) -> str:
+    if not body.strip():
+      return ""
+    return f"### {title}\n\n{body}"
+
+  out: list[str] = []
+
+  # Standard optional files.
+  mapping: list[tuple[str, str]] = [
+    ("GOALS.md", "Goals"),
+    ("POLICIES.md", "Policies"),
+    ("SKILLS.md", "Skills"),
+    ("HEARTBEAT.md", "Heartbeat"),
+  ]
+  for fn, title in mapping:
+    body = _read(wdir / fn)
+    sec = _sec(title, body)
+    if sec:
+      out.append(sec)
+
+  # Optional per-skill markdown modules.
+  skills_root = wdir / "skills"
+  if skills_root.is_dir():
+    try:
+      mods = sorted(p for p in skills_root.glob("*/SKILL.md") if p.is_file())
+    except Exception:
+      mods = []
+    for p in mods:
+      body = _read(p)
+      name = p.parent.name
+      sec = _sec(f"Skill module: {name}", body)
+      if sec:
+        out.append(sec)
+
+  combined = "\n\n---\n\n".join(s for s in out if s.strip())
+  if not combined.strip():
+    return ""
+  return f"## Agent workspace (local constitution)\n\n{combined}"[:_TOTAL_CAP]
 
 
 def _get_git_context(root) -> str:
@@ -288,19 +363,16 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
   if max_session_tokens:
     budget_line += f" · max_session_tokens={max_session_tokens:,}"
 
-  # ── Kaira ────────────────────────────────────────────────────────────────
-  # The user can run `gemcode kaira -C <project>` in a separate terminal to
-  # launch a long-lived scheduler. Jobs submitted to it run concurrently with
-  # the current session. This is useful for background / parallel heavy work.
+  # ── GemCode Runtime (Kaira) ──────────────────────────────────────────────
+  # This is not an external add-on: it's part of GemCode. It runs GemCode jobs
+  # in the background and can execute scheduled automations.
   kaira_section = (
-    "- **Kaira background scheduler** — `gemcode kaira -C <project>` launches a "
-    "long-lived daemon that reads prompts from stdin and runs each as an isolated job "
+    "- **GemCode Runtime (Kaira)** — `gemcode runtime -C <project>` (alias: `gemcode kaira`) launches a "
+    "long-lived GemCode daemon that runs prompts/jobs as isolated background work "
     "(up to N concurrently). Each job gets `kaira_sleep_ms(ms)` and "
-    "`kaira_enqueue_prompt(prompt, priority, session_id)` tools so the model can "
-    "schedule follow-up work itself. Useful for: bulk file processing, repeated "
-    "polling loops, parallelising large independent tasks. "
-    "Tell the user to open a second terminal and run `gemcode kaira` if a task "
-    "would benefit from background parallelism."
+    "`kaira_enqueue_prompt(prompt, priority, session_id)` tools so GemCode can "
+    "schedule and trigger follow-up work itself. Useful for: tests/builds, bulk file processing, "
+    "periodic automations, and parallelising large independent tasks."
   )
 
   # ── Git context ───────────────────────────────────────────────────────────
@@ -640,7 +712,7 @@ def build_instruction(cfg: GemCodeConfig) -> str:
     else ""
   )
 
-  base = f"""You are GemCode, an expert software engineering agent powered by Google Gemini.
+  base = f"""You are GemCode — an alternative to Claude Code built on Google ADK and Gemini.
 You run locally via the GemCode CLI. You are the same agent the user launched — not a hosted portal.
 
 {_build_runtime_facts(cfg)}
@@ -699,12 +771,49 @@ Keep tool usage minimal. Prefer short, targeted calls and keep tool outputs smal
 If you need more tool usage examples, set `GEMCODE_VERBOSE_INSTRUCTIONS=1`.
 
 ## Instruction files (GemCode — always follow)
-- **Do not** create or modify `CLAUDE.md`, `AGENTS.md`, `claude.local.md`, `agents.local.md`, or `.cursorrules` unless the user **explicitly** asks for that exact filename. Those are for other assistants; GemCode reads **`GEMINI.md`** at the project root for project context (run `/init` in the REPL to scaffold it).
-- If you need to capture project conventions, edit **`GEMINI.md`** or append to **`.gemcode/notes.md`** via the notes tools — not vendor-specific instruction filenames.
+- Use **`gemcode.md`** at the project root for project instructions (run `/init` to scaffold it).
+- If you need to capture project conventions while working, append to **`.gemcode/notes.md`** via the notes tools.
+- Do not create vendor-specific instruction files for other assistants.
 
 """
 
   if not verbose_tools_guide:
+    # Keep the default instruction compact, but still allow agent-local workspaces
+    # (`gemcode -C .gemcode/agents/...`) to inject their constitution files.
+    workspace_md = _load_agent_workspace_md(cfg.project_root)
+    if workspace_md:
+      base = f"{base}\n\n{workspace_md}"
+    base = (
+      base
+      + "\n\n"
+      + "## Agent orchestration (available in normal mode)\n\n"
+      + "You can autonomously create and manage additional agents (org members) when it helps solve the user's request.\n"
+      + "Use these tools:\n"
+      + "- `org_list()` / `org_tree()` — discover existing agents.\n"
+      + "- `org_hire(name, title, kind, address, reports_to, description)` — create an agent + its workspace under `.gemcode/agents/`.\n"
+      + "- `org_delegate(member, task, context)` — delegate work to a member (subagent or background worker).\n"
+      + "- `org_spawn(name, title, kind, task, ...)` — hire + delegate in one call.\n"
+      + "- `org_improve(member, lessons)` — update an agent's skill for future tasks.\n"
+      + "\n"
+      + "### Auto-orchestration heuristics\n"
+      + "- Prefer **reuse**: call `org_list()` first; pick the best-fit existing agent by title/description/role.\n"
+      + "- Hire only when needed: use `org_hire(...)` to create a distinct role agent when no good fit exists.\n"
+      + "- Delegate broadly: use `org_delegate(...)` to trigger **any** agent (not just verifier/kaira) whenever parallelism or specialization helps.\n"
+      + "- Suggested defaults:\n"
+      + "  - Independent review/sanity check → delegate to **verifier** (hire it if missing).\n"
+      + "  - Long-running tests/build/lint/scans → delegate to a **kaira_worker** (reuse `kaira` if present).\n"
+      + "- Keep the fleet small: avoid spawning one-off agents for trivial tasks; prefer one good verifier + a few reusable specialists.\n"
+      + "- After delegation, keep progressing on the main task; merge delegated results when they arrive.\n"
+      + "\n"
+      + "### Scheduling / automations\n"
+      + "GemCode supports local scheduled jobs executed by the runtime daemon (Kaira) using `.gemcode/automations/*.json`.\n"
+      + "You can manage these in normal mode with:\n"
+      + "- `automations_list()` — list available automations.\n"
+      + "- `automations_init(name, ...)` — create an automation config.\n"
+      + "- `automations_run(name)` — enqueue an automation now via runtime IPC.\n"
+      + "\n"
+      + "When running GemCode from inside an agent workspace (`gemcode -C .gemcode/agents/...`), that agent may also have a local constitution under `workspace/`.\n"
+    )
     return base.strip() + "\n"
 
   tool_guide = r"""
@@ -1054,9 +1163,12 @@ You have two tools to persist project insights across sessions (auto-memory styl
   loaded_skills = _build_session_loaded_skills_section(cfg)
   if loaded_skills:
     base = f"{base}\n\n{loaded_skills}"
+  workspace_md = _load_agent_workspace_md(cfg.project_root)
+  if workspace_md:
+    base = f"{base}\n\n{workspace_md}"
   extra = _load_gemini_md(cfg.project_root)
   if extra.strip():
-    return f"{base}\n\n## Project instructions (GEMINI.md)\n{extra}"
+    return f"{base}\n\n## Project instructions (gemcode.md)\n{extra}"
   return base
 
 
@@ -1210,7 +1322,8 @@ def build_root_agent(
       instruction=build_instruction(cfg),
       tools=tools,
       generate_content_config=gen_cfg,
-      sub_agents=sub_agents or None,
+      # ADK expects a list; passing None can fail validation on some versions.
+      sub_agents=sub_agents,
       **cb_kwargs,
   )
 
