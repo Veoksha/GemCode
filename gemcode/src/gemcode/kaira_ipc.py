@@ -250,7 +250,10 @@ class KairaIpcServer:
           try:
             pr = msg.get("priority", None)
             sid = str(msg.get("session_id") or "").strip()
-            job_id = self._enqueue_fn(prompt=prompt, priority=pr, session_id=sid)
+            meta = msg.get("meta", None)
+            if not isinstance(meta, dict):
+              meta = None
+            job_id = self._enqueue_fn(prompt=prompt, priority=pr, session_id=sid, meta=meta)
             client.emitter.send(make_response(id=req_id, ok=True, job_id=job_id))
           except Exception as e:
             client.emitter.send(

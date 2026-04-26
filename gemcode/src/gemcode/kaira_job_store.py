@@ -35,6 +35,7 @@ class JobRecord:
   finished_ms: int | None = None
   error: str | None = None
   last_text: str = ""
+  meta: dict[str, Any] | None = None
 
   def to_dict(self) -> dict[str, Any]:
     return {
@@ -42,6 +43,7 @@ class JobRecord:
       "session_id": self.session_id,
       "priority": int(self.priority),
       "prompt": self.prompt,
+      "meta": (self.meta or None),
       "status": self.status,
       "created_ms": int(self.created_ms),
       "updated_ms": int(self.updated_ms),
@@ -83,6 +85,7 @@ class KairaJobStore:
         session_id=str(obj.get("session_id") or ""),
         priority=int(obj.get("priority") or 0),
         prompt=str(obj.get("prompt") or ""),
+        meta=(obj.get("meta") if isinstance(obj.get("meta"), dict) else None),
         status=str(obj.get("status") or "queued"),  # type: ignore[arg-type]
         created_ms=int(obj.get("created_ms") or 0),
         updated_ms=int(obj.get("updated_ms") or 0),
@@ -110,13 +113,14 @@ class KairaJobStore:
     return out
 
 
-def new_job_record(*, job_id: str, session_id: str, priority: int, prompt: str) -> JobRecord:
+def new_job_record(*, job_id: str, session_id: str, priority: int, prompt: str, meta: dict[str, Any] | None = None) -> JobRecord:
   now = _now_ms()
   return JobRecord(
     job_id=job_id,
     session_id=session_id,
     priority=int(priority),
     prompt=prompt,
+    meta=meta or None,
     status="queued",
     created_ms=now,
     updated_ms=now,

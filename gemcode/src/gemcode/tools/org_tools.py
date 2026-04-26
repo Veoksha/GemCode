@@ -220,11 +220,29 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
         client = await KairaIpcClient.connect(socket_path=sock_s)
         try:
           session_id = str(getattr(cfg, "_active_session_id", "") or "")
+          notify_chain = _ancestor_addresses_for(m)
+          # Attach org metadata so the runtime can auto-publish org.report when
+          # the job finishes/fails (default, no extra prompting needed).
+          meta = {
+            "org": {
+              "member": (m.to_dict() if hasattr(m, "to_dict") else {}),
+              "capabilities": {
+                "kind": getattr(m, "kind", ""),
+                "address": getattr(m, "address", "") or getattr(m, "name", ""),
+                "workspace_rel": getattr(m, "workspace_rel", "") or "",
+                "reports_to": getattr(m, "reports_to", "") or "",
+              },
+              "task": task,
+              "context": ctx,
+              "notify_chain": notify_chain,
+            }
+          }
           res = await client.request(
             action="enqueue",
             prompt=prompt,
             priority=0,
             session_id=session_id,
+            meta=meta,
           )
           if not res.get("ok"):
             await _publish_org_report(

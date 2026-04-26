@@ -151,6 +151,7 @@ class KairaJob:
   prompt: str
   priority: int
   session_id: str
+  meta: dict | None = None
 
 
 class KairaDaemon:
@@ -415,6 +416,7 @@ class KairaDaemon:
     prompt: str,
     priority: int | None = None,
     session_id: str,
+    meta: dict | None = None,
   ) -> str:
     """Enqueue a new job into the priority queue and return job_id."""
     job_id = f"job_{uuid.uuid4().hex[:10]}"
@@ -425,9 +427,10 @@ class KairaDaemon:
       prompt=prompt,
       priority=pr,
       session_id=session_id,
+      meta=meta or None,
     )
     try:
-      rec = new_job_record(job_id=job_id, session_id=session_id, priority=pr, prompt=prompt)
+      rec = new_job_record(job_id=job_id, session_id=session_id, priority=pr, prompt=prompt, meta=meta or None)
       self._job_records[job_id] = rec
       self._store.upsert(rec)
     except Exception:
@@ -469,7 +472,11 @@ class KairaDaemon:
 
       try:
         rec = self._job_records.get(job.job_id) or new_job_record(
-          job_id=job.job_id, session_id=job.session_id, priority=job.priority, prompt=job.prompt
+          job_id=job.job_id,
+          session_id=job.session_id,
+          priority=job.priority,
+          prompt=job.prompt,
+          meta=(job.meta if isinstance(getattr(job, "meta", None), dict) else None),
         )
         self._job_records[job.job_id] = rec
         self._store.upsert(mark_running(rec))
@@ -555,6 +562,46 @@ class KairaDaemon:
                   },
                 }
               )
+
+              # If this job was enqueued as an org delegation, automatically publish
+              # an org.report back to the manager (and any notify_chain).
+              try:
+                meta = getattr(rec2, "meta", None) if isinstance(rec2, JobRecord) else None
+                org = meta.get("org") if isinstance(meta, dict) else None
+                if isinstance(org, dict):
+                  member = org.get("member")
+                  task = str(org.get("task") or "").strip()
+                  context = str(org.get("context") or "").strip()
+                  notify_chain = org.get("notify_chain")
+                  if not isinstance(notify_chain, list):
+                    notify_chain = ["manager"]
+                  payload = {
+                    "member": member if isinstance(member, dict) else {},
+                    "capabilities": org.get("capabilities") if isinstance(org.get("capabilities"), dict) else {},
+                    "status": "finished",
+                    "task": task,
+                    "context": context,
+                    "job_id": job.job_id,
+                    "error": "",
+                    "result": {
+                      "report_json": report_obj,
+                      "report": (text or "")[:8000],
+                    },
+                    "notify_chain": notify_chain,
+                  }
+                  for to_addr in notify_chain:
+                    await self._ipc.broadcast(
+                      {
+                        "type": "event",
+                        "event": "bus_message",
+                        "topic": "org.report",
+                        "to": str(to_addr or "manager"),
+                        "from_addr": "runtime",
+                        "payload": payload,
+                      }
+                    )
+              except Exception:
+                pass
             except Exception:
               pass
       except Exception:
@@ -616,6 +663,42 @@ class KairaDaemon:
               },
             }
           )
+        except Exception:
+          pass
+        # Also emit org.report failures for org-delegated jobs.
+        try:
+          recf = self._job_records.get(job.job_id)
+          meta = getattr(recf, "meta", None) if recf is not None else None
+          org = meta.get("org") if isinstance(meta, dict) else None
+          if isinstance(org, dict):
+            member = org.get("member")
+            task = str(org.get("task") or "").strip()
+            context = str(org.get("context") or "").strip()
+            notify_chain = org.get("notify_chain")
+            if not isinstance(notify_chain, list):
+              notify_chain = ["manager"]
+            payload = {
+              "member": member if isinstance(member, dict) else {},
+              "capabilities": org.get("capabilities") if isinstance(org.get("capabilities"), dict) else {},
+              "status": "failed",
+              "task": task,
+              "context": context,
+              "job_id": job.job_id,
+              "error": f"{type(e).__name__}: {e}",
+              "result": None,
+              "notify_chain": notify_chain,
+            }
+            for to_addr in notify_chain:
+              await self._ipc.broadcast(
+                {
+                  "type": "event",
+                  "event": "bus_message",
+                  "topic": "org.report",
+                  "to": str(to_addr or "manager"),
+                  "from_addr": "runtime",
+                  "payload": payload,
+                }
+              )
         except Exception:
           pass
       try:
