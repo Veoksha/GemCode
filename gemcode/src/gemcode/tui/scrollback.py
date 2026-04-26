@@ -446,6 +446,38 @@ async def run_gemcode_scrollback_tui(
           route = ""
           if from_addr or to:
             route = f" {from_addr or '?'}→{to or '*'}"
+
+          # Human-friendly rendering for common fleet-wide agent events.
+          try:
+            if topic in ("agent.report", "org.report") and isinstance(payload, dict):
+              status = str(payload.get("status") or "")
+              task = str(payload.get("task") or "").strip().replace("\n", " ")
+              task_short = (task[:160] + "…") if len(task) > 160 else task
+              if topic == "org.report":
+                mem = payload.get("member") or {}
+                mem_name = ""
+                try:
+                  if isinstance(mem, dict):
+                    mem_name = str(mem.get("name") or mem.get("id") or "")
+                except Exception:
+                  mem_name = ""
+                jid = str(payload.get("job_id") or "")[:10]
+                prefix = f"{mem_name} " if mem_name else ""
+                extra = f" job={jid}" if jid else ""
+                await _kaira_print(
+                  f"{ansi.dim}[{label}{route}]{ansi.reset} {prefix}{status}{extra} — {task_short}".rstrip()
+                )
+                continue
+              # agent.report
+              sid = str(payload.get("sub_session_id") or "")[:8]
+              extra = f" sub={sid}" if sid else ""
+              await _kaira_print(
+                f"{ansi.dim}[{label}{route}]{ansi.reset} {status}{extra} — {task_short}".rstrip()
+              )
+              continue
+          except Exception:
+            pass
+
           try:
             if isinstance(payload, (dict, list)):
               import json as _json

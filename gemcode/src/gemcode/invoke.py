@@ -42,7 +42,14 @@ async def _maybe_enqueue_kaira_autopilot(*, cfg: "GemCodeConfig", session_id: st
       return
     object.__setattr__(cfg, "_kaira_autopilot_fp", fp)
 
-    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+    try:
+      from gemcode.org import resolve_fleet_root
+
+      fleet_root = resolve_fleet_root(cfg.project_root)
+    except Exception:
+      fleet_root = cfg.project_root
+
+    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
     if not Path(sock).exists():
       return
     # Heuristic: suggest likely checks, but let the agent choose based on repo.
@@ -70,7 +77,7 @@ async def _maybe_enqueue_kaira_autopilot(*, cfg: "GemCodeConfig", session_id: st
       )
       if auto_org:
         from gemcode.org import find_member
-        m = find_member(cfg.project_root, "kaira")
+        m = find_member(fleet_root, "kaira")
         if m is not None and m.kind == "kaira_worker":
           from gemcode.tools.org_tools import make_org_tools
           tools = make_org_tools(cfg)

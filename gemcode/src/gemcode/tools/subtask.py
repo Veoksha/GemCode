@@ -23,6 +23,9 @@ The sub-agent:
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path
+from typing import Any
 from gemcode.config import GemCodeConfig
 
 
@@ -68,6 +71,60 @@ def _build_sub_tools(cfg: GemCodeConfig) -> list:
         pass
 
     return tools
+
+
+async def _publish_subtask_report(
+    *,
+    cfg: GemCodeConfig,
+    status: str,
+    task: str,
+    context: str,
+    sub_session_id: str,
+    result: object | None = None,
+    error: str = "",
+) -> None:
+    """
+    Durable report path for *all* in-process subagents:
+    - Publish to runtime bus when available
+    - Otherwise append to fleet-root `.gemcode/audit.log`
+    """
+    try:
+        from gemcode.org import resolve_fleet_root
+
+        fleet_root = resolve_fleet_root(getattr(cfg, "project_root", Path.cwd()))
+    except Exception:
+        fleet_root = Path(getattr(cfg, "project_root", Path.cwd()))
+
+    payload: dict[str, Any] = {
+        "kind": "subagent",
+        "status": status,
+        "task": task,
+        "context": context,
+        "sub_session_id": sub_session_id,
+        "error": error,
+        "result": result,
+    }
+
+    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
+    try:
+        if Path(sock).exists():
+            from gemcode.kaira_client import KairaIpcClient
+
+            c = await KairaIpcClient.connect(socket_path=str(sock))
+            try:
+                await c.publish(topic="agent.report", to="manager", from_addr="subagent", payload=payload)
+                return
+            finally:
+                await c.close()
+    except Exception:
+        pass
+
+    try:
+        from gemcode.audit import append_audit
+
+        append_audit(fleet_root, {"event": "agent.report", "payload": payload})
+    except Exception:
+        return
 
 
 def make_run_subtask_tool(cfg: GemCodeConfig):
@@ -155,8 +212,15 @@ def make_run_subtask_tool(cfg: GemCodeConfig):
         sub_session_id = str(uuid.uuid4())
 
         # Compose the sub-agent prompt.
-        task_clean = task.strip()
+        task_clean = (task or "").strip()
         ctx_clean = (context or "").strip()
+        await _publish_subtask_report(
+            cfg=cfg,
+            status="started",
+            task=task_clean,
+            context=ctx_clean,
+            sub_session_id=sub_session_id,
+        )
         prompt = task_clean
         if ctx_clean:
             prompt = f"{task_clean}\n\nAdditional context:\n{ctx_clean}"
@@ -188,6 +252,14 @@ def make_run_subtask_tool(cfg: GemCodeConfig):
                 cfg=cfg,
             )
         except Exception as e:
+            await _publish_subtask_report(
+                cfg=cfg,
+                status="failed",
+                task=task_clean,
+                context=ctx_clean,
+                sub_session_id=sub_session_id,
+                error=f"{type(e).__name__}: {e}",
+            )
             return {"error": f"Sub-agent error: {type(e).__name__}: {e}"}
 
         # Extract only non-thinking text parts from the sub-agent's output.
@@ -226,6 +298,18 @@ def make_run_subtask_tool(cfg: GemCodeConfig):
                     text=result_text,
                     preview_max_chars=max_chars,
                 )
+                await _publish_subtask_report(
+                    cfg=cfg,
+                    status="finished",
+                    task=task_clean,
+                    context=ctx_clean,
+                    sub_session_id=sub_session_id,
+                    result={
+                        "offloaded": True,
+                        "ref": ref_obj.get("ref"),
+                        "preview": ref_obj.get("preview", "") or "",
+                    },
+                )
                 return {
                     "result": ref_obj.get("preview", "") or "",
                     "offloaded": True,
@@ -234,8 +318,24 @@ def make_run_subtask_tool(cfg: GemCodeConfig):
                 }
             except Exception:
                 result_text = result_text[:max_chars] + "\n… [truncated]"
+                await _publish_subtask_report(
+                    cfg=cfg,
+                    status="finished",
+                    task=task_clean,
+                    context=ctx_clean,
+                    sub_session_id=sub_session_id,
+                    result={"truncated": True, "result": result_text},
+                )
                 return {"result": result_text, "truncated": True}
 
+        await _publish_subtask_report(
+            cfg=cfg,
+            status="finished",
+            task=task_clean,
+            context=ctx_clean,
+            sub_session_id=sub_session_id,
+            result={"result": result_text},
+        )
         return {"result": result_text}
 
     return run_subtask

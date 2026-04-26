@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from typing import Any
 
@@ -82,42 +83,60 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
   ) -> None:
     if not _bus_enabled():
       return
+    fleet_root = resolve_fleet_root(getattr(cfg, "project_root", Path.cwd()))
+
+    def _audit_fallback(payload: dict[str, Any], *, why: str) -> None:
+      try:
+        from gemcode.audit import append_audit
+
+        append_audit(
+          fleet_root,
+          {
+            "event": "org.report",
+            "why": why,
+            "payload": payload,
+          },
+        )
+      except Exception:
+        return
+
+    from_addr = str(getattr(m, "address", "") or getattr(m, "name", "") or "")
+    member_dict = (m.to_dict() if hasattr(m, "to_dict") else {})
+    # Capabilities snapshot: keep it small and stable.
+    caps = {
+      "kind": member_dict.get("kind"),
+      "address": member_dict.get("address") or from_addr,
+      "workspace_rel": member_dict.get("workspace_rel", ""),
+      "reports_to": member_dict.get("reports_to", ""),
+    }
+    chain = _ancestor_addresses_for(m)
+    payload: dict[str, Any] = {
+      "member": member_dict,
+      "capabilities": caps,
+      "status": status,
+      "task": task,
+      "context": context,
+      "job_id": job_id,
+      "error": error,
+      "result": result,
+      "notify_chain": chain,
+    }
+
+    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
+    # If runtime IPC isn't up, still persist the report locally.
+    try:
+      if not Path(sock).exists():
+        _audit_fallback(payload, why="ipc_socket_missing")
+        return
+    except Exception:
+      _audit_fallback(payload, why="ipc_socket_stat_failed")
+      return
+
     try:
       from gemcode.kaira_client import KairaIpcClient
-      import os
 
-      sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(
-        getattr(cfg, "project_root", Path.cwd()) / ".gemcode" / "ipc.sock"
-      )
-      # Only attempt publish if socket exists (avoid noisy failures).
-      try:
-        if not Path(sock).exists():
-          return
-      except Exception:
-        pass
       c = await KairaIpcClient.connect(socket_path=str(sock))
       try:
-        from_addr = str(getattr(m, "address", "") or getattr(m, "name", "") or "")
-        member_dict = (m.to_dict() if hasattr(m, "to_dict") else {})
-        # Capabilities snapshot: keep it small and stable.
-        caps = {
-          "kind": member_dict.get("kind"),
-          "address": member_dict.get("address") or from_addr,
-          "workspace_rel": member_dict.get("workspace_rel", ""),
-          "reports_to": member_dict.get("reports_to", ""),
-        }
-        chain = _ancestor_addresses_for(m)
-        payload = {
-          "member": member_dict,
-          "capabilities": caps,
-          "status": status,
-          "task": task,
-          "context": context,
-          "job_id": job_id,
-          "error": error,
-          "result": result,
-          "notify_chain": chain,
-        }
         # Notify parent, grandparent, ... (and manager).
         for to_addr in chain:
           await c.publish(
@@ -128,7 +147,8 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
           )
       finally:
         await c.close()
-    except Exception:
+    except Exception as e:
+      _audit_fallback(payload, why=f"ipc_publish_failed: {type(e).__name__}: {e}")
       return
 
   def org_list() -> dict:
@@ -191,13 +211,12 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
       prompt += "\n\nContext:\n" + ctx
 
     if m.kind == "kaira_worker":
-      # Delegate to Kaira via IPC enqueue (background).
+      # Delegate to Kaira via IPC enqueue (background). If IPC is unavailable,
+      # fall back to an in-process subagent run so delegation still "just works".
       try:
         from gemcode.kaira_client import KairaIpcClient
-        sock = (
-          getattr(cfg, "project_root", Path.cwd()) / ".gemcode" / "ipc.sock"
-        )
-        sock_s = str(sock)
+        fleet_root = resolve_fleet_root(getattr(cfg, "project_root", Path.cwd()))
+        sock_s = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
         client = await KairaIpcClient.connect(socket_path=sock_s)
         try:
           session_id = str(getattr(cfg, "_active_session_id", "") or "")
@@ -229,14 +248,31 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
         finally:
           await client.close()
       except Exception as e:
-        await _publish_org_report(
-          m=m,
-          status="failed",
-          task=task,
-          context=ctx,
-          error=f"kaira_ipc_unavailable: {type(e).__name__}: {e}",
-        )
-        return {"ok": False, "error": f"kaira_ipc_unavailable: {type(e).__name__}: {e}"}
+        # Fallback: run as a subagent right now (best-effort). This keeps UX
+        # consistent when users think "agent delegation" should always work.
+        try:
+          from gemcode.tools.subtask import make_run_subtask_tool
+
+          run_subtask = make_run_subtask_tool(cfg)
+          out = await run_subtask(prompt, "")
+          result = out.get("result") if isinstance(out, dict) else out
+          await _publish_org_report(
+            m=m,
+            status="finished",
+            task=task,
+            context=ctx,
+            result={"kind": "fallback_subagent", "error": f"kaira_ipc_unavailable: {type(e).__name__}: {e}", "result": result},
+          )
+          return {"ok": True, "delegated_to": m.to_dict(), "result": result, "fallback": "subagent"}
+        except Exception as e2:
+          await _publish_org_report(
+            m=m,
+            status="failed",
+            task=task,
+            context=ctx,
+            error=f"kaira_ipc_unavailable: {type(e).__name__}: {e}; fallback_subagent_failed: {type(e2).__name__}: {e2}",
+          )
+          return {"ok": False, "error": f"kaira_ipc_unavailable: {type(e).__name__}: {e}"}
 
     # Delegate to an in-process isolated subagent.
     try:
