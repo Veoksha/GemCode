@@ -359,30 +359,53 @@ async def run_gemcode_scrollback_tui(
       return
     try:
       from gemcode.kaira_client import KairaIpcClient
+      from gemcode.org import resolve_fleet_root
 
-      sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / _KAIRA_SOCKET_DEFAULT)
-      # Only try connect if socket exists; avoids noisy startup.
-      try:
-        from pathlib import Path as _Path
+      # Fleet-wide default: even when running inside an agent workspace, connect
+      # to the shared parent project socket (fleet root) so org reports and jobs
+      # from all agents show up in the TUI by default.
+      fleet_root = resolve_fleet_root(cfg.project_root)
+      sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / _KAIRA_SOCKET_DEFAULT)
+      # Always-on behavior: keep trying to connect so background jobs / bus
+      # messages appear even if the daemon starts AFTER the TUI.
+      backoff_s = 1.0
+      client: KairaIpcClient | None = None
+      while True:
+        # Only try connect if socket exists; avoids noisy startup.
+        try:
+          from pathlib import Path as _Path
 
-        if not _Path(sock).exists():
-          return
-      except Exception:
-        pass
+          if not _Path(sock).exists():
+            await asyncio.sleep(min(8.0, backoff_s))
+            backoff_s = min(8.0, backoff_s * 1.5)
+            continue
+        except Exception:
+          await asyncio.sleep(min(8.0, backoff_s))
+          backoff_s = min(8.0, backoff_s * 1.5)
+          continue
 
-      client = await KairaIpcClient.connect(socket_path=sock)
-      try:
-        # Optional filters for bus messages.
-        # These filters apply ONLY to bus_message events; job_* events are still shown.
-        topics_env = (os.environ.get("GEMCODE_BUS_TOPICS") or "").strip()
-        to_env = (os.environ.get("GEMCODE_BUS_TO") or "").strip()
-        topics = [t.strip() for t in topics_env.split(",") if t.strip()] if topics_env else None
-        to = [t.strip() for t in to_env.split(",") if t.strip()] if to_env else None
-        await client.subscribe(topics=topics, to=to)
-        await _kaira_print(f"{ansi.dim}[kaira] connected ({sock}){ansi.reset}")
-      except Exception:
-        await client.close()
-        return
+        try:
+          client = await KairaIpcClient.connect(socket_path=sock)
+          # Optional filters for bus messages.
+          # These filters apply ONLY to bus_message events; job_* events are still shown.
+          topics_env = (os.environ.get("GEMCODE_BUS_TOPICS") or "").strip()
+          to_env = (os.environ.get("GEMCODE_BUS_TO") or "").strip()
+          topics = [t.strip() for t in topics_env.split(",") if t.strip()] if topics_env else None
+          to = [t.strip() for t in to_env.split(",") if t.strip()] if to_env else None
+          await client.subscribe(topics=topics, to=to)
+          await _kaira_print(f"{ansi.dim}[kaira] connected ({sock}){ansi.reset}")
+          backoff_s = 1.0
+          break
+        except Exception:
+          try:
+            if client is not None:
+              await client.close()
+          except Exception:
+            pass
+          client = None
+          await asyncio.sleep(min(8.0, backoff_s))
+          backoff_s = min(8.0, backoff_s * 1.5)
+          continue
 
       def _manager_enabled() -> bool:
         return os.environ.get("GEMCODE_KAIRA_MANAGER", "1").strip().lower() in (
@@ -391,6 +414,9 @@ async def run_gemcode_scrollback_tui(
           "yes",
           "on",
         )
+
+      if client is None:
+        return
 
       async for msg in client.iter_messages():
         if msg.get("type") != "event":
