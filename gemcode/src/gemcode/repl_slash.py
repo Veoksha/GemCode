@@ -2734,8 +2734,10 @@ async def process_repl_slash(
       member = parts[0].strip()
       task = parts[1].strip()
       try:
+        from gemcode.org import resolve_fleet_root
         from gemcode.kaira_client import KairaIpcClient
-        sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+        fleet_root = resolve_fleet_root(cfg.project_root)
+        sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
         client = await KairaIpcClient.connect(socket_path=sock)
         try:
           res = await client.publish(
@@ -2753,15 +2755,36 @@ async def process_repl_slash(
         out()
         return ReplSlashResult(skip_model_turn=True)
       except Exception as e:
-        prompt = (
-          "Delegate this task using org_delegate(member, task). "
-          "If delegation returns a job_id, tell the user it's running in background.\n\n"
-          f"member={member}\n"
-          f"task={task}\n"
-        )
-        out(f"[agent] runtime unavailable ({type(e).__name__}); falling back to in-turn delegation")
-        out()
-        return ReplSlashResult(model_prompt=prompt)
+        # Runtime is unavailable; do in-turn delegation deterministically (no model mediation).
+        out(f"[agent] runtime unavailable ({type(e).__name__}); delegating in-turn")
+        try:
+          from gemcode.tools.org_tools import make_org_tools
+
+          org_delegate = None
+          for t in make_org_tools(cfg):
+            if getattr(t, "__name__", "") == "org_delegate":
+              org_delegate = t
+              break
+          if org_delegate is None:
+            out("[agent] org_delegate tool not available")
+            out()
+            return ReplSlashResult(skip_model_turn=True)
+          d = await org_delegate(member=member, task=task, context="")  # type: ignore[misc]
+          if isinstance(d, dict) and d.get("ok"):
+            if d.get("job_id"):
+              out(f"[agent] delegated (background): member={member} job_id={str(d.get('job_id'))[:10]}")
+            else:
+              out(f"[agent] delegated (in-process): member={member}")
+              if d.get("result"):
+                out(str(d.get("result")))
+          else:
+            out(f"[agent] delegation failed: {d.get('error') if isinstance(d, dict) else d}")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        except Exception as e2:
+          out(f"[agent] in-turn delegation failed: {type(e2).__name__}: {e2}")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
 
     if sub == "spawn":
       # /agent spawn <name> <title> <kaira_worker|subagent> <task...>
@@ -2826,8 +2849,10 @@ async def process_repl_slash(
       member = parts[0].strip()
       task = parts[1].strip()
       try:
+        from gemcode.org import resolve_fleet_root
         from gemcode.kaira_client import KairaIpcClient
-        sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+        fleet_root = resolve_fleet_root(cfg.project_root)
+        sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
         client = await KairaIpcClient.connect(socket_path=sock)
         try:
           res = await client.publish(
