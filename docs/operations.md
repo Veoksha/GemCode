@@ -98,6 +98,12 @@ Behavior:
 - when the scrollback TUI is running, it auto-connects (by default) and streams runtime job output inline
 - the TUI also handles runtime HITL permission prompts via IPC so background jobs can request approvals
 
+To watch everything from a separate terminal (raw JSONL stream):
+
+```bash
+gemcode runtime attach -C .
+```
+
 Relevant settings:
 - `GEMCODE_KAIRA_AUTO_CONNECT=1` (default): TUI auto-connects when `.gemcode/ipc.sock` exists
 - `GEMCODE_KAIRA_SOCKET=/path/to/ipc.sock`: override socket path
@@ -124,6 +130,12 @@ This enables multi-client coordination (e.g. two terminals running GemCode) with
 Practical usage:
 - `/agent assign <member> <task...>` publishes `topic=org.assign` to the runtime (if available)
 - runtime reacts by enqueueing a background run that performs the delegation and emits `topic=org.report`
+
+#### Delegation reporting (default)
+When a task is delegated to a runtime-backed agent (`kaira_worker`) using `org_delegate(...)`, the enqueued job carries delegation metadata. When the job finishes or fails, the runtime automatically publishes:
+- `bus_message topic=org.report` to `manager` (and the full `reports_to` chain when present)
+
+This avoids the “delegated… then nothing” void: the manager UI receives a completion event without requiring a second prompt.
 
 ## Eval and autotune
 

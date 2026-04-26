@@ -139,6 +139,7 @@ Use when you want **no human-in-the-loop** for GemCode’s own gates. Super mode
 **What it turns off or auto-approves**
 
 1. **Mutations and shell** — same as `--yes`: `before_tool` allows `write_file`, `search_replace`, `run_command`, `bash`, computer-use tools, etc. (`gemcode/src/gemcode/callbacks.py`).
+   - This includes **fleet/orchestration mutations** like `org_delegate`, `org_hire`, `org_spawn`, `automations_run`, etc.
 2. **ADK `request_confirmation` handoffs** — auto-confirmed in the one-shot CLI (`invoke.py`), scrollback TUI, and Kaira job runner when `yes_to_all` / super mode applies (so runs do not block on stdin or IPC approval).
 3. **AFC tool-mode stdin prompt** — pre-selects **all tools** (`_afc_choice=all`), skipping the `afc>` prompt (`session_runtime.py`).
 4. **Attachment read/upload gate** — treated like `--yes` for the session (`_attachments_allowed`).
@@ -158,6 +159,12 @@ Use when you want **no human-in-the-loop** for GemCode’s own gates. Super mode
 - Code applies policy in `apply_super_mode()` — `gemcode/src/gemcode/config.py`
 
 **Runtime note:** Tool lists are fixed when the `LlmAgent` is built. If you toggle `/super` mid-session, you may need a **new session** or **restart** so `get_user_choice` and other registrations match the new mode.
+
+### Seeing “agent work” in real time
+There are two relevant execution styles:
+
+- **Runtime-backed agents (`kaira_worker`)**: jobs stream `job_*` events over IPC and will publish `org.report` on completion by default.
+- **In-process subagents (`run_subtask` / `spawn_subtasks`)**: the parent emits `agent.report` lifecycle events; for a raw stream, attach to the runtime IPC (when running) with `gemcode runtime attach -C .`.
 
 **Safety:** this is intentionally dangerous on untrusted codebases. Prefer `--yes`, `/trust`, and optional `--interactive-ask` when you want guardrails.
 

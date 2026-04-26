@@ -51,6 +51,13 @@ Notes:
 - `/agent assign` publishes to the runtime bus when available, so it runs autonomously in the background.
 - Agents can also delegate to other agents using the `org_*` tools in normal mode (no slash commands required).
 
+### Watch what’s running (optional)
+In yet another terminal, you can attach to the runtime event stream to see job progress and bus messages:
+
+```bash
+gemcode runtime attach -C .
+```
+
 ### Schedule a recurring job
 
 From REPL/TUI (manual):

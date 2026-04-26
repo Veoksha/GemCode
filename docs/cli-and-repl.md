@@ -261,6 +261,15 @@ If you want the TUI, use:
 gemcode -C .
 ```
 
+## Watch runtime + bus traffic (another terminal)
+If you want to see *everything running* (job lifecycle events and bus messages) from a separate terminal, attach to the runtime IPC stream:
+
+```bash
+gemcode runtime attach -C .
+```
+
+This prints a raw JSONL stream (universal for piping into other tools). The scrollback TUI renders a human-friendly subset by default.
+
 ### One-terminal mode (TUI + embedded Kaira)
 If you want continuous background jobs **and** you want to see everything in the same terminal UI, you can run Kaira inside the TUI process:
 
