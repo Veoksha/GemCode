@@ -61,7 +61,11 @@ class KairaIpcServer:
     self._cancel_job_fn = cancel_job_fn
     self._set_concurrency_fn = set_concurrency_fn
     self._server: asyncio.AbstractServer | None = None
-    self._clients: set[IpcClient] = set()
+    # Keep clients in a list (not a set).
+    #
+    # `IpcClient` is a mutable dataclass containing `asyncio.StreamWriter`
+    # which is unhashable on Python, so it cannot safely live in a `set`.
+    self._clients: list[IpcClient] = []
     self._lock = asyncio.Lock()
     self._pending_confirmations: dict[str, asyncio.Future[bool]] = {}
 
@@ -168,8 +172,10 @@ class KairaIpcServer:
 
   async def _drop_client(self, c: IpcClient) -> None:
     async with self._lock:
-      if c in self._clients:
+      try:
         self._clients.remove(c)
+      except ValueError:
+        pass
     try:
       c.writer.close()
       await c.writer.wait_closed()
@@ -181,7 +187,7 @@ class KairaIpcServer:
   ) -> None:
     client = IpcClient(writer=writer, emitter=IdeEmitter(stream=writer))
     async with self._lock:
-      self._clients.add(client)
+      self._clients.append(client)
 
     try:
       while True:

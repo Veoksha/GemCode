@@ -79,6 +79,21 @@ If you still want to avoid context caching entirely (saves this class of message
   uses a simpler request path, at higher input-token cost on long sessions), set
 `GEMCODE_CONTEXT_CACHE=0`.
 
+### IPC server crash (unhashable `IpcClient`)
+Symptoms:
+- When starting `gemcode kaira` / `gemcode runtime`, the terminal shows repeated:
+  `Unhandled exception in client_connected_cb ... TypeError: unhashable type: 'IpcClient'`
+- The runtime IPC control plane may not function correctly.
+
+Cause:
+- Internal IPC bug: the IPC server tracked connected clients using a Python `set`, but the
+  `IpcClient` object is unhashable (it contains mutable `asyncio` objects).
+
+Fix:
+- Update/reinstall GemCode (this is fixed in the latest code).
+- If you’re running from an installed PyPI package, reinstall the repo in editable mode:
+  `python3 -m pip install -e ./gemcode`
+
 ## Kaira daemon operations (GemCode Runtime)
 Kaira is the name of GemCode’s runtime daemon. It is a queue-based service that runs **GemCode jobs** in the background. It is not an external add-on; it uses the same GemCode tool surface and configuration.
 
