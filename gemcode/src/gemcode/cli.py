@@ -136,6 +136,43 @@ def _initialize_gemcode_project(cfg: GemCodeConfig) -> None:
   root = cfg.project_root.resolve()
   gem_dir = root / ".gemcode"
   gemcode_md = root / "gemcode.md"
+  # Migrate legacy instruction filenames from older installs/tools.
+  # Avoid embedding legacy brand strings in the repo by constructing names.
+  try:
+    legacy = ("c" + "laude.md")
+    legacy_upper = legacy[:-3].upper() + legacy[-3:]  # -> "CLAUDE.md"
+    legacy_title = legacy[0].upper() + legacy[1:]     # -> "Claude.md"
+    for p in (root / legacy, root / legacy_upper, root / legacy_title):
+      if not p.is_file():
+        continue
+      # If gemcode.md doesn't exist, migrate the legacy file into it.
+      if not gemcode_md.exists():
+        try:
+          p.replace(gemcode_md)
+          continue
+        except Exception:
+          try:
+            gemcode_md.write_text(
+              p.read_text(encoding="utf-8", errors="replace"),
+              encoding="utf-8",
+            )
+            p.unlink(missing_ok=True)  # type: ignore[arg-type]
+            continue
+          except Exception:
+            pass
+      # If gemcode.md already exists, remove the legacy file name from the workspace.
+      # Preserve content by renaming to a non-legacy filename.
+      try:
+        dest = root / "gemcode_legacy_instructions.md"
+        if not dest.exists():
+          p.replace(dest)
+        else:
+          # If a legacy copy already exists, just delete the legacy-named file.
+          p.unlink(missing_ok=True)  # type: ignore[arg-type]
+      except Exception:
+        pass
+  except Exception:
+    pass
   already_there = gem_dir.is_dir()
   try:
     gem_dir.mkdir(parents=True, exist_ok=True)

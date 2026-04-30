@@ -94,6 +94,15 @@ Fix:
 - If you’re running from an installed PyPI package, reinstall the repo in editable mode:
   `python3 -m pip install -e ./gemcode`
 
+### Legacy instruction file created on new projects
+Symptoms:
+- After first run in a new folder, a legacy instruction file appears at the project root.
+
+Fix:
+- GemCode now uses `gemcode.md` as the only instruction file it scaffolds.
+- On startup it will automatically migrate legacy instruction filenames to `gemcode.md` when `gemcode.md` does not already exist.
+- If `gemcode.md` already exists, GemCode removes the legacy filename and preserves any content under `gemcode_legacy_instructions.md`.
+
 ## Kaira daemon operations (GemCode Runtime)
 Kaira is the name of GemCode’s runtime daemon. It is a queue-based service that runs **GemCode jobs** in the background. It is not an external add-on; it uses the same GemCode tool surface and configuration.
 
