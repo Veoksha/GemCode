@@ -32,6 +32,29 @@ This layer parses commands and flags, loads environment configuration, selects t
 
 This layer defines the configuration model, environment-variable defaults, capability toggles, and per-turn model selection heuristics.
 
+### Orchestration and intelligence
+- `gemcode/src/gemcode/agent_mesh.py` — In-process multi-agent orchestration
+- `gemcode/src/gemcode/event_bus.py` — In-memory pub/sub for agent communication
+- `gemcode/src/gemcode/agent_intelligence.py` — Pre/post-turn learning and structural decisions
+- `gemcode/src/gemcode/agent_triggers.py` — Self-triggering agents (event-driven activation)
+- `gemcode/src/gemcode/agent_habits.py` — Scheduled recurring tasks (cron/interval/daily)
+- `gemcode/src/gemcode/delegation_learning.py` — Delegation outcome memory
+- `gemcode/src/gemcode/self_healing.py` — Auto-verify and auto-fix after changes
+- `gemcode/src/gemcode/tool_synthesis.py` — Agent-created reusable tools
+- `gemcode/src/gemcode/a2a_bridge.py` — Cross-machine agent communication (Google A2A)
+- `gemcode/src/gemcode/org.py` — Agent fleet registry
+- `gemcode/src/gemcode/fleet_reports.py` — Background agent result persistence
+
+This layer provides autonomous multi-agent behavior:
+- Org members become native ADK `sub_agents` with `transfer_to_agent` routing
+- The Agent Mesh runs background jobs as full GemCode sessions (own workspace, memory, history)
+- The Event Bus enables agent-to-agent communication without Unix sockets
+- Self-healing auto-detects verification commands and fixes failures
+- Tool synthesis creates reusable scripts from repeated patterns
+- Delegation learning remembers which agents succeed at which tasks
+- Habits run scheduled tasks autonomously (no daemon required)
+- Triggers auto-activate agents on bus events
+
 ### Runtime assembly
 - `gemcode/src/gemcode/session_runtime.py`
 

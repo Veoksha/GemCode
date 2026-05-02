@@ -3,14 +3,18 @@
 This document is the primary user-facing manual for GemCode. It explains the product at a high level and points to the subsystem-specific documentation pages that provide production-grade depth.
 
 ## What GemCode is
-GemCode is a local-first coding agent built around Google Gemini and the Google Agent Development Kit (ADK). It operates against a chosen project root and combines:
-- a configuration model
-- a runtime runner
-- a root language-model agent
-- a configurable tool inventory
-- project-local state under `.gemcode/`
+GemCode is a local-first, self-evolving coding agent built on Google Gemini and the Agent Development Kit (ADK). It operates against a chosen project root and provides:
 
-GemCode is designed for repository-native work rather than copy-paste chat workflows.
+- **Autonomous multi-agent orchestration** — agents delegate, verify, and fix each other's work
+- **Self-healing code** — changes are auto-verified; failures are auto-fixed
+- **Self-evolving tools** — the agent creates new reusable tools from repeated patterns
+- **Progressive learning** — gets smarter with every session (memory, skills, project map)
+- **Scheduled habits** — agents wake up on cron/interval to run tests, audits, checks
+- **Cross-machine agents** — expose/consume agents via Google A2A protocol
+- **58 built-in tools** — filesystem, shell, web, search, memory, orchestration, synthesis
+- **Full ADK integration** — native sub-agents, transfer_to_agent, output_key, workflow agents
+
+All state lives under `.gemcode/` in the project root. No external services required beyond a Gemini API key.
 
 ## Runtime modes
 
