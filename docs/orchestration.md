@@ -293,11 +293,33 @@ Automations are configured in `.gemcode/automations/*.json`:
 
 ## Quick Start
 
-### Minimal (works immediately, no setup)
+### Super mode (fully autonomous, no questions)
 ```bash
-gemcode -C /path/to/project --yes "Analyze this codebase"
+gemcode -C /path/to/project --super "Fix all failing tests"
 ```
-The mesh, bus, triggers, and learning all activate automatically.
+In super mode, GemCode:
+- Enables all capabilities (memory, web search, agents, habits, triggers)
+- Auto-creates default org members (kaira + verifier)
+- Auto-creates habits based on project type (test-watch for Python, lint-watch for Node)
+- Auto-verifies after risky changes
+- Never asks for confirmation
+- Agents run with full autonomy
+
+### Normal mode (proposes, you confirm)
+```bash
+gemcode -C /path/to/project
+```
+First session: GemCode detects it's a new project and offers:
+```
+[gemcode] First run detected. GemCode can run autonomously with:
+  • Memory (remembers across sessions)
+  • Agent team (verifier + background worker)
+  • Auto-verification (checks your changes)
+  • Habits (scheduled recurring tasks)
+
+  Enable autonomous mode? [Y/n]
+```
+Say yes → everything activates. Say no → manual control.
 
 ### With delegation
 ```bash

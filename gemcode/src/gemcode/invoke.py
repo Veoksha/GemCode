@@ -76,6 +76,15 @@ async def run_turn(
     except Exception:
       pass
 
+    # First-session bootstrap: enable autonomous features (asks user or auto in super mode)
+    try:
+      if not getattr(cfg, "_intelligence_bootstrapped", False):
+        object.__setattr__(cfg, "_intelligence_bootstrapped", True)
+        from gemcode.agent_intelligence import first_session_bootstrap
+        first_session_bootstrap(cfg)
+    except Exception:
+      pass
+
   if cfg is not None:
     try:
       object.__setattr__(cfg, "_active_session_id", session_id)

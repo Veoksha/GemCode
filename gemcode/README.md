@@ -139,14 +139,20 @@ Reference:
 
 ### Super mode (fully autonomous)
 
-Use when you want GemCode to run without GemCode’s own confirmation prompts (mutations, shell, ADK confirmation handoffs, AFC stdin prompt, attachment gate, auto-trust on CLI, and non-interactive `get_user_choice` = first option).
+Use when you want GemCode to run with all powers unlocked and zero friction. In super mode:
+- All capabilities auto-enable (memory, web search, agents, habits, triggers)
+- Default org members auto-create (kaira + verifier)
+- Habits auto-generate based on project type
+- Auto-verification runs after risky changes
+- No confirmation prompts for any operation
 
 - **CLI:** `gemcode -C . --super "your task"`
 - **Env:** `GEMCODE_SUPER_MODE=1`
-- **REPL/TUI:** `/super` (use `/super off` to clear the flag only)
-- **Kaira:** `gemcode kaira -C . --super`
+- **REPL/TUI:** `/super` (use `/super off` to clear)
 
-Details and safety notes: [`../docs/tools-and-permissions.md`](../docs/tools-and-permissions.md#super-mode-fully-autonomous).
+In normal mode, GemCode asks on first run: "Enable autonomous mode? [Y/n]"
+
+Details: [`../docs/orchestration.md`](../docs/orchestration.md).
 
 ## Common commands
 
