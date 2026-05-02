@@ -286,27 +286,25 @@ def make_trigger_tools(cfg: GemCodeConfig) -> list:
     agent: str,
     on_topic: str,
     action: str,
-    when: dict | None = None,
     cooldown_s: float = 60,
   ) -> dict:
     """
     Add a new self-trigger rule for an agent.
 
-    When a bus event matching `on_topic` (and optional `when` conditions) arrives,
+    When a bus event matching `on_topic` arrives,
     the specified agent will automatically activate with the given `action` prompt.
 
     Args:
       agent: Org member name to activate.
       on_topic: Bus topic to watch (e.g., "job.report", "org.report").
       action: Prompt to send to the agent when triggered.
-      when: Optional payload conditions (e.g., {"status": "failed"}).
       cooldown_s: Minimum seconds between activations (default 60).
     """
     triggers = load_triggers(cfg.project_root)
     triggers.append(AgentTrigger(
       agent=agent.strip(),
       on_topic=on_topic.strip(),
-      when=when or {},
+      when={},
       action=action.strip(),
       cooldown_s=float(cooldown_s),
       enabled=True,

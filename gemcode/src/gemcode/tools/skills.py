@@ -30,7 +30,7 @@ def make_skill_tools(cfg: GemCodeConfig) -> list:
       ]
     }
 
-  def load_skill_tool(name: str, arguments: str = "", session_id: str | None = None) -> dict[str, Any]:
+  def load_skill_tool(name: str, arguments: str = "", session_id: str = "") -> dict[str, Any]:
     """
     Load and expand a GemSkill's instructions for the given arguments.
 

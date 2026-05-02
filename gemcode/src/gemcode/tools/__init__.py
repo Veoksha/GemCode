@@ -123,9 +123,9 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
     """List recent checkpoints created by mutating tools."""
     return {"checkpoints": _list_checkpoints(cfg.project_root, limit=limit)}
 
-  def checkpoint_undo(checkpoint_id: str | None = None) -> dict:
+  def checkpoint_undo(checkpoint_id: str = "") -> dict:
     """Undo the most recent checkpoint (or a specific checkpoint_id)."""
-    return _undo_checkpoint(cfg.project_root, checkpoint_id=checkpoint_id)
+    return _undo_checkpoint(cfg.project_root, checkpoint_id=checkpoint_id or None)
 
   checkpoints_list.__name__ = "checkpoints_list"
   checkpoint_undo.__name__ = "checkpoint_undo"

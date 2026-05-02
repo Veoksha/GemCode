@@ -308,12 +308,12 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
     name: str,
     agent: str,
     prompt: str,
-    every_minutes: int | None = None,
-    every_seconds: int | None = None,
-    daily_at: str | None = None,
-    cron: str | None = None,
+    every_minutes: int = 0,
+    every_seconds: int = 0,
+    daily_at: str = "",
+    cron: str = "",
     priority: int = 0,
-    max_runs: int | None = None,
+    max_runs: int = 0,
   ) -> dict:
     """
     Add a recurring habit for an agent.
@@ -351,12 +351,12 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
 
     # Determine schedule
     secs = None
-    if every_minutes:
+    if every_minutes and every_minutes > 0:
       secs = int(every_minutes) * 60
-    elif every_seconds:
+    elif every_seconds and every_seconds > 0:
       secs = int(every_seconds)
 
-    if not secs and not daily_at and not cron:
+    if not secs and not daily_at.strip() and not cron.strip():
       return {"ok": False, "error": "must specify one of: every_minutes, every_seconds, daily_at, or cron"}
 
     habits = load_habits(cfg.project_root)
@@ -368,10 +368,10 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
       prompt=prompt.strip(),
       enabled=True,
       every_seconds=secs,
-      daily_at=daily_at,
-      cron=cron,
+      daily_at=daily_at.strip() or None,
+      cron=cron.strip() or None,
       priority=priority,
-      max_runs=max_runs,
+      max_runs=max_runs if max_runs > 0 else None,
     ))
     save_habits(cfg.project_root, habits)
     return {"ok": True, "name": nm, "agent": agent, "schedule": daily_at or cron or f"every {secs}s"}

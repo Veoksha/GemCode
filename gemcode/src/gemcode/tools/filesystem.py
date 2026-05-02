@@ -39,7 +39,7 @@ def make_filesystem_tools(cfg: GemCodeConfig):
     path: str,
     max_bytes: int = 80_000,
     start_line: int = 1,
-    end_line: int | None = None,
+    end_line: int = 0,
   ) -> dict:
     """
     Read a text file relative to the project root.
@@ -79,11 +79,11 @@ def make_filesystem_tools(cfg: GemCodeConfig):
     text_full = data.decode("utf-8", errors="replace")
 
     # Apply line range filter when requested
-    if start_line != 1 or end_line is not None:
+    if start_line != 1 or end_line > 0:
       lines = text_full.splitlines(keepends=True)
       total_lines = len(lines)
       s = max(1, start_line) - 1       # convert to 0-indexed
-      e = end_line if end_line is not None else total_lines
+      e = end_line if end_line > 0 else total_lines
       e = min(e, total_lines)
       sliced = lines[s:e]
       text_full = "".join(sliced)

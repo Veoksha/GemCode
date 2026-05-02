@@ -119,7 +119,7 @@ def list_checkpoints(project_root: Path, limit: int = 20) -> list[dict[str, Any]
   return cps
 
 
-def undo_checkpoint(project_root: Path, checkpoint_id: str | None = None) -> dict[str, Any]:
+def undo_checkpoint(project_root: Path, checkpoint_id: str = "") -> dict[str, Any]:
   d = _checkpoints_dir(project_root)
   if not d.is_dir():
     return {"error": "no_checkpoints"}

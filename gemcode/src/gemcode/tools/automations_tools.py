@@ -47,9 +47,9 @@ def make_automations_tools(cfg: GemCodeConfig) -> list:
     priority: int = 0,
     trigger_kind: str = "nightly",
     at_hhmm: str = "02:00",
-    every_seconds: int | None = None,
-    cron: str | None = None,
-    session_id: str | None = None,
+    every_seconds: int = 0,
+    cron: str = "",
+    session_id: str = "",
     overwrite: bool = False,
   ) -> dict[str, Any]:
     """
