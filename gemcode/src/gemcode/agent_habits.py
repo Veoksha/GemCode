@@ -320,10 +320,13 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
 
     A habit is a scheduled task that runs automatically on a timer.
     The agent wakes up, does the task, reports back, then sleeps until next time.
+    Habits run inside the main GemCode process — no separate daemon needed.
+    They fire as long as GemCode is open (REPL/TUI session).
 
     Args:
       name: Unique name for this habit (e.g., "test-watch", "nightly-audit").
       agent: Org member name to run this (e.g., "kaira", "verifier").
+             Use "self" or "main" to run as the main GemCode agent.
       prompt: What the agent should do each time it wakes up.
       every_minutes: Run every N minutes (e.g., 30 = every half hour).
       every_seconds: Run every N seconds (for fine-grained intervals).
@@ -335,7 +338,7 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
     Examples:
       habits_add("test-watch", "kaira", "Run pytest -q and report", every_minutes=30)
       habits_add("nightly-audit", "verifier", "Full security review", daily_at="02:00")
-      habits_add("hourly-status", "kaira", "Summarize repo status", cron="0 * * * *")
+      habits_add("hourly-status", "self", "Summarize what changed in the last hour", cron="0 * * * *")
     """
     import re
     nm = (name or "").strip().lower()

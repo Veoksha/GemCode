@@ -399,26 +399,39 @@ class AgentMesh:
 
   async def _execute_agent_turn(self, job: AgentJob) -> str:
     """
-    Run one agent turn with a FULL-POWER Runner.
+    Run one agent turn as a FULL GemCode session.
 
-    Unlike the old Kaira daemon which used a stripped-down runner, mesh agents
-    get the same capabilities as the main GemCode session:
-    - Full tool surface (filesystem, bash, grep, web, etc.)
-    - Capability routing (auto-enables research/embeddings based on prompt)
-    - Model routing (picks the best model for the task)
-    - Memory access (if enabled)
-    - MCP tools (if configured)
-    - Persistent SQLite session (survives restarts)
+    Each org member is a complete GemCode instance with:
+    - Its own project root (workspace under .gemcode/agents/<id>-<slug>/)
+    - Its own persistent SQLite session (survives restarts, accumulates history)
+    - Its own memory (curated + embedding if enabled)
+    - Its own skills (agent-local + project-level)
+    - Full tool surface (filesystem, bash, grep, web, MCP, etc.)
+    - Capability routing + model routing
+    - Access to the mesh (can delegate to other agents)
 
-    This makes each mesh agent a REAL full GemCode agent.
+    This means agents build up context over time — they remember past tasks,
+    learn from their history, and maintain their own notes.
     """
     from gemcode.invoke import run_turn
     from gemcode.session_runtime import create_runner
     from gemcode.capability_routing import apply_capability_routing
     from gemcode.model_routing import pick_effective_model
 
-    # Deep copy config so agents don't mutate each other's state
+    # Resolve the agent's workspace as their project root
+    # This gives them their own .gemcode/ directory, sessions, memory, etc.
     agent_cfg = copy.deepcopy(self.cfg)
+    fleet_root = resolve_fleet_root(self.cfg.project_root)
+
+    if job.member_name:
+      m = find_member(fleet_root, job.member_name)
+      if m is not None and m.workspace_rel:
+        agent_workspace = fleet_root / m.workspace_rel
+        if agent_workspace.is_dir():
+          # Agent gets its own project root = its own full GemCode environment
+          agent_cfg.project_root = agent_workspace.resolve()
+          # Ensure the agent has its own .gemcode directory
+          (agent_cfg.project_root / ".gemcode").mkdir(parents=True, exist_ok=True)
 
     # Apply capability routing based on the job's prompt
     apply_capability_routing(agent_cfg, job.prompt, context="prompt")
@@ -427,16 +440,30 @@ class AgentMesh:
     # Build mesh-specific extra tools (delegate, report)
     mesh_tools = self._build_mesh_tools_for_job(job)
 
-    # Create a FULL runner (same as TUI/CLI gets) with mesh tools added
-    runner = create_runner(agent_cfg, extra_tools=mesh_tools or None)
+    # Add a tool that lets the agent access the parent project files
+    # (since their workspace is a subdirectory, they need to reach up)
+    parent_tools = self._build_parent_access_tools(fleet_root)
+    all_extra = (mesh_tools or []) + (parent_tools or [])
+
+    # Create a FULL runner rooted at the agent's workspace
+    # This gives them their own SQLite session DB, their own memory, etc.
+    runner = create_runner(agent_cfg, extra_tools=all_extra or None)
 
     try:
+      # Use a stable session ID per agent so they accumulate history
+      # (not a random UUID — the same agent keeps the same session across jobs)
+      stable_session_id = job.session_id
+      if job.member_name:
+        # Stable session = agent name hash (persists across jobs)
+        import hashlib
+        stable_session_id = f"agent_{hashlib.sha256(job.member_name.encode()).hexdigest()[:12]}"
+
       # Execute the turn with full power
       max_calls = min(int(self.cfg.max_llm_calls or 128), 128)
       events = await run_turn(
         runner,
-        user_id="mesh",
-        session_id=job.session_id,
+        user_id=job.member_name or "mesh",
+        session_id=stable_session_id,
         prompt=job.prompt,
         max_llm_calls=max_calls,
         cfg=agent_cfg,
@@ -466,6 +493,55 @@ class AgentMesh:
         await runner.close()
       except Exception:
         pass
+
+  def _build_parent_access_tools(self, fleet_root: Path) -> list:
+    """
+    Tools that let an agent access the parent project's files.
+
+    Since each agent runs in its own workspace (.gemcode/agents/<id>/),
+    they need a way to read/write files in the actual project.
+    """
+    root = fleet_root
+
+    def parent_read_file(path: str, start_line: int = 0, end_line: int = 0) -> dict:
+      """Read a file from the parent project (not this agent's workspace)."""
+      from pathlib import Path as P
+      target = root / path
+      if not target.is_file():
+        return {"error": f"file not found: {path}"}
+      try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+        if start_line > 0 or end_line > 0:
+          lines = text.splitlines(keepends=True)
+          s = max(0, start_line - 1)
+          e = end_line if end_line > 0 else len(lines)
+          text = "".join(lines[s:e])
+        return {"content": text[:100_000], "path": str(path)}
+      except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+    def parent_list_directory(path: str = ".") -> dict:
+      """List files in the parent project directory."""
+      from pathlib import Path as P
+      target = root / path
+      if not target.is_dir():
+        return {"error": f"not a directory: {path}"}
+      try:
+        entries = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        items = []
+        for e in entries[:200]:
+          items.append({
+            "name": e.name,
+            "type": "dir" if e.is_dir() else "file",
+          })
+        return {"entries": items, "path": str(path)}
+      except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+    parent_read_file.__name__ = "parent_read_file"
+    parent_list_directory.__name__ = "parent_list_directory"
+
+    return [parent_read_file, parent_list_directory]
 
   def _build_mesh_tools_for_job(self, job: AgentJob) -> list:
     """Build tools that let a mesh agent delegate to other agents or report."""
