@@ -581,10 +581,20 @@ class AgentMesh:
       ))
       return {"ok": True, "reported": status}
 
+    def mesh_enqueue(prompt: str, member: str = "", priority: int = 0) -> dict:
+      """Enqueue a new background job on the mesh (non-blocking)."""
+      job_id = mesh.enqueue(
+        prompt=prompt,
+        priority=priority,
+        member_name=member,
+      )
+      return {"ok": True, "job_id": job_id}
+
     mesh_delegate.__name__ = "mesh_delegate"
     mesh_report.__name__ = "mesh_report"
+    mesh_enqueue.__name__ = "mesh_enqueue"
 
-    return [mesh_delegate, mesh_report]
+    return [mesh_delegate, mesh_report, mesh_enqueue]
 
   # ── Status / Introspection ──────────────────────────────────────────────
 

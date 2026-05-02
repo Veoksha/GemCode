@@ -1287,37 +1287,90 @@ def build_root_agent(
   sub_agents = []
   if getattr(cfg, "enable_adk_agent_transfer", True) and _tools is None:
     try:
-      # Explorer: read-only, fast, low-risk. Keep instruction short.
-      explorer_tools = build_function_tools(cfg, include_subtask=False)
-      explorer_tools = [t for t in explorer_tools if getattr(t, "__name__", "") not in ("write_file", "search_replace", "delete_file", "move_file", "bash", "run_command")]
-      explorer = LlmAgent(
-        name="explorer",
-        model=getattr(cfg, "model_alt", None) or cfg.model,
-        instruction=(
-          "You are Explorer. Your job is to quickly map the codebase and answer: "
-          "what files/symbols matter and where to look next. Use read-only tools only. "
-          "Return concise findings with file paths and symbol names."
-        ),
-        tools=explorer_tools,
-        generate_content_config=gen_cfg,
-        **cb_kwargs,
-      )
-      # Verifier: focuses on checking, tests, and consistency.
-      verifier_tools = build_function_tools(cfg, include_subtask=False)
-      verifier_tools = [t for t in verifier_tools if getattr(t, "__name__", "") not in ("write_file", "search_replace", "delete_file", "move_file")]
-      verifier = LlmAgent(
-        name="verifier",
-        model=getattr(cfg, "model_alt", None) or cfg.model,
-        instruction=(
-          "You are Verifier. Your job is to verify changes: run checks/tests when needed, "
-          "spot inconsistencies, and report PASS/FAIL with concrete evidence. "
-          "Prefer minimal commands and short outputs."
-        ),
-        tools=verifier_tools,
-        generate_content_config=gen_cfg,
-        **cb_kwargs,
-      )
-      sub_agents = [explorer, verifier]
+      from gemcode.org import list_members, resolve_fleet_root
+
+      fleet_root = resolve_fleet_root(cfg.project_root)
+      members = list_members(fleet_root)
+
+      for m in members:
+        # Build a specialized sub-agent for each org member
+        member_tools = build_function_tools(cfg, include_subtask=False)
+
+        # Restrict tools based on member kind
+        if m.kind == "subagent" and m.name in ("verifier", "reviewer"):
+          # Verifiers don't need write tools
+          member_tools = [t for t in member_tools if getattr(t, "__name__", "") not in (
+            "write_file", "search_replace", "delete_file", "move_file",
+          )]
+
+        # Build instruction from member's skill if available
+        member_instruction = (
+          f"You are {m.name} ({m.title}).\n"
+          f"Role: {m.description or 'General assistant'}\n"
+          f"Reports to: {m.reports_to or 'manager'}\n\n"
+          "Complete assigned tasks concisely. Return structured JSON when possible.\n"
+        )
+
+        # Load skill content if available
+        if m.skill_name:
+          try:
+            skill = load_skill(fleet_root, m.skill_name)
+            if skill is not None:
+              member_instruction += "\n" + expand_skill_text(skill, arguments="", session_id="")
+          except Exception:
+            pass
+
+        member_agent = LlmAgent(
+          name=m.name,
+          model=getattr(cfg, "model_alt", None) or cfg.model,
+          description=m.description or f"{m.name} — {m.title}",
+          instruction=member_instruction,
+          tools=member_tools,
+          generate_content_config=gen_cfg,
+          output_key=f"agent_{m.name}_result",
+          **cb_kwargs,
+        )
+        sub_agents.append(member_agent)
+
+      # If no org members exist, create default explorer + verifier
+      if not sub_agents:
+        explorer_tools = build_function_tools(cfg, include_subtask=False)
+        explorer_tools = [t for t in explorer_tools if getattr(t, "__name__", "") not in (
+          "write_file", "search_replace", "delete_file", "move_file", "bash", "run_command",
+        )]
+        explorer = LlmAgent(
+          name="explorer",
+          model=getattr(cfg, "model_alt", None) or cfg.model,
+          description="Quickly maps the codebase and finds relevant files/symbols.",
+          instruction=(
+            "You are Explorer. Your job is to quickly map the codebase and answer: "
+            "what files/symbols matter and where to look next. Use read-only tools only. "
+            "Return concise findings with file paths and symbol names."
+          ),
+          tools=explorer_tools,
+          generate_content_config=gen_cfg,
+          output_key="explorer_result",
+          **cb_kwargs,
+        )
+        verifier_tools = build_function_tools(cfg, include_subtask=False)
+        verifier_tools = [t for t in verifier_tools if getattr(t, "__name__", "") not in (
+          "write_file", "search_replace", "delete_file", "move_file",
+        )]
+        verifier = LlmAgent(
+          name="verifier",
+          model=getattr(cfg, "model_alt", None) or cfg.model,
+          description="Verifies changes: runs checks/tests, spots inconsistencies, reports PASS/FAIL.",
+          instruction=(
+            "You are Verifier. Your job is to verify changes: run checks/tests when needed, "
+            "spot inconsistencies, and report PASS/FAIL with concrete evidence. "
+            "Prefer minimal commands and short outputs."
+          ),
+          tools=verifier_tools,
+          generate_content_config=gen_cfg,
+          output_key="verifier_result",
+          **cb_kwargs,
+        )
+        sub_agents = [explorer, verifier]
     except Exception:
       sub_agents = []
 
@@ -1327,8 +1380,8 @@ def build_root_agent(
       instruction=build_instruction(cfg),
       tools=tools,
       generate_content_config=gen_cfg,
-      # ADK expects a list; passing None can fail validation on some versions.
       sub_agents=sub_agents,
+      output_key="gemcode_last_output",
       **cb_kwargs,
   )
 
