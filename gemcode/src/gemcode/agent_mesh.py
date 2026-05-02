@@ -91,6 +91,14 @@ class AgentMesh:
     except Exception:
       pass
 
+    # Initialize habit scheduler (cron/interval/daily recurring tasks)
+    self._habit_scheduler = None
+    try:
+      from gemcode.agent_habits import HabitScheduler
+      self._habit_scheduler = HabitScheduler(cfg)
+    except Exception:
+      pass
+
   @property
   def bus(self) -> EventBus:
     return self._bus
@@ -102,6 +110,9 @@ class AgentMesh:
     # Start self-triggering agents
     if self._trigger_engine is not None:
       self._trigger_engine.start()
+    # Start habit scheduler (cron/interval recurring tasks)
+    if self._habit_scheduler is not None:
+      self._habit_scheduler.start()
 
   def stop(self) -> None:
     """Stop the scheduler and trigger engine."""
@@ -110,6 +121,8 @@ class AgentMesh:
       self._scheduler_task.cancel()
     if self._trigger_engine is not None:
       self._trigger_engine.stop()
+    if self._habit_scheduler is not None:
+      self._habit_scheduler.stop()
 
   def enqueue(
     self,

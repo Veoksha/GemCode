@@ -230,6 +230,13 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
   except Exception:
     pass
 
+  # Agent habits (scheduled recurring tasks — cron/interval/daily)
+  try:
+    from gemcode.agent_habits import make_habits_tools
+    tools.extend(make_habits_tools(cfg))
+  except Exception:
+    pass
+
   # Delegation suggestion tool — uses learning history
   try:
     from gemcode.delegation_learning import suggest_agent_for_task, load_delegation_history
