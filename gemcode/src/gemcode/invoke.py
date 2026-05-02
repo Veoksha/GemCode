@@ -146,6 +146,7 @@ async def run_turn(
     max_llm_calls: int | None = None,
     cfg: "GemCodeConfig | None" = None,
     attachment_paths: Sequence[Path | str] | None = None,
+    consume_fleet_reports: bool = True,
 ) -> list:
   """Execute one user message; collect all Events (caller aggregates text)."""
   # Dynamic risk score: updated each user message; later refined by tool outcomes.
@@ -155,6 +156,15 @@ async def run_turn(
       object.__setattr__(cfg, "_active_session_id", session_id)
     except Exception:
       pass
+    if consume_fleet_reports:
+      try:
+        from gemcode.fleet_reports import drain_for_prompt
+
+        preamble = drain_for_prompt(cfg.project_root)
+        if preamble:
+          prompt = preamble + "\n\n---\n\n" + (prompt or "")
+      except Exception:
+        pass
     try:
       import re
       p = (prompt or "")[:20_000]

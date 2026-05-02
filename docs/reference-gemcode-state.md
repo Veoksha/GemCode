@@ -10,6 +10,7 @@ This page is a quick reference for the project-local state GemCode stores under 
 | `.gemcode/sessions.sqlite` | ADK session history store |
 | `.gemcode/sessions_meta.json` | Session names and metadata |
 | `.gemcode/audit.log` | Audit log for tool and runtime activity |
+| `.gemcode/fleet_reports.jsonl` | Inbox for completed `org.report` / `job.report` / `agent.report` (drained into the next manager turn when `GEMCODE_FLEET_REPORTS_INJECT=1`) |
 | `.gemcode/tool-results/` | Offloaded large tool outputs |
 | `.gemcode/artifacts/` | Artifact storage |
 | `.gemcode/policy.json` | Dynamic token/evidence policy profile |

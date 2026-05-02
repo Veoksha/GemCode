@@ -55,10 +55,14 @@ Important groups:
 - `GEMCODE_OUTPUT_STYLE`
 - `GEMCODE_AFC_PROMPT`
 - `GEMCODE_AFC_DEFAULT` — when set to `all` or `callables`, skips the interactive `afc>` prompt and preselects the tool mode when non-callable toolsets (MCP/OpenAPI) are present.
-- `GEMCODE_TUI_WITH_KAIRA` — when `1`/`true`/`yes`/`on`, starts a headless Kaira daemon inside the scrollback TUI so Kaira jobs stream inline (single-terminal mode).
-- `GEMCODE_KAIRA_AUTO_CONNECT` — when `1`/`true`/`yes`/`on` (default), the scrollback TUI auto-connects to a running Kaira daemon via `.gemcode/ipc.sock` and streams job output inline.
+- `GEMCODE_TUI_WITH_KAIRA` — when `1`/`true`/`yes`/`on`, starts a headless Kaira daemon inside the GemCode TUI so Kaira jobs stream inline (single-terminal mode).
+- `GEMCODE_KAIRA_AUTO_CONNECT` — when `1`/`true`/`yes`/`on` (default), the GemCode TUI auto-connects to a running Kaira daemon via `.gemcode/ipc.sock` and streams job output inline.
 - `GEMCODE_KAIRA_SOCKET` — override the Kaira IPC socket path (defaults to `<project>/.gemcode/ipc.sock`).
-- `GEMCODE_ORG_BUS_REPORTS` — when `1`/`true`/`yes`/`on` (default), `org_delegate` emits `bus_message` events (`topic=org.report`) so multiple GemCode clients (and supervisors) can receive delegation results without scraping job logs.
+- `GEMCODE_ORG_BUS_REPORTS` — when `1`/`true`/`yes`/`on` (default), `org_delegate` emits `bus_message` events (`topic=org.report`) so multiple GemCode clients (and supervisors) can receive delegation results without scraping job logs. Finished/failed org reports are still written to `.gemcode/fleet_reports.jsonl` for the manager session when injection is on, even if this is `0`.
+- **Fleet report inbox (manager session)** — completed `org.report` / `job.report` / `agent.report` outcomes append to `.gemcode/fleet_reports.jsonl` at the **fleet root** (`resolve_fleet_root`). They are prepended to the next model turn when:
+  - `GEMCODE_FLEET_REPORTS_INJECT=1` (default), and
+  - the turn goes through `invoke.run_turn`, or the GemCode TUI (which applies the same drain).
+  - Optional hands-off follow-up: `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE=1`, with `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MODE=tui|enqueue|both`, `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MAX` (default 3), `GEMCODE_FLEET_REPORTS_ENQUEUE_DEBOUNCE_S`, `GEMCODE_FLEET_REPORTS_MAX_CHARS`. See [`orchestration.md`](orchestration.md#fleet-report-inbox--auto-continue-hands-off-summaries).
 - `GEMCODE_RUNTIME_MANAGER` — when `1`/`true`/`yes`/`on` (default), enables a minimal runtime manager loop that reacts to bus messages (e.g. `topic=org.assign` triggers an org delegation run; `topic=job.report` with `failed` triggers one automatic fix attempt).
 - `GEMCODE_AGENT_HEARTBEAT_EVERY_S` — when set to a positive integer, the runtime publishes `topic=agent.heartbeat` periodically on the local bus. Useful for monitoring multi-agent setups.
 - `GEMCODE_PARENT_SOCKET` — optional parent runtime IPC socket path. When set (typically in a child agent workspace), the child runtime will also publish `agent.heartbeat` to the parent runtime.
@@ -93,6 +97,7 @@ For operational accuracy, document and standardize around `gemcode.md` as the pr
 - `sessions.sqlite`
 - `sessions_meta.json`
 - `audit.log`
+- `fleet_reports.jsonl` (optional; fleet/agent completion inbox for the manager)
 - `tool-results/`
 - `artifacts/`
 - `policy.json`

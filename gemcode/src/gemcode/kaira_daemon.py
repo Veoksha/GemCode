@@ -562,6 +562,24 @@ class KairaDaemon:
                   },
                 }
               )
+              try:
+                meta_inbox = getattr(rec2, "meta", None) if isinstance(rec2, JobRecord) else None
+                org_inbox = meta_inbox.get("org") if isinstance(meta_inbox, dict) else None
+                if not isinstance(org_inbox, dict):
+                  from gemcode.fleet_reports import maybe_append_job_report
+
+                  maybe_append_job_report(
+                    self.cfg.project_root,
+                    {
+                      "job_id": job.job_id,
+                      "session_id": job.session_id,
+                      "status": "finished",
+                      "report_json": report_obj,
+                      "report": (text or "")[:8000],
+                    },
+                  )
+              except Exception:
+                pass
 
               # If this job was enqueued as an org delegation, automatically publish
               # an org.report back to the manager (and any notify_chain).
@@ -600,6 +618,12 @@ class KairaDaemon:
                         "payload": payload,
                       }
                     )
+                  try:
+                    from gemcode.fleet_reports import maybe_append_org_report
+
+                    maybe_append_org_report(self.cfg.project_root, payload)
+                  except Exception:
+                    pass
               except Exception:
                 pass
             except Exception:
@@ -663,6 +687,25 @@ class KairaDaemon:
               },
             }
           )
+          try:
+            recf0 = self._job_records.get(job.job_id)
+            m0 = getattr(recf0, "meta", None) if recf0 is not None else None
+            org0 = m0.get("org") if isinstance(m0, dict) else None
+            if not isinstance(org0, dict):
+              from gemcode.fleet_reports import maybe_append_job_report
+
+              maybe_append_job_report(
+                self.cfg.project_root,
+                {
+                  "job_id": job.job_id,
+                  "session_id": job.session_id,
+                  "status": "failed",
+                  "report_json": report_obj,
+                  "report": (f"{type(e).__name__}: {e}")[:8000],
+                },
+              )
+          except Exception:
+            pass
         except Exception:
           pass
         # Also emit org.report failures for org-delegated jobs.
@@ -699,6 +742,12 @@ class KairaDaemon:
                   "payload": payload,
                 }
               )
+            try:
+              from gemcode.fleet_reports import maybe_append_org_report
+
+              maybe_append_org_report(self.cfg.project_root, payload)
+            except Exception:
+              pass
         except Exception:
           pass
       try:

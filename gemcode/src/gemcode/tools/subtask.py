@@ -105,6 +105,13 @@ async def _publish_subtask_report(
         "result": result,
     }
 
+    try:
+        from gemcode.fleet_reports import maybe_append_agent_report
+
+        maybe_append_agent_report(fleet_root, payload)
+    except Exception:
+        pass
+
     sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
     try:
         if Path(sock).exists():
@@ -250,6 +257,7 @@ def make_run_subtask_tool(cfg: GemCodeConfig):
                 prompt=prompt,
                 max_llm_calls=sub_max_calls,
                 cfg=cfg,
+                consume_fleet_reports=False,
             )
         except Exception as e:
             await _publish_subtask_report(

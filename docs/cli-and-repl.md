@@ -30,16 +30,18 @@ The REPL:
 - supports slash commands
 - can upgrade to the TUI when supported
 
-### TUI
-The TUI is the scrollback-style terminal UI implemented in:
+### TUI (GemCode terminal UI)
+GemCode ships **one** terminal UI: a scrollback-style interactive session in:
 - `gemcode/src/gemcode/tui/scrollback.py`
 - `gemcode/src/gemcode/tui/input_handler.py`
 
-Enablement is controlled by `GEMCODE_TUI`. When active, it provides:
-- scrollback rendering
-- richer layout
-- slash completion
-- integrated status and tool display
+There is no separate fullscreen TUI package in the repo.
+
+Enablement is controlled by `GEMCODE_TUI` (default on in a TTY). When active, it provides:
+- native terminal scrollback (no alt-screen app)
+- slash completion (via prompt_toolkit when available)
+- integrated status, tool display, and optional Kaira event stream
+- the same **fleet report inbox** drain as `run_turn`: completed background reports in `.gemcode/fleet_reports.jsonl` are prepended each turn when `GEMCODE_FLEET_REPORTS_INJECT=1` (see [`orchestration.md`](orchestration.md#fleet-report-inbox--auto-continue-hands-off-summaries))
 
 ## Main CLI invocations
 
@@ -180,7 +182,7 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/tools` | Tool inventory · `/tools smoke` |
 | `/trust` | Workspace trust · `/trust` on/off |
 | `/version` | GemCode version |
-| `/agent` | Agent registry + workspaces (create/list/tree/status/assign/spawn/improve/send/trigger) |
+| `/agent` | Agent registry + workspaces (create/list/tree/status/assign/spawn/improve/send/trigger). **Alias:** `/agents` (same parser) |
 
 ## Attachments
 
@@ -253,7 +255,7 @@ In interactive mode, GemCode can ask whether to:
 This behavior is implemented in `gemcode/src/gemcode/session_runtime.py`.
 
 ## Kaira is not the TUI
-`gemcode runtime` (alias: `gemcode kaira`) is a queued background scheduler, not the scrollback UI.
+`gemcode runtime` (alias: `gemcode kaira`) is a queued background scheduler, not the GemCode TUI.
 
 If you want the TUI, use:
 
@@ -268,7 +270,7 @@ If you want to see *everything running* (job lifecycle events and bus messages) 
 gemcode runtime attach -C .
 ```
 
-This prints a raw JSONL stream (universal for piping into other tools). The scrollback TUI renders a human-friendly subset by default.
+This prints a raw JSONL stream (universal for piping into other tools). The GemCode TUI renders a human-friendly subset by default.
 
 ### One-terminal mode (TUI + embedded Kaira)
 If you want continuous background jobs **and** you want to see everything in the same terminal UI, you can run Kaira inside the TUI process:

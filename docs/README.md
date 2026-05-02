@@ -47,9 +47,12 @@ Back in the main terminal:
 /agent assign verifier Review the last change for risks + missing tests
 ```
 
+(`/agents …` is the same as `/agent …`.)
+
 Notes:
 - `/agent assign` publishes to the runtime bus when available, so it runs autonomously in the background.
 - Agents can also delegate to other agents using the `org_*` tools in normal mode (no slash commands required).
+- Completed delegation and worker results are recorded in **`.gemcode/fleet_reports.jsonl`** and prepended to your **next** manager turn (and optional auto-continue is available). See [`orchestration.md`](orchestration.md#fleet-report-inbox--auto-continue-hands-off-summaries).
 
 ### Watch what’s running (optional)
 In yet another terminal, you can attach to the runtime event stream to see job progress and bus messages:

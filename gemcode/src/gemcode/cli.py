@@ -282,7 +282,7 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
       except EOFError:
         pass
 
-    # Optional terminal UI: single scrollback-style REPL (terminal history, no alt-screen app).
+    # Optional GemCode TUI: scrollback-style REPL (terminal history, no alt-screen app).
     tui_enabled = os.environ.get("GEMCODE_TUI", "1").lower() in ("1", "true", "yes", "on")
     if tui_enabled:
       term = (os.environ.get("TERM") or "").strip().lower()
@@ -474,6 +474,42 @@ async def _run_repl(cfg: GemCodeConfig, session_id: str, *, use_mcp: bool) -> No
       if out:
         print(out)
         print()
+
+      try:
+        from gemcode.fleet_reports import (
+          auto_continue_enabled,
+          auto_continue_mode,
+          fleet_digest_prompt,
+          has_pending_fleet_reports,
+          max_auto_chain,
+        )
+
+        chain = 0
+        while (
+          auto_continue_enabled()
+          and auto_continue_mode() in ("tui", "both")
+          and has_pending_fleet_reports(cfg.project_root)
+          and chain < max_auto_chain()
+        ):
+          chain += 1
+          d_prompt = fleet_digest_prompt()
+          apply_capability_routing(cfg, d_prompt, context="prompt")
+          cfg.model = pick_effective_model(cfg, d_prompt)
+          collected2 = await run_turn(
+            runner,
+            user_id="local",
+            session_id=session_id,
+            prompt=d_prompt,
+            max_llm_calls=cfg.max_llm_calls,
+            cfg=cfg,
+            attachment_paths=None,
+          )
+          out2 = _events_to_text(collected2)
+          if out2:
+            print(out2)
+            print("")
+      except Exception:
+        pass
   finally:
     await runner.close()
 

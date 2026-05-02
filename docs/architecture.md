@@ -19,8 +19,8 @@ The composition root for that pipeline is `gemcode/src/gemcode/session_runtime.p
 
 This layer parses commands and flags, loads environment configuration, selects the runtime mode, and enters one of these flows:
 - One-shot CLI prompt
-- Interactive REPL
-- Scrollback TUI
+- Interactive REPL (line-based)
+- GemCode TUI (scrollback-style terminal UI when `GEMCODE_TUI=1`)
 - IDE stdio bridge
 - Kaira daemon (GemCode Runtime)
 - Live audio (experimental / future scope)
@@ -100,6 +100,7 @@ GemCode merges multiple tool surfaces:
 - `gemcode/src/gemcode/kaira_job_store.py`
 - `gemcode/src/gemcode/org.py`
 - `gemcode/src/gemcode/tools/org_tools.py`
+- `gemcode/src/gemcode/fleet_reports.py` — durable inbox (`.gemcode/fleet_reports.jsonl`) + optional auto-continue
 - `gemcode/src/gemcode/tools/user_choice.py` — `get_user_choice` override in super mode
 - `gemcode/src/gemcode/live_audio_engine.py`
 
@@ -127,13 +128,15 @@ Entry: `gemcode` with no prompt argument in a TTY
 
 Flow:
 1. Build one long-lived runner
-2. Read lines from the user
+2. Read lines from the user (plain REPL) or the GemCode TUI input layer (`tui/input_handler.py`)
 3. Process slash commands in `repl_slash.py`
 4. Apply capability and model routing per turn
-5. Call `run_turn()` for ordinary user messages
+5. Execute the model turn:
+   - **Plain REPL** (`GEMCODE_TUI=0`): `invoke.run_turn()` (drains `.gemcode/fleet_reports.jsonl` into the prompt when enabled)
+   - **GemCode TUI** (`GEMCODE_TUI=1`, default in TTY): `tui/scrollback.py` drives `runner.run_async` directly and prepends the same fleet inbox drain before each turn
 6. Reuse the same session id until exit or session reset
 
-If terminal support is available and `GEMCODE_TUI` is enabled, GemCode upgrades to the scrollback TUI in `gemcode/src/gemcode/tui/scrollback.py`.
+If terminal support is available and `GEMCODE_TUI` is enabled, GemCode uses the **only** shipped terminal UI: `gemcode/src/gemcode/tui/scrollback.py` (scrollback-style, not a separate fullscreen app).
 
 ### IDE stdio bridge
 Entry: `gemcode ide --stdio`
@@ -265,6 +268,7 @@ Loaded from `.gemcode/openapi/` by `gemcode/src/gemcode/openapi_loader.py`.
 - `.gemcode/artifacts/`
 - `.gemcode/tool-results/`
 - `.gemcode/audit.log`
+- `.gemcode/fleet_reports.jsonl` — inbox for completed `org.report` / `job.report` / `agent.report` (drained into the next manager turn when `GEMCODE_FLEET_REPORTS_INJECT=1`)
 - `.gemcode/debug.yaml` when debug logging is enabled
 
 ### Memory layers

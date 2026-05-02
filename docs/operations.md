@@ -119,7 +119,7 @@ The Kaira daemon exposes a local Unix-socket control plane and event stream at:
 Multiple GemCode REPL/TUI instances can attach to the same daemon at the same time.
 
 Behavior:
-- when the scrollback TUI is running, it auto-connects (by default) and streams runtime job output inline
+- when the GemCode TUI is running, it auto-connects (by default) and streams runtime job output inline
 - the TUI also handles runtime HITL permission prompts via IPC so background jobs can request approvals
 
 To watch everything from a separate terminal (raw JSONL stream):
@@ -152,7 +152,7 @@ In addition to job events, the IPC stream also supports a lightweight message bu
 This enables multi-client coordination (e.g. two terminals running GemCode) without requiring a second transport.
 
 Practical usage:
-- `/agent assign <member> <task...>` publishes `topic=org.assign` to the runtime (if available)
+- `/agent assign` or **`/agent trigger`** (same payload) publishes `topic=org.assign` to the runtime (if available). **`/agents`** is an alias for **`/agent`**.
 - runtime reacts by enqueueing a background run that performs the delegation and emits `topic=org.report`
 
 #### Delegation reporting (default)
@@ -160,6 +160,9 @@ When a task is delegated to a runtime-backed agent (`kaira_worker`) using `org_d
 - `bus_message topic=org.report` to `manager` (and the full `reports_to` chain when present)
 
 This avoids the “delegated… then nothing” void: the manager UI receives a completion event without requiring a second prompt.
+
+#### Fleet report inbox (manager model context)
+Bus events are **not** ADK conversation turns. Completed `org.report` / `job.report` / `agent.report` also append to **`.gemcode/fleet_reports.jsonl`** at the fleet root. The next manager turn prepends that inbox (when `GEMCODE_FLEET_REPORTS_INJECT=1`) for both `run_turn` and the GemCode TUI. Optional automatic digest turns or runtime enqueue: see [`orchestration.md`](orchestration.md#fleet-report-inbox--auto-continue-hands-off-summaries) and [`configuration.md`](configuration.md#ui-and-behavior).
 
 ## Eval and autotune
 

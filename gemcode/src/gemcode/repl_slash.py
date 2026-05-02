@@ -1,5 +1,5 @@
 """
-Shared REPL slash-command dispatcher (CLI plain REPL + scrollback TUI).
+Shared REPL slash-command dispatcher (CLI plain REPL + GemCode TUI).
 
 Returns ``None`` when the line is not a slash command; otherwise a
 `ReplSlashResult` describing how the UI should proceed.
@@ -2123,7 +2123,7 @@ async def process_repl_slash(
       out()
       out("Notes:")
       out("  - Requires a running `gemcode kaira` (or TUI embedded Kaira).")
-      out("  - The scrollback TUI displays `bus_message` events inline when connected.")
+      out("  - The GemCode TUI displays `bus_message` events inline when connected.")
       out()
       return ReplSlashResult(skip_model_turn=True)
 
@@ -2374,7 +2374,7 @@ async def process_repl_slash(
     """
     Configure which bus messages this UI should show.
 
-    This sets env vars consumed by the scrollback TUI auto-connect:
+    This sets env vars consumed by the GemCode TUI auto-connect:
       - GEMCODE_BUS_TO
       - GEMCODE_BUS_TOPICS
 
@@ -2437,7 +2437,7 @@ async def process_repl_slash(
     return ReplSlashResult(skip_model_turn=True)
 
   # ── /agent, /agents (alias) ─────────────────────────────────────────────
-  if name in ("agent",):
+  if name in ("agent", "agents"):
     """
     Lightweight multi-agent workspaces backed by `.gemcode/org.json`.
 
@@ -2468,14 +2468,15 @@ async def process_repl_slash(
       if sub in ("list", "ls"):
         from gemcode.org import list_members, resolve_fleet_root
         from pathlib import Path as _Path
-        ms = list_members(resolve_fleet_root(cfg.project_root))
+        fleet_root = resolve_fleet_root(cfg.project_root)
+        ms = list_members(fleet_root)
         if not ms:
           out("(no agents)")
           out()
           return ReplSlashResult(skip_model_turn=True)
         out("Agents:")
         for m in ms:
-          ws = (cfg.project_root / (m.workspace_rel or "")).resolve() if getattr(m, "workspace_rel", "") else None
+          ws = (fleet_root / (m.workspace_rel or "")).resolve() if getattr(m, "workspace_rel", "") else None
           sock = (ws / ".gemcode" / "ipc.sock") if ws else None
           sock_state = ""
           try:
@@ -2493,7 +2494,8 @@ async def process_repl_slash(
         # Live status: best-effort connect to each agent runtime socket and summarize jobs.
         from gemcode.org import list_members, resolve_fleet_root
         from pathlib import Path as _Path
-        ms = list_members(resolve_fleet_root(cfg.project_root))
+        fleet_root = resolve_fleet_root(cfg.project_root)
+        ms = list_members(fleet_root)
         if not ms:
           out("(no agents)")
           out()
@@ -2501,7 +2503,7 @@ async def process_repl_slash(
         out("Agents status:")
         for m in ms:
           ws_rel = getattr(m, "workspace_rel", "") or ""
-          ws = (cfg.project_root / ws_rel).resolve() if ws_rel else None
+          ws = (fleet_root / ws_rel).resolve() if ws_rel else None
           sock = (ws / ".gemcode" / "ipc.sock") if ws else None
           sock_exists = bool(sock and _Path(sock).exists())
           line = f"  - {m.name} [{m.kind}] id={m.id} addr={m.address or m.name}"
@@ -2574,8 +2576,9 @@ async def process_repl_slash(
         address = parts[i]; i += 1
       desc = " ".join(parts[i:]).strip() if len(parts) > i else ""
       from gemcode.org import hire_member, resolve_fleet_root
+      fleet_root = resolve_fleet_root(cfg.project_root)
       m = hire_member(  # type: ignore[arg-type]
-        resolve_fleet_root(cfg.project_root),
+        fleet_root,
         name=nm,
         title=title,
         kind=kind,
@@ -2587,10 +2590,10 @@ async def process_repl_slash(
       try:
         if desc:
           from gemcode.org import ensure_agent_local_skill
-          ensure_agent_local_skill(cfg.project_root, member=m)
+          ensure_agent_local_skill(fleet_root, member=m)
       except Exception:
         pass
-      ws = (cfg.project_root / (getattr(m, "workspace_rel", "") or "")).resolve()
+      ws = (fleet_root / (getattr(m, "workspace_rel", "") or "")).resolve()
       out(f"Created agent: {m.name} ({m.title}) [{m.kind}] id={m.id} address={m.address or m.name}")
       out(f"Workspace: {ws}")
       out("Start it (in another terminal):")
@@ -2608,7 +2611,8 @@ async def process_repl_slash(
       key = parts[0].strip()
       desc = parts[1].strip()
       from gemcode.org import find_member, resolve_fleet_root
-      m = find_member(resolve_fleet_root(cfg.project_root), key)
+      fleet_root = resolve_fleet_root(cfg.project_root)
+      m = find_member(fleet_root, key)
       if m is None:
         out(f"[agent] unknown: {key}")
         out()
@@ -2618,7 +2622,7 @@ async def process_repl_slash(
         out(f"[agent] member has no workspace: {m.name}")
         out()
         return ReplSlashResult(skip_model_turn=True)
-      ws = (cfg.project_root / ws_rel).resolve()
+      ws = (fleet_root / ws_rel).resolve()
       p = ws / "AGENT.md"
       try:
         # If file exists, replace the Description section best-effort; else recreate.
@@ -2639,7 +2643,7 @@ async def process_repl_slash(
       # Scaffold local skill (optional) now that we have a description.
       try:
         from gemcode.org import ensure_agent_local_skill
-        ensure_agent_local_skill(cfg.project_root, member=m)
+        ensure_agent_local_skill(fleet_root, member=m)
       except Exception:
         pass
       out(f"[agent] updated description: {p}")
@@ -2660,7 +2664,8 @@ async def process_repl_slash(
         pass
       action = (parts[2].strip().lower() if len(parts) >= 3 else "init")
       from gemcode.org import find_member, ensure_agent_local_skill, resolve_fleet_root
-      m = find_member(resolve_fleet_root(cfg.project_root), key)
+      fleet_root = resolve_fleet_root(cfg.project_root)
+      m = find_member(fleet_root, key)
       if m is None:
         out(f"[agent] unknown: {key}")
         out()
@@ -2669,12 +2674,12 @@ async def process_repl_slash(
         out("Usage: /agent skill init <name|id>")
         out()
         return ReplSlashResult(skip_model_turn=True)
-      sk = ensure_agent_local_skill(cfg.project_root, member=m)
+      sk = ensure_agent_local_skill(fleet_root, member=m)
       if not sk:
         out("[agent] could not create local skill (missing workspace?)")
         out()
         return ReplSlashResult(skip_model_turn=True)
-      ws = (cfg.project_root / (getattr(m, "workspace_rel", "") or "")).resolve()
+      ws = (fleet_root / (getattr(m, "workspace_rel", "") or "")).resolve()
       out(f"[agent] local skill ready: {ws / '.gemcode' / 'skills' / sk / 'SKILL.md'}")
       out()
       return ReplSlashResult(skip_model_turn=True)
@@ -2821,18 +2826,19 @@ async def process_repl_slash(
       return ReplSlashResult(model_prompt=prompt)
 
     if sub == "start":
-      from gemcode.org import find_member
+      from gemcode.org import find_member, resolve_fleet_root
+      fleet_root = resolve_fleet_root(cfg.project_root)
       key = rest_s.strip()
       if not key:
         out("Usage: /agent start <name|id>")
         out()
         return ReplSlashResult(skip_model_turn=True)
-      m = find_member(cfg.project_root, key)
+      m = find_member(fleet_root, key)
       if m is None:
         out(f"[agent] unknown: {key}")
         out()
         return ReplSlashResult(skip_model_turn=True)
-      ws = (cfg.project_root / (getattr(m, "workspace_rel", "") or "")).resolve()
+      ws = (fleet_root / (getattr(m, "workspace_rel", "") or "")).resolve()
       out(f"Agent {m.name} ({m.id}) workspace:")
       out(f"  {ws}")
       out("Run (separate terminal recommended):")
@@ -2870,9 +2876,35 @@ async def process_repl_slash(
         out()
         return ReplSlashResult(skip_model_turn=True)
       except Exception as e:
-        out(f"[agent] runtime unavailable: {type(e).__name__}: {e}")
-        out()
-        return ReplSlashResult(skip_model_turn=True)
+        out(f"[agent] runtime unavailable ({type(e).__name__}); delegating in-turn")
+        try:
+          from gemcode.tools.org_tools import make_org_tools
+
+          org_delegate = None
+          for t in make_org_tools(cfg):
+            if getattr(t, "__name__", "") == "org_delegate":
+              org_delegate = t
+              break
+          if org_delegate is None:
+            out("[agent] org_delegate tool not available")
+            out()
+            return ReplSlashResult(skip_model_turn=True)
+          d = await org_delegate(member=member, task=task, context="")  # type: ignore[misc]
+          if isinstance(d, dict) and d.get("ok"):
+            if d.get("job_id"):
+              out(f"[agent] delegated (background): member={member} job_id={str(d.get('job_id'))[:10]}")
+            else:
+              out(f"[agent] delegated (in-process): member={member}")
+              if d.get("result"):
+                out(str(d.get("result")))
+          else:
+            out(f"[agent] delegation failed: {d.get('error') if isinstance(d, dict) else d}")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
+        except Exception as e2:
+          out(f"[agent] in-turn delegation failed: {type(e2).__name__}: {e2}")
+          out()
+          return ReplSlashResult(skip_model_turn=True)
 
     if sub == "send":
       parts = rest_s.split(maxsplit=1)
@@ -2882,8 +2914,9 @@ async def process_repl_slash(
         return ReplSlashResult(skip_model_turn=True)
       key = parts[0].strip()
       prompt = parts[1].strip()
-      from gemcode.org import find_member
-      m = find_member(cfg.project_root, key)
+      from gemcode.org import find_member, resolve_fleet_root
+      fleet_root = resolve_fleet_root(cfg.project_root)
+      m = find_member(fleet_root, key)
       if m is None:
         out(f"[agent] unknown: {key}")
         out()
@@ -2893,7 +2926,7 @@ async def process_repl_slash(
         out(f"[agent] member has no workspace: {m.name}")
         out()
         return ReplSlashResult(skip_model_turn=True)
-      sock = (cfg.project_root / ws_rel / ".gemcode" / "ipc.sock")
+      sock = (fleet_root / ws_rel / ".gemcode" / "ipc.sock")
       try:
         from gemcode.kaira_client import KairaIpcClient
         client = await KairaIpcClient.connect(socket_path=str(sock))

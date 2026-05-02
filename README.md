@@ -183,7 +183,7 @@ Once you start `gemcode -C /path/to/project`, use slash commands for the high-si
 |---|---|
 | One-shot CLI | Single prompt/response tasks |
 | REPL | Stateful terminal interaction |
-| TUI | Scrollback terminal UI on top of the REPL runtime |
+| TUI | GemCode terminal UI (scrollback-style; `gemcode/tui/scrollback.py`) |
 | IDE stdio | Editor integration over stdin/stdout |
 | Kaira | Background job queue and scheduler |
 | Live audio (future scope) | Planned: microphone-driven Gemini Live sessions (currently experimental/unreliable) |
@@ -283,7 +283,7 @@ The root README is the landing page. The deeper documentation lives here:
 - User manual and navigation: [`gemcode/README.md`](gemcode/README.md)
 - Docs index: [`docs/README.md`](docs/README.md)
 - Install and first run: [`docs/install.md`](docs/install.md)
-- CLI, REPL, TUI, and commands: [`docs/cli-and-repl.md`](docs/cli-and-repl.md)
+- CLI, REPL, GemCode TUI, and commands: [`docs/cli-and-repl.md`](docs/cli-and-repl.md)
 - Configuration and local assets: [`docs/configuration.md`](docs/configuration.md)
 - Tools and permissions: [`docs/tools-and-permissions.md`](docs/tools-and-permissions.md)
 - Capability bundles: [`docs/capabilities.md`](docs/capabilities.md)
@@ -292,6 +292,7 @@ The root README is the landing page. The deeper documentation lives here:
 - Operations and troubleshooting: [`docs/operations.md`](docs/operations.md)
 - `.gemcode/` state reference: [`docs/reference-gemcode-state.md`](docs/reference-gemcode-state.md)
 - Web integration contract: [`docs/web-ui-contract.md`](docs/web-ui-contract.md)
+- Quick link hub (orchestration, fleet inbox, TUI note): [`Research.md`](Research.md)
 
 ## Repository structure
 

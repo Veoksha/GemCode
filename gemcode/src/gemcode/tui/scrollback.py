@@ -884,6 +884,13 @@ async def run_gemcode_scrollback_tui(
     else:
       try:
         prompt = await input_handler.prompt_async()
+        try:
+          from gemcode.fleet_reports import is_fleet_digest_prompt
+
+          if not is_fleet_digest_prompt((prompt or "").strip()):
+            object.__setattr__(cfg, "_fleet_auto_chain", 0)
+        except Exception:
+          pass
       except EOFError:
         print("")
         try:
@@ -981,6 +988,13 @@ async def run_gemcode_scrollback_tui(
         continue
       prompt = slash.model_prompt or prompt
 
+    try:
+      from gemcode.fleet_reports import prepend_drain_to_prompt
+
+      prompt = prepend_drain_to_prompt(cfg.project_root, prompt)
+    except Exception:
+      pass
+
     # Track the last real user request so "continue" can rerun it later.
     try:
       pnorm = (prompt or "").strip()
@@ -1048,7 +1062,7 @@ async def run_gemcode_scrollback_tui(
       )
       if run_config is not None:
         kwargs["run_config"] = run_config
-      # (We don't handle token budget reset here; full-screen TUI does.)
+      # (Token budget reset for this path is handled in invoke.run_turn, not here.)
 
       # Animated spinner starts immediately so the user always knows the
       # agent is active.  It transitions: Thinking… → Running… → Querying…
@@ -1429,6 +1443,32 @@ async def run_gemcode_scrollback_tui(
           print(f"  {ansi.blue_warn}⚑  Auto:{ansi.reset} {ansi.dim}/compact (context is high){ansi.reset}")
           print("")
           pending_prompt = "/compact"
+    except Exception:
+      pass
+
+    try:
+      from gemcode.fleet_reports import (
+        auto_continue_enabled,
+        auto_continue_mode,
+        fleet_digest_prompt,
+        has_pending_fleet_reports,
+        max_auto_chain,
+      )
+
+      if pending_prompt is None and auto_continue_enabled():
+        if auto_continue_mode() in ("tui", "both"):
+          chain = int(getattr(cfg, "_fleet_auto_chain", 0) or 0)
+          if (
+            has_pending_fleet_reports(cfg.project_root)
+            and chain < max_auto_chain()
+          ):
+            object.__setattr__(cfg, "_fleet_auto_chain", chain + 1)
+            print(
+              f"  {ansi.dim}[gemcode] Fleet reports pending — auto-continuing "
+              f"({chain + 1}/{max_auto_chain()}){ansi.reset}"
+            )
+            print("")
+            pending_prompt = fleet_digest_prompt()
     except Exception:
       pass
 

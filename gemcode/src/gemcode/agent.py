@@ -372,7 +372,12 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
     "(up to N concurrently). Each job gets `kaira_sleep_ms(ms)` and "
     "`kaira_enqueue_prompt(prompt, priority, session_id)` tools so GemCode can "
     "schedule and trigger follow-up work itself. Useful for: tests/builds, bulk file processing, "
-    "periodic automations, and parallelising large independent tasks."
+    "periodic automations, and parallelising large independent tasks. "
+    "Completed `org.report` / `job.report` / `agent.report` outcomes are also appended to "
+    "`.gemcode/fleet_reports.jsonl` and prepended to the next turn (GemCode TUI when `GEMCODE_TUI=1`, and any path using `run_turn`; disable with "
+    "`GEMCODE_FLEET_REPORTS_INJECT=0`). Optional hands-off follow-up: "
+    "`GEMCODE_FLEET_REPORTS_AUTO_CONTINUE=1` with `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MODE=tui|enqueue|both` "
+    "(cap via `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MAX`, debounce `GEMCODE_FLEET_REPORTS_ENQUEUE_DEBOUNCE_S`)."
   )
 
   # ── Git context ───────────────────────────────────────────────────────────

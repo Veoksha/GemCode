@@ -54,7 +54,7 @@ In addition to the `/automations ...` slash commands, the main GemCode agent can
 
 ### Single-terminal mode (TUI + embedded Kaira)
 
-If you want Kaira to run without a second terminal, embed it in the scrollback TUI:
+If you want Kaira to run without a second terminal, embed it in the GemCode TUI:
 
 ```bash
 GEMCODE_TUI_WITH_KAIRA=1 gemcode -C .
@@ -120,6 +120,8 @@ When you run `gemcode -C .gemcode/agents/<id>-<slug>`, those files are automatic
 /agent tree
 ```
 
+The **`/agents`** command is an alias for **`/agent`** (for example `/agents list`).
+
 ### Create agents (roles)
 
 ```text
@@ -137,10 +139,17 @@ Examples:
 
 ```text
 /agent assign <member> <task...>
+/agent trigger <member> <task...>   # same bus path as assign (recommended name)
+```
+
+Direct enqueue to a **worker’s** runtime socket (that agent must be running `gemcode runtime` in its workspace):
+
+```text
+/agent send <member> <prompt...>
 ```
 
 Notes:
-- `/agent assign` publishes `topic=org.assign` to the runtime (if available) so work can run autonomously in the background.
+- `/agent assign` and **`/agent trigger`** both publish `topic=org.assign` to the **fleet-root** manager runtime (if the IPC socket is reachable). If not, GemCode falls back to in-process `org_delegate(...)`.
 - The runtime manager translates `org.assign` into a queued job that runs `org_delegate(...)` and emits `topic=org.report` bus messages up the reporting chain.
 
 ### Improve an agent (append to their skill)
@@ -189,6 +198,28 @@ When the TUI receives a Kaira `job_report` event, it prefers `report_json`. If m
 If workers repeatedly fail the report contract (for example missing JSON reports), the manager can append a small lesson to that member’s skill automatically:
 
 - `GEMCODE_ORG_AUTO_IMPROVE=1`
+
+### Fleet report inbox + auto-continue (hands-off summaries)
+
+Background `org.report` / `job.report` / `agent.report` completions append to **`.gemcode/fleet_reports.jsonl`** at the fleet root. That file is **drained** into the next model turn (any code path that uses `run_turn`, and the default GemCode TUI — `gemcode/tui/scrollback.py`) so the manager sees results without copying bus logs.
+
+Optional **automatic follow-up** (no extra typing):
+
+- `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE=1`
+- `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MODE=tui` (default) — after each turn, if the inbox still has lines, the TUI (`GEMCODE_TUI=1`) or plain REPL schedules up to **N** extra “fleet digest” turns.
+- `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MODE=enqueue` — debounced low-priority **runtime job** that drains inbox inside the worker (requires `gemcode runtime`).
+- `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MODE=both` — TUI/REPL digest turns **and** debounced enqueue.
+- `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MAX=3` — max chained digest turns per user message (default 3).
+- `GEMCODE_FLEET_REPORTS_ENQUEUE_DEBOUNCE_S=0.45` — coalesce bursty report lines before enqueue.
+
+Disable injection entirely: `GEMCODE_FLEET_REPORTS_INJECT=0`.
+
+#### How to verify (tests + manual)
+
+- **Automated (inbox + fleet root):** from the repo root, run  
+  `python3 -m pytest gemcode/tests/test_fleet_reports.py -v`  
+  This covers `resolve_fleet_root`, append/drain of `fleet_reports.jsonl`, truncation, and inject-off behavior. The full suite is `python3 -m pytest gemcode/tests/`.
+- **Manual (orchestration + runtime):** in a throwaway directory with a valid Gemini/API setup: (1) `gemcode runtime -C .` in one terminal; (2) `gemcode -C .` in another; (3) `/agent create` a member, `/agent trigger <member> <small task>`; (4) watch `.gemcode/fleet_reports.jsonl` for new lines after the worker finishes; (5) send any message in the manager UI and confirm the reply incorporates the drained report (or enable `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE=1` and confirm an extra digest turn). Optional: `gemcode runtime attach -C .` to see `bus_message` / `org.report` on the bus.
 
 ## Super mode with Kaira and sub-agents
 

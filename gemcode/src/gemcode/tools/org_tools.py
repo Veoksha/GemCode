@@ -81,8 +81,6 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
     result: object | None = None,
     error: str = "",
   ) -> None:
-    if not _bus_enabled():
-      return
     fleet_root = resolve_fleet_root(getattr(cfg, "project_root", Path.cwd()))
 
     def _audit_fallback(payload: dict[str, Any], *, why: str) -> None:
@@ -121,6 +119,16 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
       "result": result,
       "notify_chain": chain,
     }
+
+    try:
+      from gemcode.fleet_reports import maybe_append_org_report
+
+      maybe_append_org_report(fleet_root, payload)
+    except Exception:
+      pass
+
+    if not _bus_enabled():
+      return
 
     sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
     # If runtime IPC isn't up, still persist the report locally.

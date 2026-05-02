@@ -1,4 +1,4 @@
-"""ASCII welcome banner + provider box (scrollback + full-screen TUI)."""
+"""ASCII welcome banner + provider box (GemCode TUI / plain REPL welcome)."""
 
 from __future__ import annotations
 

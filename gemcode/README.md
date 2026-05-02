@@ -18,7 +18,7 @@ GemCode is designed for repository-native work rather than copy-paste chat workf
 |---|---|
 | One-shot CLI | Single prompt/response runs |
 | REPL | Stateful terminal interaction |
-| TUI | Scrollback terminal UI over the REPL runtime |
+| TUI | GemCode terminal UI (scrollback-style; `tui/scrollback.py`) |
 | IDE stdio | Editor integration over JSONL stdin/stdout |
 | Kaira | Priority-queue scheduler for background jobs |
 | Live audio (future scope) | Planned: microphone-driven Gemini Live sessions (currently experimental/unreliable) |
@@ -169,6 +169,8 @@ gemcode kaira -C .
 ```
 
 ### Orchestration (Kaira + org delegation)
+
+Background completions are visible on the runtime **bus** and also accumulated in **`.gemcode/fleet_reports.jsonl`** for the next manager turn (optional auto-continue). See `../docs/orchestration.md`.
 
 Docs:
 - `../docs/orchestration.md`
