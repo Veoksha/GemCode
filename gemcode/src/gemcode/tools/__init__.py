@@ -259,6 +259,13 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
   except Exception:
     pass
 
+  # Tool synthesis — agent can create new reusable tools at runtime
+  try:
+    from gemcode.tool_synthesis import make_tool_synthesis_tools
+    tools.extend(make_tool_synthesis_tools(cfg))
+  except Exception:
+    pass
+
   try:
     tools.extend(make_veomem_tools(cfg))
   except Exception:

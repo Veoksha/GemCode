@@ -99,6 +99,14 @@ class AgentMesh:
     except Exception:
       pass
 
+    # Initialize self-healing loop (auto-verify + auto-fix after changes)
+    self._self_healing = None
+    try:
+      from gemcode.self_healing import SelfHealingLoop
+      self._self_healing = SelfHealingLoop(cfg)
+    except Exception:
+      pass
+
   @property
   def bus(self) -> EventBus:
     return self._bus
