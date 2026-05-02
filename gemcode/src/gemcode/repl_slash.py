@@ -2964,7 +2964,27 @@ async def process_repl_slash(
         out()
         return ReplSlashResult(skip_model_turn=True)
       except Exception as e:
-        out(f"[agent] agent runtime not reachable at {sock}: {type(e).__name__}: {e}")
+        # Fallback: use the mesh to run the prompt for this agent
+        out(f"[agent] runtime not reachable, using mesh fallback")
+        try:
+          from gemcode.tools.org_tools import make_org_tools
+          org_delegate = None
+          for t in make_org_tools(cfg):
+            if getattr(t, "__name__", "") == "org_delegate":
+              org_delegate = t
+              break
+          if org_delegate is not None:
+            d = await org_delegate(member=m.name, task=prompt, context="")
+            if isinstance(d, dict) and d.get("ok"):
+              out(f"[agent] delegated via mesh: member={m.name}")
+              if d.get("result"):
+                out(str(d.get("result"))[:2000])
+            else:
+              out(f"[agent] mesh delegation failed: {d.get('error') if isinstance(d, dict) else d}")
+          else:
+            out("[agent] org_delegate tool not available")
+        except Exception as e2:
+          out(f"[agent] fallback failed: {type(e2).__name__}: {e2}")
         out()
         return ReplSlashResult(skip_model_turn=True)
 

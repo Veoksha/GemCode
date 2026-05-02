@@ -336,6 +336,25 @@ def hire_member(
   root = resolve_fleet_root(project_root)
   org = load_org(root)
   members = list(org.get("members") or [])
+
+  # Prevent duplicate names — ADK sub_agents require unique names
+  clean_name = name.strip().lower()
+  for existing in members:
+    if str(existing.get("name", "")).strip().lower() == clean_name:
+      # Return the existing member instead of creating a duplicate
+      return OrgMember(
+        id=str(existing.get("id") or ""),
+        name=str(existing.get("name") or ""),
+        title=str(existing.get("title") or title),
+        kind=str(existing.get("kind") or kind),
+        address=str(existing.get("address") or ""),
+        workspace_rel=str(existing.get("workspace_rel") or ""),
+        reports_to=str(existing.get("reports_to") or ""),
+        skill_name=str(existing.get("skill_name") or ""),
+        description=str(existing.get("description") or description),
+        created_ms=int(existing.get("created_ms") or 0),
+      )
+
   now = _now_ms()
   mid = f"m_{uuid.uuid4().hex[:10]}"
   m = OrgMember(
