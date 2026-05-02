@@ -141,6 +141,25 @@ class SelfHealingLoop:
     checkpoint_id = msg.payload.get("checkpoint_id", "")
     files = msg.payload.get("files", [])
 
+    # Use codebase awareness to find affected test files for targeted testing
+    targeted_tests: list[str] = []
+    try:
+      from gemcode.codebase_awareness import get_affected_files
+      for f in files:
+        affected = get_affected_files(self.cfg.project_root, f)
+        for af in affected:
+          if "test" in af.lower() and af not in targeted_tests:
+            targeted_tests.append(af)
+    except Exception:
+      pass
+
+    # Build a smarter verification command if we have targeted tests
+    effective_cmd = cmd
+    if targeted_tests and "pytest" in cmd:
+      # Run only the affected test files instead of the full suite
+      test_paths = " ".join(targeted_tests[:5])
+      effective_cmd = f"python3 -m pytest {test_paths} -x -q --tb=short 2>&1 | tail -30"
+
     # Run verification via the mesh
     try:
       from gemcode.agent_mesh import get_mesh
@@ -148,11 +167,16 @@ class SelfHealingLoop:
       if mesh is None:
         return
 
+      targeted_note = ""
+      if targeted_tests:
+        targeted_note = f"\nTargeted tests (from impact analysis): {', '.join(targeted_tests[:5])}\n"
+
       mesh.enqueue(
         prompt=(
           f"Run this verification command and report the result:\n"
-          f"```bash\n{cmd}\n```\n\n"
-          f"Files that were just modified: {', '.join(files[:10])}\n\n"
+          f"```bash\n{effective_cmd}\n```\n\n"
+          f"Files that were just modified: {', '.join(files[:10])}\n"
+          f"{targeted_note}\n"
           "Rules:\n"
           "- Run the command exactly as shown.\n"
           "- If it passes (exit code 0, all tests pass), report: PASS\n"
@@ -208,6 +232,24 @@ class SelfHealingLoop:
     # Verification failed — should we auto-fix?
     checkpoint_id = meta.get("checkpoint_id", "unknown")
     attempts = self._fix_attempts.get(checkpoint_id, 0)
+
+    # Record correlation: changed files → failed tests (for future impact analysis)
+    try:
+      from gemcode.codebase_awareness import record_correlation, record_insight
+      changed_files = meta.get("files", [])
+      # Extract failed test files from the report
+      import re
+      failed_tests = re.findall(r'((?:tests?|spec)/[\w/.-]+\.(?:py|ts|js|tsx|jsx))', report)
+      for cf in changed_files:
+        for ft in failed_tests[:5]:
+          record_correlation(self.cfg.project_root, cf, ft)
+      if changed_files and failed_tests:
+        record_insight(
+          self.cfg.project_root,
+          f"Changing {changed_files[0]} broke {', '.join(failed_tests[:3])}",
+        )
+    except Exception:
+      pass
 
     if attempts >= max_fix_attempts():
       # Give up — publish failure event

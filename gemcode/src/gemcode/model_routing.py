@@ -89,6 +89,21 @@ def pick_effective_model(cfg: GemCodeConfig, prompt: str) -> str:
     p_norm = re.sub(r"\s+", " ", prompt or "").strip()
     plen = len(p_norm)
 
+    # Awareness-driven boost: if the codebase is large or the task touches
+    # files with many dependencies, prefer quality mode.
+    awareness_boost = False
+    try:
+      from gemcode.codebase_awareness import _load_structure, _load_insights
+      structure = _load_structure(cfg.project_root)
+      file_count = len(structure.get("files", {}))
+      insights = _load_insights(cfg.project_root)
+      fact_count = len(insights.get("facts", []))
+      # Large codebase (50+ known files) or rich insight history → quality
+      if file_count > 50 or fact_count > 20:
+        awareness_boost = True
+    except Exception:
+      pass
+
     quality_triggers = [
       "architecture",
       "design",
@@ -129,6 +144,10 @@ def pick_effective_model(cfg: GemCodeConfig, prompt: str) -> str:
 
     if _contains_any(p_norm, fast_triggers):
       return "fast"
+
+    # Awareness boost: large/complex codebase → balanced minimum
+    if awareness_boost:
+      return "balanced"
 
     # If prompt is long but not explicitly complex, balanced tends to be safer.
     if plen > 4_000:
