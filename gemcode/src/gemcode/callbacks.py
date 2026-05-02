@@ -545,6 +545,40 @@ def make_after_tool_callback(cfg: GemCodeConfig):
     except Exception:
       pass
 
+    # ── Codebase Awareness: build persistent project understanding ────────
+    try:
+      from gemcode.codebase_awareness import record_file_read, record_change, record_insight
+      if name == "read_file":
+        file_path = (args or {}).get("path", "")
+        content = ""
+        if isinstance(tool_response, dict):
+          content = str(tool_response.get("content", ""))[:50_000]
+        if file_path and content:
+          record_file_read(cfg.project_root, file_path, content)
+      elif name in ("write_file", "search_replace"):
+        file_path = (args or {}).get("path", "") or (args or {}).get("file_path", "")
+        if file_path:
+          record_change(cfg.project_root, file_path=file_path, change_type="edit",
+                        summary=f"{name} on {file_path}")
+      elif name == "delete_file":
+        file_path = (args or {}).get("path", "")
+        if file_path:
+          record_change(cfg.project_root, file_path=file_path, change_type="delete")
+      elif name in ("bash", "run_command"):
+        cmd = str((args or {}).get("command", ""))[:100]
+        exit_code = tool_response.get("exit_code") if isinstance(tool_response, dict) else None
+        if cmd:
+          record_change(cfg.project_root, file_path="(shell)", change_type="bash",
+                        summary=f"{cmd} → exit {exit_code}")
+          # Learn from test/build outcomes
+          if isinstance(exit_code, int):
+            if exit_code == 0 and any(k in cmd for k in ("test", "pytest", "npm test", "cargo test")):
+              record_insight(cfg.project_root, f"Tests pass: {cmd}")
+            elif exit_code != 0 and any(k in cmd for k in ("test", "pytest", "npm test", "cargo test")):
+              record_insight(cfg.project_root, f"Tests fail: {cmd} (exit {exit_code})")
+    except Exception:
+      pass
+
     if _maybe_tool_summary_enabled():
       summary: dict[str, Any] = {
         "phase": "tool_result",

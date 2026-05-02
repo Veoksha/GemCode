@@ -151,6 +151,15 @@ async def run_turn(
       except Exception:
         pass
 
+      # Codebase awareness: inject persistent project understanding
+      try:
+        from gemcode.codebase_awareness import build_awareness_context
+        awareness = build_awareness_context(cfg.project_root)
+        if awareness:
+          prompt = awareness + "\n\n" + prompt
+      except Exception:
+        pass
+
     # Risk score (always compute — it's fast with pre-compiled regex)
     try:
       object.__setattr__(cfg, "_risk_score", _compute_risk_score(prompt, attachment_paths))
