@@ -195,11 +195,34 @@ org_improve(member, lessons)  — append to member's skill
 org_tree()               — show hierarchy
 ```
 
-### How delegation works (priority order)
+### How delegation works (two paths)
 
-1. **Agent Mesh** (primary) — always available, runs full-power agents in-process
-2. **Kaira Daemon IPC** (if running) — for always-on server mode
-3. **In-process subtask** (fallback) — blocking but guaranteed to work
+**Synchronous (ADK native `transfer_to_agent`):**
+- The main agent's LLM decides to route to a sub-agent
+- ADK handles the transfer natively — no custom tool call needed
+- Sub-agent runs with its own tools and instruction
+- Result auto-saved to session state via `output_key`
+- Best for: quick reviews, exploration, verification within the same turn
+
+**Asynchronous (mesh via `org_delegate`):**
+- Agent calls `org_delegate(member, task, context)` tool
+- Mesh enqueues a background job for that member
+- Member runs as a full GemCode session (own workspace, own memory)
+- Result flows back via event bus → fleet reports → next turn
+- Best for: long-running tasks, tests, builds, parallel work
+
+### ADK features used
+
+| Feature | Purpose |
+|---------|---------|
+| `sub_agents` | Org members registered as native ADK sub-agents |
+| `transfer_to_agent` | LLM-driven synchronous delegation |
+| `output_key` | Auto-save agent output to session state |
+| `description` | Enables LLM routing decisions |
+| `AgentTool` | Available for explicit agent-as-tool invocation |
+| `SequentialAgent` | Used in review pipeline |
+| `ParallelAgent` | Available for concurrent workflows |
+| `LoopAgent` | Available for iterative refinement |
 
 ### Skills binding
 

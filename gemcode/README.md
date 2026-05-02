@@ -181,17 +181,22 @@ gemcode kaira -C .
 GemCode includes a built-in multi-agent orchestration system that works automatically — no separate daemon required.
 
 **Key features:**
-- **Agent Mesh** — in-process concurrent agent execution with full tool access
+- **Native ADK sub-agents** — org members are real ADK sub-agents with `transfer_to_agent` routing
+- **Agent Mesh** — async background execution with full GemCode sessions per agent
 - **Event Bus** — agents communicate via pub/sub (no Unix sockets needed)
-- **Self-Triggering Agents** — agents auto-activate on events (e.g., verifier reviews completed work)
+- **Self-Healing** — closed loop: change → verify → fix → verify → done
+- **Self-Triggers** — agents auto-activate on events (verification, failure recovery)
+- **Tool Synthesis** — agent creates new reusable tools from repeated patterns
 - **Delegation Learning** — remembers which agents succeed at which tasks
-- **A2A Bridge** — expose/consume agents across machines via Google's A2A protocol
+- **A2A Bridge** — expose/consume agents across machines via Google A2A protocol
 
 Quick example in the REPL:
 ```text
 > Analyze the auth module. Delegate security review to the verifier.
 ```
-The agent calls `org_delegate("verifier", ...)` → mesh runs a full-power verifier agent → result flows back automatically.
+The LLM calls `transfer_to_agent(agent_name='verifier')` → ADK routes natively → verifier runs → result saved to session state.
+
+For background work: `org_delegate("kaira", "run tests")` → mesh runs kaira as a full GemCode session → result flows back via fleet reports.
 
 Docs:
 - [`../docs/orchestration.md`](../docs/orchestration.md)
