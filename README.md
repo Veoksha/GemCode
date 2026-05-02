@@ -1,346 +1,328 @@
-![GemCode banner](docs/assets/gemcode-banner.png)
+<p align="center">
+  <img src="docs/assets/gemcode-banner.png" alt="GemCode" width="100%">
+</p>
 
-![PyPI](https://img.shields.io/pypi/v/gemcode?label=PyPI&style=flat)
-![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
-![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)
+<p align="center">
+  <a href="https://pypi.org/project/gemcode/"><img src="https://img.shields.io/pypi/v/gemcode?label=PyPI&style=flat-square" alt="PyPI"></a>
+  <a href="https://github.com/Veoksha/GemCode/blob/main/gemcode/LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square" alt="License"></a>
+  <img src="https://img.shields.io/badge/Python-3.11%2B-blue?style=flat-square" alt="Python">
+  <img src="https://img.shields.io/badge/Tools-58-green?style=flat-square" alt="Tools">
+  <img src="https://img.shields.io/badge/ADK-Native-orange?style=flat-square" alt="ADK">
+  <a href="https://gemcode.veoksha.com"><img src="https://img.shields.io/badge/Website-gemcode.veoksha.com-purple?style=flat-square" alt="Website"></a>
+</p>
 
-GemCode is a local-first coding agent for real repositories, built on Google Gemini and the Google Agent Development Kit (ADK). It runs against your project directory, orchestrates tool calls, and keeps project-local state under `.gemcode/` so sessions, skills, logs, and runtime artifacts stay tied to the codebase you are actually working on.
+<h3 align="center">The coding agent that learns your codebase and gets smarter every session.</h3>
 
-It is built for repository-native work rather than copy-paste chat: reading files, editing code, searching symbols, running controlled shell commands, loading reusable skills, and operating with explicit trust and permission controls.
+<p align="center">
+  Built on Google Gemini + ADK. Self-healing. Self-evolving. Multi-agent. Local-first.
+</p>
 
-GemCode is an agentic coding tool that lives in your terminal. It understands your codebase, helps you code faster by executing routine repo tasks, explaining complex code in context, and inspecting changes via diffs and checkpoints, all behind explicit trust and permission gates.
+---
 
-- Operates from a chosen project root (`-C`) with persistent state under `.gemcode/`
-- Supports inspection-first iteration (`/diff`, checkpoints, and audit logs)
-- Offers reusable workflows via GemSkills
-- Works across multiple entry points: CLI/REPL/TUI, IDE stdio bridge, and Kaira
+## What makes GemCode different
+
+Most coding agents treat every turn as isolated — read files, make changes, forget everything. GemCode builds a **persistent understanding** of your codebase that compounds over time.
+
+| What it does | How |
+|---|---|
+| **Remembers your project** | Structure graph tracks files, imports, exports. Change journal logs what changed and why. Insight cache learns facts like "changing config.py breaks test_config.py." |
+| **Heals its own mistakes** | After every change, auto-runs tests. If they fail, auto-fixes. Closed loop: change → verify → fix → verify → done. |
+| **Creates its own tools** | When it repeats the same multi-step operation, it synthesizes a reusable script. Future invocations use the tool instead of repeating steps. |
+| **Runs a team of agents** | Org members are real ADK sub-agents with their own workspace, memory, and persistent history. They delegate, verify, and fix each other's work. |
+| **Wakes up on schedule** | Agents run recurring tasks — test watch every 30 min, nightly security audit, hourly status check. No daemon needed. |
+| **Gets smarter every session** | Skills self-improve from successes. Delegation learning remembers which agent handles what best. Capabilities auto-enable based on project patterns. |
+
+---
+
+## Quick Start
+
+```bash
+pip install gemcode
+export GOOGLE_API_KEY="your-key"
+gemcode -C /path/to/project
+```
+
+That's it. On first run, GemCode asks: **"Enable autonomous mode? [Y/n]"** — say yes and everything activates.
+
+### Super mode (zero friction)
+
+```bash
+gemcode -C . --super "Fix all failing tests and verify"
+```
+
+All powers unlocked. No confirmation prompts. Memory, agents, habits, triggers, self-healing — everything on.
+
+### One-shot
+
+```bash
+gemcode -C . --yes "Add pagination to the /users API endpoint"
+```
+
+### Background agents
+
+```text
+> Analyze the auth module. Delegate security review to the verifier.
+```
+
+The LLM calls `transfer_to_agent(agent_name='verifier')` → ADK routes natively → verifier runs with its own tools → result saved to session state.
+
+---
+
+## The Intelligence Stack
+
+GemCode isn't just tools — it's a learning system where every feature feeds the next.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Every Turn                                │
+│                                                                 │
+│  Codebase Awareness ──→ knows files, imports, recent changes    │
+│  Intelligence Layer ──→ picks model, enables capabilities       │
+│  Agent Mesh ──────────→ delegates to sub-agents if needed       │
+│  [Model ↔ Tools loop]                                           │
+│  Self-Healing ────────→ auto-verifies, auto-fixes failures      │
+│  Learning ────────────→ records outcomes, improves skills        │
+│  Awareness Update ────→ structure graph, journal, insights       │
+│                                                                 │
+│  Next turn starts smarter than the last.                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Codebase Awareness
+
+Every `read_file`, `grep`, `write_file`, and `bash` call silently builds three layers:
+
+- **Structure Graph** — files, imports, exports, symbol counts
+- **Change Journal** — what changed, when, what the outcome was
+- **Insight Cache** — "tests take 12s", "auth imports from 3 modules", "changing X breaks Y"
+
+The agent starts each turn knowing the project. No re-exploration needed.
+
+### Self-Healing Loop
+
+```
+change files → auto-detect verification command (pytest/npm test/cargo check)
+            → run only affected tests (via import tracking)
+            → if fail → auto-fix → re-verify
+            → if fail again → report with diagnosis
+            → record correlation: "changing A broke test B"
+            → next time A changes → test B runs immediately
+```
+
+### Tool Synthesis
+
+```python
+# Agent detects it's running the same 3 commands repeatedly
+# It creates a reusable tool:
+synthesize_tool("deploy", "Deploy to staging", "git push && ssh staging 'cd app && git pull'")
+
+# Future invocations:
+run_synthesized_tool("deploy")  # one call instead of three
+```
+
+### Agent Habits
+
+```python
+habits_add("test-watch", "kaira", "Run pytest -q and report", every_minutes=30)
+habits_add("nightly-audit", "verifier", "Full security review", daily_at="02:00")
+```
+
+Agents wake up on schedule, do their work, report back. No daemon needed — runs inside the main process.
+
+---
+
+## Multi-Agent Orchestration
+
+Each org member is a **full GemCode session** — own workspace, own memory, own persistent history.
+
+### Two delegation paths
+
+| Path | When to use | How it works |
+|------|-------------|--------------|
+| **Synchronous** (ADK native) | Quick reviews, exploration | LLM calls `transfer_to_agent` → ADK routes → result in session state |
+| **Asynchronous** (mesh) | Long tasks, tests, builds | `org_delegate("kaira", "run tests")` → background job → result via fleet reports |
+
+### Self-triggering agents
+
+Agents auto-activate on events:
+- Job finishes → verifier reviews the output
+- Job fails → kaira diagnoses and attempts fix
+- Files change → verification triggers (opt-in)
+
+### Cross-machine agents (A2A)
+
+```python
+a2a_expose("verifier", port=8001)  # expose as network service
+a2a_connect("remote-reviewer", "http://other-machine:8001/.well-known/agent-card.json")
+```
+
+Any A2A-compatible agent (GemCode, LangGraph, CrewAI) can connect.
+
+---
+
+## 58 Built-in Tools
+
+| Category | Tools |
+|----------|-------|
+| **Planning** | `todo_write`, `todo_read`, `think` |
+| **Filesystem** | `read_file`, `list_directory`, `glob_files`, `write_file`, `search_replace`, `move_file`, `delete_file` |
+| **Search** | `grep_content`, `repo_map` |
+| **Shell** | `bash`, `run_command`, `list_tasks`, `kill_task`, `task_output` |
+| **Web** | `web_search`, `web_fetch` |
+| **Notebooks** | `notebook_read`, `notebook_edit` |
+| **Memory** | `remember_fact`, `read_curated_memory`, `compress_memory_file`, `summarise_session` |
+| **Skills** | `list_skills`, `load_skill`, `skills_manifest` |
+| **Checkpoints** | `checkpoints_list`, `checkpoint_undo` |
+| **Orchestration** | `org_list`, `org_hire`, `org_tree`, `org_delegate`, `org_spawn`, `org_improve` |
+| **Mesh** | `mesh_status`, `mesh_delegate`, `mesh_report`, `mesh_enqueue` |
+| **A2A** | `a2a_expose`, `a2a_connect`, `a2a_list` |
+| **Triggers** | `triggers_list`, `triggers_add`, `triggers_remove` |
+| **Habits** | `habits_add`, `habits_list`, `habits_remove`, `habits_pause`, `habits_resume` |
+| **Synthesis** | `synthesize_tool`, `run_synthesized_tool`, `list_synthesized_tools` |
+| **Delegation** | `suggest_delegate` |
+
+Plus: `load_tool_result`, `load_artifacts`, `get_user_choice`, `exit_loop`, and modality tools (deep research, embeddings, computer use).
+
+---
+
+## Full ADK Integration
+
+GemCode uses every major ADK primitive:
+
+| ADK Feature | How GemCode uses it |
+|---|---|
+| `LlmAgent` with `sub_agents` | Org members are native sub-agents with `transfer_to_agent` |
+| `output_key` | Agent outputs auto-saved to session state |
+| `SequentialAgent` | Used in the parallel review pipeline |
+| `ParallelAgent` | Available for concurrent workflows |
+| `LoopAgent` | Available for iterative refinement |
+| `AgentTool` | Available for explicit agent-as-tool invocation |
+| `RemoteA2aAgent` / `to_a2a()` | Cross-machine agent communication |
+| `SqliteSessionService` | Persistent sessions across restarts |
+| `EmbeddingFileMemoryService` | Semantic memory with embeddings |
+| `FileArtifactService` | Binary artifact storage |
+| `ContextCacheConfig` | Gemini context caching (saves ~75% input tokens) |
+| `EventsCompactionConfig` | Sliding-window session summarization |
+| `LongRunningFunctionTool` | Bash/shell tools with streaming timeout handling |
+| `GlobalInstructionPlugin` | System instruction injection |
+| `ReflectAndRetryToolPlugin` | Automatic tool error recovery |
+
+---
+
+## Capabilities
+
+| Capability | Toggle | What it adds |
+|---|---|---|
+| **Codebase Awareness** | `GEMCODE_CODEBASE_AWARENESS=1` | Persistent project understanding (structure, changes, insights) |
+| **Self-Healing** | `GEMCODE_SELF_HEALING=1` | Auto-verify + auto-fix after changes |
+| **Tool Synthesis** | `GEMCODE_TOOL_SYNTHESIS=1` | Agent creates reusable tools from patterns |
+| **Agent Habits** | `GEMCODE_AGENT_HABITS=1` | Scheduled recurring tasks |
+| **Self-Triggers** | `GEMCODE_AGENT_TRIGGERS=1` | Event-driven agent activation |
+| **Delegation Learning** | `GEMCODE_DELEGATION_LEARNING=1` | Remembers successful delegation patterns |
+| **Intelligence Layer** | `GEMCODE_AGENT_INTELLIGENCE=1` | Structural decisions + auto-enable capabilities |
+| **Deep Research** | `/research on` | Web search + URL context + grounding |
+| **Embeddings** | `/embeddings on` | Semantic search + embedding-backed memory |
+| **Memory** | `/memory on` | Persistent memory across sessions |
+| **Computer Use** | `/computer on` | Playwright-backed browser automation |
+| **Code Executor** | `/code on` | Sandboxed Python execution via Gemini |
+| **Plan Mode** | `/plan on` | Explicit numbered plan before execution |
+
+All default to ON in super mode.
+
+---
+
+## Project State (`.gemcode/`)
+
+```
+.gemcode/
+├── sessions.sqlite          # Persistent session history
+├── memories.jsonl           # Embedding-backed memory
+├── GEMCODE_MEMORY.md        # Curated project facts
+├── GEMCODE_USER.md          # User preferences
+├── org.json                 # Agent fleet registry
+├── fleet_reports.jsonl      # Background agent results
+├── delegation_memory.jsonl  # Delegation learning history
+├── triggers.json            # Self-trigger rules
+├── habits.json              # Scheduled recurring tasks
+├── project_profile.json     # Project capability profile
+├── awareness/
+│   ├── structure.json       # File relationships, imports, exports
+│   ├── journal.jsonl        # Change log
+│   └── insights.json        # Learned facts and correlations
+├── synthesized_tools/       # Agent-created reusable scripts
+├── agents/                  # Per-agent workspaces
+├── skills/                  # GemSkills (reusable playbooks)
+├── checkpoints/             # File snapshots for undo
+├── automations/             # Scheduled job configs
+├── artifacts/               # Binary outputs
+├── hooks/                   # Shell lifecycle hooks
+├── mcp.json                 # MCP server config
+├── openapi/                 # OpenAPI tool specs
+└── audit.log                # Full audit trail
+```
+
+---
+
+## REPL Commands
+
+| Command | Purpose |
+|---|---|
+| `/help` | Command summary |
+| `/status` | Model, capabilities, context telemetry |
+| `/super` | Unlock all powers / `/super off` |
+| `/agent list` | Show org members |
+| `/agent create` | Create a new agent |
+| `/agent assign <member> <task>` | Delegate work |
+| `/review` | Parallel code review (security + style + correctness) |
+| `/diff` | Show current diff / checkpoint diff |
+| `/rewind` | Restore checkpoints |
+| `/compact` | Compress context |
+| `/skills` | List available skills |
+| `/model use <id>` | Switch model mid-session |
+
+---
+
+## Install
+
+```bash
+# From PyPI
+pip install gemcode
+
+# From source
+cd gemcode
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+# Set your API key
+export GOOGLE_API_KEY="your-key"
+
+# Run
+gemcode -C /path/to/project
+```
+
+---
+
+## Documentation
+
+| Doc | What it covers |
+|---|---|
+| [Orchestration](docs/orchestration.md) | Agent mesh, triggers, habits, self-healing, awareness, A2A |
+| [Architecture](docs/architecture.md) | System design, subsystems, data flow |
+| [CLI & REPL](docs/cli-and-repl.md) | Commands, keybindings, sessions |
+| [Configuration](docs/configuration.md) | Environment variables, config files |
+| [Tools & Permissions](docs/tools-and-permissions.md) | Tool categories, permission model, super mode |
+| [Capabilities](docs/capabilities.md) | Research, embeddings, memory, computer use |
+| [Integrations](docs/integrations.md) | IDE bridge, MCP, OpenAPI, web UI |
+| [Operations](docs/operations.md) | Deployment, troubleshooting, PyPI |
+
+---
 
 ## Website
 
-Live preview: [gemcode.veoksha.com](https://gemcode.veoksha.com)
+[gemcode.veoksha.com](https://gemcode.veoksha.com)
 
-<a href="https://gemcode.veoksha.com">
-  <img
-    src="docs/assets/gemcode-website-preview.png"
-    alt="GemCode website preview"
-  />
-</a>
-
-## Built for repo-first work
-
-Unlike chat-first tools, GemCode is optimized for codebase-first workflows:
-
-- it operates against a chosen project root
-- it keeps inspectable local state
-- it supports persistent sessions
-- it exposes structured tools instead of relying only on raw text
-- it can be extended with project-local instructions, rules, styles, hooks, and GemSkills
-- it supports both interactive and automation-oriented entry points
-
-## What GemCode provides
-
-- **Repository-aware execution**: read, search, edit, diff, and run shell commands against real files
-- **Local project state**: `.gemcode/` stores sessions, logs, artifacts, skills, rules, styles, eval outputs, and integration config
-- **Safety controls**: workspace trust, permission modes, interactive approvals, and command gating
-- **GemSkills**: reusable markdown playbooks stored under `.gemcode/skills/<name>/SKILL.md`
-- **Orchestration (Kaira + Org)**: background jobs, org-style delegation, parallel subagents, and manager automation
-- **Context and token controls**: budgeting, context telemetry, tool-result offloading, and compaction-aware runtime behavior
-- **Multiple user interfaces**: one-shot CLI, REPL, TUI, IDE stdio bridge, and Kaira scheduler
-- **Integration surfaces**: MCP, OpenAPI, web-compatible contracts, optional browser/computer-use flows, and memory systems
-
-## Runtime model
-
-At a high level, a GemCode run looks like this:
-
-1. Build a `GemCodeConfig`
-2. Resolve the active project root
-3. Assemble the runtime runner and tool inventory
-4. Build the root agent instruction from config + local assets
-5. Execute turns against Gemini and tools
-6. Persist state under `.gemcode/`
-
-That means GemCode is not just a single prompt wrapper. It is a runtime that combines:
-
-- a configuration model
-- a session store
-- an agent instruction builder
-- a tool-loading pipeline
-- project-local extension assets
-- multiple execution frontends
-
-## Installation
-
-### 60-second quickstart
-
-1. Install:
-```bash
-pip install gemcode
-```
-
-2. Set your Gemini API key:
-```bash
-export GOOGLE_API_KEY="your-key"
-```
-
-GemCode reads `GOOGLE_API_KEY` from your environment (or a `.env` file). No separate `login` step is required—on the first run it may prompt for workspace trust and confirmation for mutating actions.
-
-3. Run (choose a project root):
-```bash
-gemcode -C /path/to/project
-```
-
-Why `-C` matters:
-- where `.gemcode/` state is stored
-- which local instructions/skills are active
-- what trust scope and permission boundary apply
-
-## Quick examples
-
-### Start the interactive REPL
-
-```bash
-gemcode -C /path/to/project
-```
-
-### Run a one-shot prompt
-
-```bash
-gemcode -C /path/to/project "Explain how authentication works in this repo"
-```
-
-### Allow a mutating run
-
-```bash
-gemcode -C /path/to/project --yes "Fix the failing tests and explain the change"
-```
-
-### Attach a file to a one-shot turn
-
-```bash
-gemcode -C . --attach ./report.pdf "Summarize this and list the key risks"
-```
-
-### Start the scheduler
-
-```bash
-gemcode kaira -C .
-```
-
-### Orchestration (Kaira + org delegation)
-
-Docs:
-- `docs/orchestration.md`
-
-Typical flow:
-
-1) Start Kaira in a separate terminal:
-
-```bash
-gemcode kaira -C .
-```
-
-2) Start GemCode (TUI/REPL) and delegate work:
-
-```bash
-gemcode -C .
-```
-
-Then in the REPL/TUI:
-
-```text
-/org tree
-/org hire verifier "QA / test planner" subagent gemcode "Find risks, propose tests, review plans."
-/org assign verifier "Review the plan and propose tests"
-/kaira jobs
-```
-
-### Start the IDE bridge
-
-```bash
-gemcode ide --stdio
-```
-
-## Try these REPL commands
-
-Once you start `gemcode -C /path/to/project`, use slash commands for the high-signal operations:
-
-```text
-/help
-/status
-/cost
-/context
-/attach ./file.pdf
-/skills
-/create gemskill
-/audit
-/diff
-/rewind
-```
-
-## Execution modes
-
-| Mode | Purpose |
-|---|---|
-| One-shot CLI | Single prompt/response tasks |
-| REPL | Stateful terminal interaction |
-| TUI | GemCode terminal UI (scrollback-style; `gemcode/tui/scrollback.py`) |
-| IDE stdio | Editor integration over stdin/stdout |
-| Kaira | Background job queue and scheduler |
-| Live audio (future scope) | Planned: microphone-driven Gemini Live sessions (currently experimental/unreliable) |
-
-## Key concepts
-
-### Project root
-
-Every GemCode run is anchored to a project root. This is one of the most important design decisions in the system because it controls visibility, state placement, trust boundaries, and which repo-local assets are loaded.
-
-### `.gemcode/`
-
-GemCode stores project-local runtime state under `.gemcode/`. Depending on what features you use, this can include:
-
-- sessions
-- logs
-- tool results
-- memory data
-- skills
-- rules
-- output styles
-- hooks
-- MCP and OpenAPI config
-- eval artifacts
-
-### GemSkills
-
-GemSkills are reusable playbooks stored as markdown assets. They let you codify repeatable workflows, domain-specific instructions, output formats, and evidence rules without hardcoding all of that logic into the base agent prompt.
-
-### Permissions and trust
-
-GemCode combines workspace trust, permission settings, allow/deny policies, and optional interactive confirmation for mutating operations. This helps keep repository access explicit instead of silently granting unrestricted tool execution.
-
-**Super mode** (`gemcode --super`, `GEMCODE_SUPER_MODE=1`, or REPL `/super`) opts into maximum autonomy: GemCode-owned HITL is disabled, tools and shell are auto-approved, the AFC “all tools vs callable-only” prompt is skipped, workspace trust is applied automatically on first CLI start, and `get_user_choice` returns the first listed option. See [`docs/tools-and-permissions.md`](docs/tools-and-permissions.md#super-mode-fully-autonomous).
-
-## Feature highlights
-
-### Repository-native tooling
-
-GemCode is designed to work on actual codebases, not just pasted snippets. It can inspect files, search the repo, edit source, manage checkpoints, and coordinate shell-driven workflows in the context of a chosen project root.
-
-### Persistent sessions
-
-Sessions are stored locally and can be resumed. This makes GemCode useful for longer-running implementation work rather than only stateless prompt/response usage.
-
-### Token and context management
-
-The runtime includes budget-aware behaviors such as context reporting, token/cost visibility, and tool-result offloading for large outputs. This matters for bigger repositories and longer sessions.
-
-### Extensible local assets
-
-GemCode can load project-local instructions, rules, styles, hooks, skills, MCP configs, and OpenAPI definitions. This makes it adaptable to different teams and repositories without turning the whole system into a hardcoded monolith.
-
-### Optional capability layers
-
-Depending on configuration, GemCode can also expose deep research, embeddings, memory-backed retrieval, browser/computer-use flows, and live audio support.
-
-## Power features (high impact)
-
-GemCode is not just “chat on code”. These are the things power users typically reach for repeatedly:
-
-- **Inspection & recovery**: checkpoints and rewinds (`/diff`, `/rewind`), plus an audit trail (`/audit` and `.gemcode/audit.log`)
-- **Cost/context telemetry**: `/cost`, `/status`, `/context`, plus compression/limits controls like `/compact`, `/budget`, `/limits`
-- **Multimodal attachments**: CLI `--attach` / `--image` for the current one-shot turn; REPL `/attach` with aliases like `/image` / `/file`
-- **GemSkills as reusable workflows**: `/skills`, `/gemskill`, `/append`, and `/create gemskill` (wizard-driven)
-- **Evaluation & autotune gates**: `gemcode eval -C .`, `gemcode autotune init --tag name -C .`, `gemcode autotune eval -C .` (and REPL `/eval` / `/autotune`)
-- **Integrations & tool surfaces**: MCP via `.gemcode/mcp.json`, OpenAPI specs under `.gemcode/openapi/`, IDE stdio bridge, and web/SSE compatibility
-- **Capability flags**: enable deep research with `--deep-research`, embeddings with `--embeddings`, and optional computer-use with `GEMCODE_ENABLE_COMPUTER_USE`
-- **Super mode**: `gemcode -C . --super "…"` or `/super` for non-interactive tool approval and autonomous runs ([`docs/tools-and-permissions.md`](docs/tools-and-permissions.md#super-mode-fully-autonomous))
-
-## Typical workflow
-
-1. Install `gemcode`
-2. Set `GOOGLE_API_KEY`
-3. Start GemCode with `-C /path/to/project`
-4. Trust the workspace if prompted
-5. Ask questions, inspect architecture, or request changes
-6. Use REPL commands or GemSkills when you need more structured workflows
-7. Review diffs, costs, and context pressure as needed
-
-## Common commands
-
-```bash
-gemcode models
-gemcode -C .
-gemcode -C . "Explain this repository"
-gemcode -C . --attach ./diagram.png "Analyze this architecture diagram"
-gemcode kaira -C .
-gemcode -C . --super "Implement and test the feature end-to-end"
-gemcode ide --stdio
-```
-
-## Documentation map
-
-The root README is the landing page. The deeper documentation lives here:
-
-- User manual and navigation: [`gemcode/README.md`](gemcode/README.md)
-- Docs index: [`docs/README.md`](docs/README.md)
-- Install and first run: [`docs/install.md`](docs/install.md)
-- CLI, REPL, GemCode TUI, and commands: [`docs/cli-and-repl.md`](docs/cli-and-repl.md)
-- Configuration and local assets: [`docs/configuration.md`](docs/configuration.md)
-- Tools and permissions: [`docs/tools-and-permissions.md`](docs/tools-and-permissions.md)
-- Capability bundles: [`docs/capabilities.md`](docs/capabilities.md)
-- Integrations: [`docs/integrations.md`](docs/integrations.md)
-- Architecture deep dive: [`docs/architecture.md`](docs/architecture.md)
-- Operations and troubleshooting: [`docs/operations.md`](docs/operations.md)
-- `.gemcode/` state reference: [`docs/reference-gemcode-state.md`](docs/reference-gemcode-state.md)
-- Web integration contract: [`docs/web-ui-contract.md`](docs/web-ui-contract.md)
-- Quick link hub (orchestration, fleet inbox, TUI note): [`Research.md`](Research.md)
-
-## Repository structure
-
-| Path | Purpose |
-|---|---|
-| `gemcode/` | Python package, CLI, runtime, tests, packaging |
-| `docs/` | Production documentation set |
-
-## Source install for contributors
-
-If you want to develop GemCode itself rather than just use it:
-
-```bash
-cd gemcode
-python3 -m venv .venv
-source .venv/bin/activate
-python3 -m pip install -e ".[dev]"
-```
-
-Optional extras:
-
-```bash
-python3 -m pip install -e ".[mcp]"
-```
-
-## Contributing
-
-Contributions are welcome, especially for:
-
-- core runtime improvements
-- documentation
-- GemSkills
-- integrations
-- tests and reliability
-
-For source changes, run the relevant tests from `gemcode/`.
-
-## Security & auditability
-
-GemCode is built around explicit workspace trust and permission controls for filesystem/shell/git tool access.
-
-Runtime activity is recorded for inspection:
-- `.gemcode/audit.log`
-- REPL command `/audit`
-
-For the full model (tool allowlists, permissions, and failure modes), see [`docs/tools-and-permissions.md`](docs/tools-and-permissions.md).
+---
 
 ## License
 
-See [`gemcode/LICENSE`](gemcode/LICENSE).
-
+Apache 2.0
