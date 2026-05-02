@@ -1,3 +1,6 @@
+# Local bootstrap script (machine-specific paths; keep your own copy)
+run-gemcode-tui.sh
+
 .pytest_cache/
 **/.pytest_cache/
 .env
