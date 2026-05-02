@@ -101,6 +101,24 @@ def post_turn_learn(cfg: GemCodeConfig, events: list) -> None:
     except Exception:
       pass
 
+  # Self-improving skills: if a skill-based delegation succeeded, improve the skill
+  try:
+    _maybe_improve_skills(cfg, events)
+  except Exception:
+    pass
+
+  # Proactive memory nudge: periodically save important facts
+  try:
+    _proactive_memory_nudge(cfg, events)
+  except Exception:
+    pass
+
+  # Progressive project learning: build a map as the agent navigates
+  try:
+    _progressive_project_learning(cfg, events)
+  except Exception:
+    pass
+
 
 def first_session_bootstrap(cfg: GemCodeConfig) -> None:
   """
@@ -360,9 +378,6 @@ def _maybe_trigger_verification(cfg: GemCodeConfig, events: list, is_super: bool
 def _auto_suggest_habits(cfg: GemCodeConfig, events: list) -> None:
   """
   In super mode: auto-create useful habits based on project type.
-
-  Detects project type from tool usage and creates appropriate habits
-  if they don't already exist.
   """
   try:
     from gemcode.agent_habits import load_habits, save_habits, Habit
@@ -370,36 +385,235 @@ def _auto_suggest_habits(cfg: GemCodeConfig, events: list) -> None:
     habits = load_habits(cfg.project_root)
     existing_names = {h.name for h in habits}
 
-    # Detect project type from files
     root = cfg.project_root
     has_pytest = (root / "pytest.ini").exists() or (root / "pyproject.toml").exists()
     has_package_json = (root / "package.json").exists()
 
     new_habits: list[Habit] = []
 
-    # Python project: auto-create test-watch habit
     if has_pytest and "test-watch" not in existing_names:
       new_habits.append(Habit(
         name="test-watch",
         agent="kaira",
         prompt="Run pytest -q. If tests fail, report which ones and why. If all pass, say PASS.",
-        every_seconds=1800,  # 30 minutes
+        every_seconds=1800,
         priority=1,
       ))
 
-    # Node project: auto-create lint-watch habit
     if has_package_json and "lint-watch" not in existing_names:
       new_habits.append(Habit(
         name="lint-watch",
         agent="kaira",
         prompt="Run npm run lint (or eslint) if available. Report any issues found.",
-        every_seconds=3600,  # 1 hour
+        every_seconds=3600,
         priority=0,
       ))
 
     if new_habits:
       habits.extend(new_habits)
       save_habits(cfg.project_root, habits)
+  except Exception:
+    pass
+
+
+def _maybe_improve_skills(cfg: GemCodeConfig, events: list) -> None:
+  """
+  Self-improving skills (inspired by Hermes Agent).
+
+  When a delegation succeeds and the member has a skill, append what worked
+  to the skill file so future invocations are better.
+  """
+  try:
+    # Check if any org_delegate or org_spawn calls succeeded this turn
+    delegations: list[dict] = []
+    for ev in events:
+      try:
+        frs = []
+        if hasattr(ev, "get_function_responses"):
+          frs = ev.get_function_responses() or []
+        for fr in frs:
+          name = getattr(fr, "name", "") or ""
+          if name in ("org_delegate", "org_spawn"):
+            resp = getattr(fr, "response", {}) or {}
+            if isinstance(resp, dict) and resp.get("ok"):
+              delegations.append(resp)
+      except Exception:
+        continue
+
+    if not delegations:
+      return
+
+    # For each successful delegation, check if the member has a skill to improve
+    from gemcode.org import find_member, resolve_fleet_root
+    fleet_root = resolve_fleet_root(cfg.project_root)
+
+    for d in delegations:
+      try:
+        member_dict = d.get("delegated_to")
+        if not isinstance(member_dict, dict):
+          continue
+        member_name = member_dict.get("name") or ""
+        if not member_name:
+          continue
+
+        m = find_member(fleet_root, member_name)
+        if m is None or not m.skill_name:
+          continue
+
+        result = d.get("result")
+        if not result:
+          continue
+
+        # Extract a brief lesson from the result
+        result_str = str(result)[:500] if isinstance(result, str) else str(result.get("result", ""))[:500]
+        if not result_str or len(result_str) < 20:
+          continue
+
+        # Append a small improvement to the skill (max once per session per member)
+        already_improved = getattr(cfg, "_skills_improved_this_session", set())
+        if member_name in already_improved:
+          continue
+
+        skill_md = fleet_root / ".gemcode" / "skills" / m.skill_name / "SKILL.md"
+        if not skill_md.exists():
+          continue
+
+        # Only append if the skill file isn't too large already
+        current = skill_md.read_text(encoding="utf-8", errors="replace")
+        if len(current) > 8000:
+          continue
+
+        import time as _time
+        ts = _time.strftime("%Y-%m-%d")
+        lesson = f"\n\n<!-- auto-improved {ts} -->\n## Learned pattern\n- {result_str[:200]}\n"
+        skill_md.write_text(current + lesson, encoding="utf-8")
+
+        already_improved.add(member_name)
+        object.__setattr__(cfg, "_skills_improved_this_session", already_improved)
+      except Exception:
+        continue
+  except Exception:
+    pass
+
+
+def _proactive_memory_nudge(cfg: GemCodeConfig, events: list) -> None:
+  """
+  Proactive memory nudge (inspired by Hermes Agent).
+
+  After significant turns (many tool calls, file discoveries), automatically
+  save important facts to curated memory without being asked.
+  """
+  try:
+    # Only nudge if memory is enabled
+    if not getattr(cfg, "enable_memory", False):
+      return
+
+    # Count significant signals
+    files_read: list[str] = []
+    commands_run: list[str] = []
+
+    for ev in events:
+      try:
+        fcs = ev.get_function_calls() or []
+        for fc in fcs:
+          name = getattr(fc, "name", "") or ""
+          args = getattr(fc, "args", {}) or {}
+          if name == "read_file":
+            p = args.get("path", "")
+            if p:
+              files_read.append(str(p))
+          if name in ("bash", "run_command"):
+            cmd = args.get("command", "")
+            if cmd:
+              commands_run.append(str(cmd)[:100])
+      except Exception:
+        continue
+
+    # Only nudge after substantial exploration (5+ files or 3+ commands)
+    if len(files_read) < 5 and len(commands_run) < 3:
+      return
+
+    # Rate limit: max once per 10 turns
+    nudge_count = getattr(cfg, "_memory_nudge_count", 0) or 0
+    profile = _load_project_profile(cfg.project_root)
+    total_turns = profile.get("total_turns", 0)
+    if nudge_count > 0 and (total_turns - getattr(cfg, "_last_nudge_turn", 0)) < 10:
+      return
+
+    # Save a project structure note
+    from gemcode.curated_memory import append_fact
+    if files_read:
+      # Save key file paths discovered
+      key_files = sorted(set(files_read))[:10]
+      fact = f"Key files explored: {', '.join(key_files)}"
+      append_fact(cfg.project_root, target="memory", text=fact)
+
+    if commands_run:
+      # Save commands that worked
+      fact = f"Commands used: {'; '.join(commands_run[:5])}"
+      append_fact(cfg.project_root, target="memory", text=fact)
+
+    object.__setattr__(cfg, "_memory_nudge_count", nudge_count + 1)
+    object.__setattr__(cfg, "_last_nudge_turn", total_turns)
+  except Exception:
+    pass
+
+
+def _progressive_project_learning(cfg: GemCodeConfig, events: list) -> None:
+  """
+  Progressive project learning (inspired by Hermes Agent).
+
+  As the agent navigates the project, build a lightweight map of what's where.
+  Stored in .gemcode/project_map.json — used by future sessions to skip discovery.
+  """
+  try:
+    dirs_listed: list[str] = []
+    files_found: list[str] = []
+
+    for ev in events:
+      try:
+        fcs = ev.get_function_calls() or []
+        for fc in fcs:
+          name = getattr(fc, "name", "") or ""
+          args = getattr(fc, "args", {}) or {}
+          if name == "list_directory":
+            p = args.get("path", ".")
+            dirs_listed.append(str(p))
+          if name in ("read_file", "write_file", "search_replace"):
+            p = args.get("path", "")
+            if p:
+              files_found.append(str(p))
+          if name == "glob_files":
+            # Results contain file paths
+            pass
+      except Exception:
+        continue
+
+    if not dirs_listed and not files_found:
+      return
+
+    # Update project map
+    map_path = cfg.project_root / ".gemcode" / "project_map.json"
+    existing: dict = {}
+    if map_path.is_file():
+      try:
+        existing = json.loads(map_path.read_text(encoding="utf-8"))
+      except Exception:
+        existing = {}
+
+    # Merge new discoveries
+    known_dirs = set(existing.get("dirs", []))
+    known_files = set(existing.get("files", []))
+    known_dirs.update(dirs_listed)
+    known_files.update(files_found)
+
+    # Keep bounded
+    existing["dirs"] = sorted(known_dirs)[:200]
+    existing["files"] = sorted(known_files)[:500]
+    existing["last_updated_ms"] = int(time.time() * 1000)
+
+    map_path.parent.mkdir(parents=True, exist_ok=True)
+    map_path.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
   except Exception:
     pass
 
