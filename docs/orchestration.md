@@ -315,6 +315,69 @@ After 3+ file writes or 2+ shell commands, the verifier agent auto-triggers to c
 | `GEMCODE_AGENT_INTELLIGENCE` | 1 | Enable intelligence layer |
 | `GEMCODE_AUTO_VERIFY` | 1 | Auto-verify after risky changes |
 
+## Self-Healing Loop
+
+GemCode automatically detects and fixes issues after changes — no user intervention needed.
+
+### How it works
+1. Agent makes file changes (triggers `checkpoint.created` event)
+2. Self-healing detects the right verification command for the project:
+   - Python: `pytest -x -q`
+   - Node: `npm test` or `npm run lint`
+   - Rust: `cargo check`
+   - Go: `go build ./...`
+   - Make: `make check` or `make test`
+3. Runs verification automatically via the mesh
+4. If it passes → done
+5. If it fails → enqueues a fix job with the error output
+6. Fix agent reads the error, applies minimal fix, re-verifies
+7. Repeats up to `max_attempts` (default 2)
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GEMCODE_SELF_HEALING` | 1 | Enable self-healing loop |
+| `GEMCODE_SELF_HEALING_MAX_ATTEMPTS` | 2 | Max fix attempts before giving up |
+
+### Verification command override
+
+GemCode auto-detects the verification command, but you can override it:
+```bash
+echo "pytest -x -q --tb=short" > .gemcode/verify_command.txt
+```
+
+## Tool Synthesis (Self-Evolving Agent)
+
+The agent can create new reusable tools at runtime when it detects repeated patterns.
+
+### Creating tools
+```
+synthesize_tool("run-tests", "Run pytest with coverage", "pytest --cov=src -q")
+synthesize_tool("deploy-staging", "Deploy to staging", "git push && ssh staging 'cd app && git pull'")
+synthesize_tool("check-types", "Run mypy", "mypy src/ --ignore-missing-imports")
+```
+
+### Using tools
+```
+run_synthesized_tool("run-tests")
+run_synthesized_tool("deploy-staging")
+```
+
+### Listing tools
+```
+list_synthesized_tools()
+```
+
+### Storage
+Tools persist in `.gemcode/synthesized_tools/` as executable scripts with companion `.json` metadata files. They survive across sessions and can be shared via version control.
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GEMCODE_TOOL_SYNTHESIS` | 1 | Enable tool synthesis |
+
 ## Kaira Daemon (Optional Always-On Mode)
 
 The Kaira daemon is still available for server/always-on scenarios but is no longer required for basic orchestration.
@@ -354,10 +417,14 @@ Automations are configured in `.gemcode/automations/*.json`:
 | `.gemcode/fleet_reports.jsonl` | Background agent results |
 | `.gemcode/delegation_memory.jsonl` | Delegation learning history |
 | `.gemcode/triggers.json` | Self-trigger configuration |
+| `.gemcode/habits.json` | Agent habits (scheduled tasks) |
 | `.gemcode/project_profile.json` | Project capability profile |
-| `.gemcode/agents/<id>-<slug>/` | Per-agent workspaces |
+| `.gemcode/project_map.json` | Progressive project structure map |
+| `.gemcode/verify_command.txt` | Cached verification command (self-healing) |
+| `.gemcode/synthesized_tools/` | Agent-created reusable tools |
+| `.gemcode/agents/<id>-<slug>/` | Per-agent workspaces (full GemCode sessions) |
 | `.gemcode/skills/<member-name>/` | Per-member skills |
-| `.gemcode/automations/*.json` | Scheduled job configs |
+| `.gemcode/automations/*.json` | Scheduled job configs (daemon mode) |
 | `.gemcode/kaira/jobs/` | Daemon job records |
 | `.gemcode/ipc.sock` | Daemon IPC socket |
 

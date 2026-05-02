@@ -248,12 +248,33 @@ These work without configuration. In super mode, everything is enabled silently.
 
 | Feature | How it works |
 |---|---|
+| **Self-healing** | After file changes, auto-runs tests/lint. If they fail, auto-fixes (up to 2 attempts). Closed loop: change → verify → fix → verify → done. |
+| **Tool synthesis** | When the agent repeats multi-step operations, it can create a reusable tool (bash/python script) stored in `.gemcode/synthesized_tools/`. |
 | **Self-improving skills** | When a delegation succeeds, the member's skill file gets a "Learned pattern" appended. Future invocations benefit from past successes. |
 | **Proactive memory** | After exploring 5+ files or running 3+ commands, key discoveries are auto-saved to curated memory. Future sessions start with this knowledge. |
 | **Progressive project map** | Every directory listing and file read updates `.gemcode/project_map.json`. The agent builds a map of your project over time. |
 | **Auto-verification** | After 3+ file writes, the verifier agent auto-checks for syntax errors, broken imports, and logic bugs. |
 | **Delegation suggestions** | `suggest_delegate(task)` recommends the best agent based on historical success patterns. |
 | **Capability auto-enable** | If a project consistently uses web search or memory, those capabilities auto-enable in future sessions. |
+
+## Tool Synthesis (self-evolving)
+
+The agent can create new reusable tools when it detects repeated patterns:
+
+```text
+# Create a tool
+synthesize_tool("run-tests", "Run pytest with coverage", "pytest --cov=src -q")
+synthesize_tool("deploy-staging", "Deploy to staging", "git push origin main && ssh staging 'cd app && git pull'")
+
+# Use it later
+run_synthesized_tool("run-tests")
+run_synthesized_tool("deploy-staging")
+
+# List all synthesized tools
+list_synthesized_tools()
+```
+
+Tools persist in `.gemcode/synthesized_tools/` across sessions.
 
 ## Agent Habits (scheduled tasks)
 
@@ -282,6 +303,8 @@ Detailed behavior:
 | Capability | What it adds |
 |---|---|
 | **Agent Mesh** | In-process multi-agent orchestration — each agent is a full GemCode session with own workspace, memory, and persistent history |
+| **Self-Healing** | Closed loop: change → verify → fix → verify → done. Code repairs itself automatically |
+| **Tool Synthesis** | Agent creates new reusable tools at runtime from repeated patterns |
 | **Agent Habits** | Scheduled recurring tasks (cron/interval/daily) — agents wake up and do work autonomously |
 | **Self-Triggers** | Agents auto-activate on events (verification after changes, failure recovery) |
 | **Self-Improving Skills** | Skills evolve — successful patterns are appended automatically |
