@@ -118,7 +118,7 @@ def run_synthesized_tool(
   project_root: Path,
   name: str,
   args: list[str] | None = None,
-  timeout: int = 60,
+  timeout: int = 300,
 ) -> dict[str, Any]:
   """Run a synthesized tool and return its output."""
   import subprocess

@@ -1292,7 +1292,12 @@ def build_root_agent(
       fleet_root = resolve_fleet_root(cfg.project_root)
       members = list_members(fleet_root)
 
+      # Deduplicate by name — ADK requires unique sub-agent names
+      seen_names: set[str] = set()
       for m in members:
+        if m.name in seen_names:
+          continue
+        seen_names.add(m.name)
         # Build a specialized sub-agent for each org member
         member_tools = build_function_tools(cfg, include_subtask=False)
 
