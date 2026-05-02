@@ -1,5 +1,5 @@
 """
-Single user turn (inner path ≈ `query()` invocation per message).
+Single user turn (inner path).
 
 CLI and tests call `run_turn` with a Runner already bound to app + session service.
 """
@@ -20,6 +20,12 @@ from google.genai import types
 
 _HITL_PROMPT_LOCK = Lock()
 
+# ── Cached regex (compiled once, not per-call) ────────────────────────────────
+import re as _re
+_RISK_COMPLEX = _re.compile(r"\b(refactor|migrate|rewrite|optimi[sz]e|architecture)\b", _re.I)
+_RISK_BUG = _re.compile(r"\b(bug|fix|regression|error|traceback|failing)\b", _re.I)
+_RISK_TEST = _re.compile(r"\b(test|pytest|ci|build|deploy|release)\b", _re.I)
+
 
 def _events_to_text(events: list[Any]) -> str:
   """Best-effort extraction of assistant text from ADK events."""
@@ -29,7 +35,6 @@ def _events_to_text(events: list[Any]) -> str:
       content = getattr(event, "content", None)
       if not content or not getattr(content, "parts", None):
         continue
-      # Omit only user-authored events; model events may have author=None.
       if getattr(event, "author", None) == "user":
         continue
       for part in getattr(content, "parts", []) or []:
@@ -52,6 +57,39 @@ def _is_retryable_context_model_error(text: str) -> bool:
   return False
 
 
+def _compute_risk_score(prompt: str, attachment_paths: Sequence | None) -> float:
+  """Fast risk scoring with pre-compiled regex."""
+  p = (prompt or "")[:20_000]
+  risk = 0.0
+  if len(p) > 600:
+    risk += 0.15
+  if len(p) > 2000:
+    risk += 0.15
+  if _RISK_COMPLEX.search(p):
+    risk += 0.2
+  if _RISK_BUG.search(p):
+    risk += 0.2
+  if _RISK_TEST.search(p):
+    risk += 0.1
+  if attachment_paths:
+    risk += 0.12
+  if p.count("/") >= 6 or p.count(".py") + p.count(".ts") + p.count(".tsx") >= 3:
+    risk += 0.1
+  return max(0.0, min(1.0, risk))
+
+
+def _is_simple_prompt(prompt: str) -> bool:
+  """Detect simple prompts that don't need heavy orchestration overhead."""
+  p = (prompt or "").strip()
+  # Short prompts (< 100 chars) with no tool-triggering keywords
+  if len(p) < 100 and "/" not in p and "file" not in p.lower():
+    return True
+  # Greetings and simple questions
+  if len(p) < 50:
+    return True
+  return False
+
+
 async def run_turn(
     runner: Runner,
     *,
@@ -64,8 +102,12 @@ async def run_turn(
     consume_fleet_reports: bool = True,
 ) -> list:
   """Execute one user message; collect all Events (caller aggregates text)."""
-  # Ensure the in-process agent mesh is available for this session.
-  if cfg is not None:
+
+  # ── Fast path: skip heavy machinery for simple prompts ──────────────────
+  is_simple = _is_simple_prompt(prompt) and not attachment_paths
+
+  # ── Mesh + bootstrap (only on first call or complex prompts) ────────────
+  if cfg is not None and not is_simple:
     try:
       from gemcode.agent_mesh import ensure_mesh
       mesh = ensure_mesh(cfg)
@@ -76,7 +118,7 @@ async def run_turn(
     except Exception:
       pass
 
-    # First-session bootstrap: enable autonomous features (asks user or auto in super mode)
+    # First-session bootstrap (once per session)
     try:
       if not getattr(cfg, "_intelligence_bootstrapped", False):
         object.__setattr__(cfg, "_intelligence_bootstrapped", True)
@@ -91,45 +133,27 @@ async def run_turn(
     except Exception:
       pass
 
-    # Drain fleet reports (results from background agents) into this turn's prompt.
-    if consume_fleet_reports:
+    # Drain fleet reports into prompt (skip for simple prompts — no background work expected)
+    if consume_fleet_reports and not is_simple:
       try:
         from gemcode.fleet_reports import drain_for_prompt
-
         preamble = drain_for_prompt(cfg.project_root)
         if preamble:
           prompt = preamble + "\n\n---\n\n" + (prompt or "")
       except Exception:
         pass
 
-    # Intelligence layer: structural decisions + delegation context
-    try:
-      from gemcode.agent_intelligence import enhance_turn
-      prompt = enhance_turn(cfg, prompt)
-    except Exception:
-      pass
+    # Intelligence layer (skip for simple prompts)
+    if not is_simple:
+      try:
+        from gemcode.agent_intelligence import enhance_turn
+        prompt = enhance_turn(cfg, prompt)
+      except Exception:
+        pass
 
-    # Risk score: used by dynamic_policy.py for token budget scaling.
+    # Risk score (always compute — it's fast with pre-compiled regex)
     try:
-      import re
-      p = (prompt or "")[:20_000]
-      risk = 0.0
-      if len(p) > 600:
-        risk += 0.15
-      if len(p) > 2000:
-        risk += 0.15
-      if re.search(r"\\b(refactor|migrate|rewrite|optimi[sz]e|architecture)\\b", p, re.I):
-        risk += 0.2
-      if re.search(r"\\b(bug|fix|regression|error|traceback|failing)\\b", p, re.I):
-        risk += 0.2
-      if re.search(r"\\b(test|pytest|ci|build|deploy|release)\\b", p, re.I):
-        risk += 0.1
-      if attachment_paths:
-        risk = min(1.0, risk + 0.12)
-      if p.count("/") >= 6 or p.count(".py") + p.count(".ts") + p.count(".tsx") >= 3:
-        risk += 0.1
-      risk = max(0.0, min(1.0, float(risk)))
-      object.__setattr__(cfg, "_risk_score", risk)
+      object.__setattr__(cfg, "_risk_score", _compute_risk_score(prompt, attachment_paths))
     except Exception:
       pass
 
@@ -176,12 +200,8 @@ async def run_turn(
   retry_enabled = os.environ.get("GEMCODE_ENABLE_MODEL_ERROR_RETRY", "1").lower() in (
     "1", "true", "yes", "on",
   )
-  retry_max_attempts = int(
-    os.environ.get("GEMCODE_MODEL_ERROR_RETRY_MAX_ATTEMPTS", "2")
-  )
-  retry_shrink_factor = float(
-    os.environ.get("GEMCODE_MODEL_ERROR_RETRY_SHRINK_FACTOR", "0.6")
-  )
+  retry_max_attempts = int(os.environ.get("GEMCODE_MODEL_ERROR_RETRY_MAX_ATTEMPTS", "2"))
+  retry_shrink_factor = float(os.environ.get("GEMCODE_MODEL_ERROR_RETRY_SHRINK_FACTOR", "0.6"))
   if retry_max_attempts < 2:
     retry_enabled = False
 
@@ -192,14 +212,12 @@ async def run_turn(
     for attempt in range(retry_max_attempts):
       collected: list = []
 
-      # Apply token-budget reset only once per user turn.
       state_delta = None
       if cfg is not None and cfg.token_budget:
         from gemcode.config import token_budget_invocation_reset
-
         state_delta = token_budget_invocation_reset()
 
-      # First message: optional inline files + text (Gemini multimodal).
+      # Build user message
       if attachment_paths:
         from gemcode.multimodal_input import build_user_content
 
@@ -222,27 +240,19 @@ async def run_turn(
                 object.__setattr__(cfg, "_attachments_allowed", True)
         else:
           attach_allow = True
-        effective_attachments = attachment_paths if attach_allow else None
 
         root = cfg.project_root if cfg is not None else Path.cwd()
         current_message, attach_warn = build_user_content(
-            prompt,
-            effective_attachments,
-            project_root=root,
+            prompt, attachment_paths if attach_allow else None, project_root=root,
         )
         for w in attach_warn:
           print(f"[gemcode] {w}", file=sys.stderr)
       else:
         current_message = types.Content(role="user", parts=[types.Part(text=prompt)])
 
-      async def _await_runner_events(
-        *, next_message: types.Content, do_reset: bool
-      ):
-        kwargs = dict(
-          user_id=user_id,
-          session_id=session_id,
-          new_message=next_message,
-        )
+      # ── Runner execution loop ───────────────────────────────────────────
+      async def _await_runner_events(*, next_message: types.Content, do_reset: bool):
+        kwargs = dict(user_id=user_id, session_id=session_id, new_message=next_message)
         if run_config is not None:
           kwargs["run_config"] = run_config
         if do_reset and state_delta is not None:
@@ -252,30 +262,25 @@ async def run_turn(
           events.append(event)
         return events
 
-      # Runner handoff loop: if tools request confirmations, we pause here to
-      # ask HITL, then send back function responses so ADK can re-execute.
       do_reset = True
       transient_attempts = 0
       while True:
         try:
-          events = await _await_runner_events(
-            next_message=current_message, do_reset=do_reset
-          )
+          events = await _await_runner_events(next_message=current_message, do_reset=do_reset)
         except Exception as _exc:
           from gemcode.model_errors import API_TRANSIENT_RETRY_DELAYS_SEC, is_transient_error
           if is_transient_error(_exc) and transient_attempts < len(API_TRANSIENT_RETRY_DELAYS_SEC):
             delay = API_TRANSIENT_RETRY_DELAYS_SEC[transient_attempts]
             transient_attempts += 1
-            _tui_active = os.environ.get("GEMCODE_TUI_ACTIVE", "0").lower() in ("1", "true", "yes", "on")
             _msg = (
               f"\n[gemcode] Transient API error ({type(_exc).__name__}). "
               f"Retrying in {delay:.0f}s (attempt {transient_attempts}/{len(API_TRANSIENT_RETRY_DELAYS_SEC)})...\n"
             )
             print(_msg, file=sys.stderr)
-            if _tui_active:
+            if os.environ.get("GEMCODE_TUI_ACTIVE", "0").lower() in ("1", "true", "yes", "on"):
               try:
                 from gemcode.tui import scrollback as _sb
-                _sb._transient_retry_notice = _msg  # type: ignore[attr-defined]
+                _sb._transient_retry_notice = _msg
               except Exception:
                 pass
             await asyncio.sleep(delay)
@@ -289,14 +294,13 @@ async def run_turn(
         if not confirmation_fcs:
           break
 
+        # HITL confirmation handling
         interactive_enabled = bool(
           getattr(cfg, "interactive_permission_ask", False)
-          and hasattr(sys.stdin, "isatty")
-          and sys.stdin.isatty()
+          and hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
         )
         auto_ok = bool(
-          cfg is not None
-          and (
+          cfg is not None and (
             bool(getattr(cfg, "yes_to_all", False))
             or bool(getattr(cfg, "super_mode", False))
           )
@@ -309,52 +313,36 @@ async def run_turn(
             ok = True
           elif interactive_enabled:
             suffix = f"\n  Hint: {hint}" if hint else ""
-            ok = _prompt_yes_no(
-              f"\n[gemcode HITL] Approve tool call '{tool_name}'? [y/N]{suffix}\n> "
-            )
+            ok = _prompt_yes_no(f"\n[gemcode HITL] Approve tool call '{tool_name}'? [y/N]{suffix}\n> ")
           else:
             ok = False
-            print(
-              f"[gemcode HITL] Tool confirmation requested for '{tool_name}', but interactive-ask is disabled; auto-rejecting.",
-              file=sys.stderr,
-            )
+            print(f"[gemcode HITL] Tool confirmation for '{tool_name}' auto-rejected (non-interactive).", file=sys.stderr)
 
-          parts.append(
-            types.Part(
-              function_response=types.FunctionResponse(
-                name=REQUEST_CONFIRMATION_FC,
-                id=getattr(fc, "id", None),
-                response={"confirmed": ok},
-              )
+          parts.append(types.Part(
+            function_response=types.FunctionResponse(
+              name=REQUEST_CONFIRMATION_FC, id=getattr(fc, "id", None), response={"confirmed": ok},
             )
-          )
+          ))
 
         current_message = types.Content(role="user", parts=parts)
         do_reset = False
 
-      # Retry decision: if we detect context/length failures, tighten budgets.
+      # Retry on context overflow
       if (
-        attempt == 0
-        and retry_enabled
-        and cfg is not None
-        and hasattr(cfg, "max_context_chars")
-        and hasattr(cfg, "tool_result_max_chars")
+        attempt == 0 and retry_enabled and cfg is not None
+        and hasattr(cfg, "max_context_chars") and hasattr(cfg, "tool_result_max_chars")
         and attempt + 1 < retry_max_attempts
       ):
         assistant_text = _events_to_text(collected)
         if _is_retryable_context_model_error(assistant_text):
           orig_ctx_chars = cfg.max_context_chars
           orig_tool_chars = cfg.tool_result_max_chars
-          cfg.max_context_chars = max(
-            50_000, int(orig_ctx_chars * retry_shrink_factor)
-          )
-          cfg.tool_result_max_chars = max(
-            1_000, int(orig_tool_chars * retry_shrink_factor)
-          )
+          cfg.max_context_chars = max(50_000, int(orig_ctx_chars * retry_shrink_factor))
+          cfg.tool_result_max_chars = max(1_000, int(orig_tool_chars * retry_shrink_factor))
           continue
 
-      # Post-turn intelligence: learn from what just happened
-      if cfg is not None:
+      # Post-turn learning (async-safe, non-blocking for simple prompts)
+      if cfg is not None and not is_simple:
         try:
           from gemcode.agent_intelligence import post_turn_learn
           post_turn_learn(cfg, collected)

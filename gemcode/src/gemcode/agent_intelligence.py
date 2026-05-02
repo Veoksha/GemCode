@@ -30,44 +30,51 @@ from gemcode.config import GemCodeConfig
 
 def enhance_turn(cfg: GemCodeConfig, prompt: str) -> str:
   """
-  Pre-turn intelligence. Runs before the model sees the prompt.
+  Pre-turn intelligence pass. Makes structural decisions.
 
-  In super mode: silently enables everything.
-  In normal mode: proposes and asks.
+  Optimized: skips expensive operations for short/simple prompts.
   """
   if not _enabled():
     return prompt
 
   is_super = bool(getattr(cfg, "super_mode", False) or getattr(cfg, "yes_to_all", False))
 
-  # 1. Auto-enable capabilities based on project history
-  try:
-    _auto_enable_capabilities(cfg, is_super)
-  except Exception:
-    pass
+  # Skip heavy operations for very short prompts
+  prompt_len = len(prompt or "")
+  is_trivial = prompt_len < 80
 
-  # 2. Ensure default org members exist (first run bootstrap)
-  try:
-    _ensure_default_org(cfg, is_super)
-  except Exception:
-    pass
+  # 1. Auto-enable capabilities (cheap check)
+  if not is_trivial:
+    try:
+      _auto_enable_capabilities(cfg, is_super)
+    except Exception:
+      pass
 
-  # 3. Auto-enable memory if project has enough history
+  # 2. Ensure default org (only on first few turns)
+  profile = _load_project_profile(cfg.project_root)
+  if profile.get("total_turns", 0) < 3:
+    try:
+      _ensure_default_org(cfg, is_super)
+    except Exception:
+      pass
+
+  # 3. Auto-enable memory (cheap check)
   try:
     _auto_enable_memory(cfg, is_super)
   except Exception:
     pass
 
-  # 4. Delegation intelligence: suggest routing based on history
-  delegation_hint = ""
-  try:
-    from gemcode.delegation_learning import build_delegation_context
-    delegation_hint = build_delegation_context(cfg.project_root, prompt)
-  except Exception:
-    pass
+  # 4. Delegation intelligence (only for substantial prompts)
+  if not is_trivial and prompt_len > 150:
+    try:
+      from gemcode.delegation_learning import build_delegation_context
+      hint = build_delegation_context(cfg.project_root, prompt)
+      if hint:
+        return f"[Delegation intelligence: {hint}]
 
-  if delegation_hint:
-    return f"[Delegation intelligence: {delegation_hint}]\n\n" + prompt
+" + prompt
+    except Exception:
+      pass
 
   return prompt
 
