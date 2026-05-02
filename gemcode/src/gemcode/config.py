@@ -366,13 +366,13 @@ class GemCodeConfig:
   ide_allow_write: bool = False
   ide_allow_shell: bool = False
 
-  # Checkpointing (Hermes-style): snapshot files before mutating tools so users
+  # Checkpointing: snapshot files before mutating tools so users
   # can undo accidental agent edits.
   enable_checkpoints: bool = field(
     default_factory=lambda: _truthy_env("GEMCODE_CHECKPOINTS", default=True)
   )
 
-  # Background learner (Hermes-style): post-turn distillation into curated memory/notes.
+  # Background learner: post-turn distillation into curated memory/notes.
   enable_background_learner: bool = field(
     default_factory=lambda: _truthy_env("GEMCODE_BACKGROUND_LEARNER", default=False)
   )

@@ -418,7 +418,7 @@ def _auto_suggest_habits(cfg: GemCodeConfig, events: list) -> None:
 
 def _maybe_improve_skills(cfg: GemCodeConfig, events: list) -> None:
   """
-  Self-improving skills (inspired by Hermes Agent).
+  Self-improving skills.
 
   When a delegation succeeds and the member has a skill, append what worked
   to the skill file so future invocations are better.
@@ -498,7 +498,7 @@ def _maybe_improve_skills(cfg: GemCodeConfig, events: list) -> None:
 
 def _proactive_memory_nudge(cfg: GemCodeConfig, events: list) -> None:
   """
-  Proactive memory nudge (inspired by Hermes Agent).
+  Proactive memory nudge.
 
   After significant turns (many tool calls, file discoveries), automatically
   save important facts to curated memory without being asked.
@@ -561,7 +561,7 @@ def _proactive_memory_nudge(cfg: GemCodeConfig, events: list) -> None:
 
 def _progressive_project_learning(cfg: GemCodeConfig, events: list) -> None:
   """
-  Progressive project learning (inspired by Hermes Agent).
+  Progressive project learning.
 
   As the agent navigates the project, build a lightweight map of what's where.
   Stored in .gemcode/project_map.json — used by future sessions to skip discovery.

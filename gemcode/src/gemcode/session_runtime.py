@@ -416,7 +416,7 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
   else:
     merged_extra_tools = modality_tools or None
 
-  # Curated memory snapshot (Hermes-style): load once per session and keep stable
+  # Curated memory snapshot: load once per session and keep stable
   # to avoid cache-breaking prompt drift.
   try:
     from gemcode.curated_memory import load_snapshot

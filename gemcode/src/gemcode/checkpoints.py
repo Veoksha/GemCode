@@ -1,5 +1,5 @@
 """
-Hermes-style checkpoints for GemCode.
+Checkpoints for GemCode.
 
 Goal: make file mutations reversible with an explicit, local checkpoint log.
 

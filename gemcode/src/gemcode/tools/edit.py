@@ -127,7 +127,7 @@ def make_edit_tools(cfg: GemCodeConfig):
       p = resolve_under_root(root, path)
     except PathEscapeError as e:
       return {"error": str(e)}
-    # Checkpoint previous state (Hermes-style self-healing).
+    # Checkpoint previous state.
     try:
       if getattr(cfg, "enable_checkpoints", True):
         from gemcode.checkpoints import create_checkpoint

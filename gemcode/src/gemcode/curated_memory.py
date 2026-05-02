@@ -1,5 +1,5 @@
 """
-Curated memory store (Hermes-style).
+Curated memory store.
 
 This is distinct from ADK's `.gemcode/memories.jsonl`:
 - memories.jsonl: auto-generated, retrieval-oriented, noisy by design

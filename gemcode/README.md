@@ -242,6 +242,38 @@ Status note:
 | `/agent assign <member> <task>` | Delegate work to a member |
 | `/agent improve <member> <lessons>` | Improve a member's skill |
 
+## Intelligence features (automatic)
+
+These work without configuration. In super mode, everything is enabled silently. In normal mode, GemCode asks once on first run.
+
+| Feature | How it works |
+|---|---|
+| **Self-improving skills** | When a delegation succeeds, the member's skill file gets a "Learned pattern" appended. Future invocations benefit from past successes. |
+| **Proactive memory** | After exploring 5+ files or running 3+ commands, key discoveries are auto-saved to curated memory. Future sessions start with this knowledge. |
+| **Progressive project map** | Every directory listing and file read updates `.gemcode/project_map.json`. The agent builds a map of your project over time. |
+| **Auto-verification** | After 3+ file writes, the verifier agent auto-checks for syntax errors, broken imports, and logic bugs. |
+| **Delegation suggestions** | `suggest_delegate(task)` recommends the best agent based on historical success patterns. |
+| **Capability auto-enable** | If a project consistently uses web search or memory, those capabilities auto-enable in future sessions. |
+
+## Agent Habits (scheduled tasks)
+
+Agents can run recurring tasks on a schedule — no daemon needed, runs inside the main GemCode process.
+
+```text
+# From the agent (tools):
+habits_add("test-watch", "kaira", "Run pytest -q and report", every_minutes=30)
+habits_add("nightly-audit", "verifier", "Full security review", daily_at="02:00")
+habits_add("hourly-status", "self", "Summarize recent changes", cron="0 * * * *")
+
+# Management:
+habits_list()
+habits_pause("test-watch")
+habits_resume("test-watch")
+habits_remove("test-watch")
+```
+
+In super mode, GemCode auto-creates habits based on project type (test-watch for Python, lint-watch for Node).
+
 Detailed behavior:
 - [`../docs/cli-and-repl.md`](../docs/cli-and-repl.md)
 
@@ -249,15 +281,21 @@ Detailed behavior:
 
 | Capability | What it adds |
 |---|---|
-| Agent Mesh | In-process multi-agent orchestration (automatic, no daemon needed) |
-| A2A Bridge | Cross-machine agent communication via Google A2A protocol |
-| Self-Triggers | Agents auto-activate on events (verification, failure recovery) |
-| Delegation Learning | Remembers successful patterns, suggests optimal routing |
-| Deep research | Research-focused tool routing and optional dedicated model path |
-| Embeddings | Semantic search and optional embedding-backed memory |
-| Memory | Retrieval-oriented persistent memory |
-| Browser/computer use | Playwright-backed browser automation and inspection |
-| Live audio | Gemini Live microphone sessions (experimental) |
+| **Agent Mesh** | In-process multi-agent orchestration — each agent is a full GemCode session with own workspace, memory, and persistent history |
+| **Agent Habits** | Scheduled recurring tasks (cron/interval/daily) — agents wake up and do work autonomously |
+| **Self-Triggers** | Agents auto-activate on events (verification after changes, failure recovery) |
+| **Self-Improving Skills** | Skills evolve — successful patterns are appended automatically |
+| **Delegation Learning** | Remembers which agents succeed at which tasks, suggests optimal routing |
+| **Progressive Learning** | Builds a project map as you navigate — future sessions skip discovery |
+| **Proactive Memory** | Auto-saves important discoveries to curated memory without being asked |
+| **A2A Bridge** | Cross-machine agent communication via Google A2A protocol |
+| **Event Bus** | In-memory pub/sub for agent-to-agent communication |
+| **Deep research** | Research-focused tool routing and optional dedicated model path |
+| **Embeddings** | Semantic search and optional embedding-backed memory |
+| **Memory** | Retrieval-oriented persistent memory across sessions |
+| **Browser/computer use** | Playwright-backed browser automation and inspection |
+| **Checkpoints** | File mutations are reversible — undo any agent edit |
+| **Live audio** | Gemini Live microphone sessions (experimental) |
 
 Detailed behavior:
 - [`../docs/capabilities.md`](../docs/capabilities.md)

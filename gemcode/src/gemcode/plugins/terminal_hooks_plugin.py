@@ -164,7 +164,7 @@ class GemCodeTerminalHooksPlugin(BasePlugin):
           {"phase": "memory_ingest", "ok": False, "error": str(e)},
         )
 
-    # Hermes-style evolving: run a bounded, cheap post-turn learner that writes
+    # Background learner: run a bounded, cheap post-turn learner that writes
     # durable insights to curated memory / notes (opt-in).
     if getattr(self.cfg, "enable_background_learner", False):
       try:

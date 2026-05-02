@@ -245,6 +245,76 @@ Background agent results are persisted to `.gemcode/fleet_reports.jsonl` and aut
 | `GEMCODE_FLEET_REPORTS_INJECT` | 1 | Drain fleet reports into prompts |
 | `GEMCODE_FLEET_REPORTS_MAX_CHARS` | 14000 | Max chars drained per turn |
 
+## Agent Habits (Scheduled Recurring Tasks)
+
+Habits let agents run tasks on a schedule — every N minutes, daily at a time, or via cron. They run inside the main GemCode process (no daemon needed).
+
+### Adding habits
+
+From the agent (tools):
+```
+habits_add("test-watch", "kaira", "Run pytest -q and report failures", every_minutes=30)
+habits_add("nightly-audit", "verifier", "Full security review of changed files", daily_at="02:00")
+habits_add("hourly-status", "self", "Summarize git status and recent changes", cron="0 * * * *")
+```
+
+### Managing habits
+```
+habits_list()              — show all habits with status
+habits_pause("test-watch") — stop firing until resumed
+habits_resume("test-watch") — re-enable
+habits_remove("test-watch") — delete permanently
+```
+
+### Schedule types
+
+| Type | Example | Meaning |
+|------|---------|---------|
+| `every_minutes=30` | Every 30 minutes | Interval-based |
+| `every_seconds=300` | Every 5 minutes | Fine-grained interval |
+| `daily_at="02:00"` | Once daily at 2am | Daily schedule |
+| `cron="0 */2 * * *"` | Every 2 hours | Cron expression (M H * * *) |
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GEMCODE_AGENT_HABITS` | 1 | Enable habit scheduler |
+| `GEMCODE_HABITS_POLL_S` | 10 | How often to check for due habits (seconds) |
+
+### Auto-created habits (super mode)
+
+In super mode, GemCode auto-creates habits based on project type:
+- Python projects (pyproject.toml/pytest.ini): `test-watch` every 30 minutes
+- Node projects (package.json): `lint-watch` every hour
+
+## Intelligence Layer (Automatic Learning)
+
+GemCode gets smarter with every session through three automatic learning mechanisms:
+
+### Self-improving skills
+When a skill-based delegation succeeds, the skill file gets a `## Learned pattern` section appended. Future invocations of that skill benefit from past successes. Skills evolve without manual editing.
+
+### Proactive memory nudges
+After substantial exploration (5+ files read or 3+ commands run), GemCode auto-saves key discoveries to curated memory:
+- File paths explored
+- Commands that worked
+
+Future sessions start with this knowledge already loaded.
+
+### Progressive project map
+Every `list_directory`, `read_file`, and `write_file` call updates `.gemcode/project_map.json`. Over time, this builds a complete map of the project structure. Future sessions can reference this map instead of re-exploring.
+
+### Auto-verification
+After 3+ file writes or 2+ shell commands, the verifier agent auto-triggers to check for syntax errors, broken imports, and logic bugs.
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GEMCODE_AGENT_INTELLIGENCE` | 1 | Enable intelligence layer |
+| `GEMCODE_AUTO_VERIFY` | 1 | Auto-verify after risky changes |
+
 ## Kaira Daemon (Optional Always-On Mode)
 
 The Kaira daemon is still available for server/always-on scenarios but is no longer required for basic orchestration.

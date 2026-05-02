@@ -7,7 +7,7 @@ from gemcode.config import GemCodeConfig
 
 def make_curated_memory_tools(cfg: GemCodeConfig) -> list:
   """
-  Hermes-style curated memory: safe, small facts that can be re-injected.
+  Curated memory: safe, small facts that can be re-injected.
   """
 
   def remember_fact(text: str, target: str = "memory") -> dict[str, Any]:

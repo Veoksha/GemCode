@@ -13,7 +13,7 @@ from gemcode.config import GemCodeConfig
 
 async def run_background_learner(*, cfg: GemCodeConfig, callback_context: Any) -> None:
   """
-  Bounded post-turn learning pass (Hermes-style).
+  Bounded post-turn learning pass.
 
   It reads a small slice of the most recent events and suggests 0-3 durable facts
   to save to curated memory and/or notes. It uses a cheap model and is opt-in.
