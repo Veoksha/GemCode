@@ -1,3 +1,7 @@
+## 0.4.2
+
+- **Repo hygiene**: `run-gemcode-tui.sh` is no longer tracked; add your own local copy or use `pip install -e gemcode` / `PYTHONPATH=gemcode/src python -m gemcode.cli`.
+
 ## 0.4.1
 
 - **PyPI**: New version so uploads succeed — PyPI never allows replacing `gemcode-0.4.0-*.whl` / the sdist once published ([file name reuse](https://pypi.org/help/#file-name-reuse)).
