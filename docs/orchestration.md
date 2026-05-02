@@ -163,6 +163,32 @@ The intelligence layer makes **structural decisions** (not prompt injection) tha
 | `GEMCODE_AGENT_INTELLIGENCE` | 1 | Enable intelligence layer |
 | `GEMCODE_AUTO_VERIFY` | 1 | Auto-verify after risky changes |
 
+## Codebase Awareness
+
+GemCode builds a persistent understanding of the project that compounds over time. Unlike other agents that re-discover the codebase every turn, GemCode starts each turn already knowing the project structure, recent changes, and learned facts.
+
+### Three layers
+
+**Structure Graph** — What files exist, what they export, what imports what. Built incrementally from every `read_file` call using lightweight regex extraction. Supports Python and TypeScript/JavaScript.
+
+**Change Journal** — What changed, when, and what the outcome was. Built from every `write_file`, `search_replace`, and `bash` call.
+
+**Insight Cache** — Learned facts about this specific codebase. Built from tool outcomes and test results.
+
+### Impact analysis
+
+When a file changes, `get_affected_files()` returns files likely affected — via import tracking and learned correlations. The self-healing loop uses this to run only relevant tests.
+
+### Enriched grep
+
+Grep results are enriched with structure info (exports, line count, symbol count) so the agent can infer what a file does without reading it.
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GEMCODE_CODEBASE_AWARENESS` | 1 | Enable codebase awareness |
+
 ## Agent Fleet (Org System)
 
 The org system models a team of specialized agents stored in `.gemcode/org.json`.
@@ -444,6 +470,9 @@ Automations are configured in `.gemcode/automations/*.json`:
 | `.gemcode/project_profile.json` | Project capability profile |
 | `.gemcode/project_map.json` | Progressive project structure map |
 | `.gemcode/verify_command.txt` | Cached verification command (self-healing) |
+| `.gemcode/awareness/structure.json` | Codebase structure graph (files, imports, exports) |
+| `.gemcode/awareness/journal.jsonl` | Change journal (last 500 entries) |
+| `.gemcode/awareness/insights.json` | Learned facts and correlations |
 | `.gemcode/synthesized_tools/` | Agent-created reusable tools |
 | `.gemcode/agents/<id>-<slug>/` | Per-agent workspaces (full GemCode sessions) |
 | `.gemcode/skills/<member-name>/` | Per-member skills |
