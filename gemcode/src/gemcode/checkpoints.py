@@ -79,6 +79,24 @@ def create_checkpoint(
     "files": [{"path": f.path, "existed": f.existed} for f in out_files],
   }
   (base / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+  # Publish checkpoint event to the bus (enables trigger-based verification)
+  try:
+    from gemcode.event_bus import BusMessage, get_bus
+    bus = get_bus()
+    bus.publish_sync(BusMessage(
+      topic="checkpoint.created",
+      from_addr="checkpoints",
+      payload={
+        "checkpoint_id": cid,
+        "op": op,
+        "files": [f.path for f in out_files],
+        "file_count": len(out_files),
+      },
+    ))
+  except Exception:
+    pass
+
   return Checkpoint(id=cid, ts_ms=ts, op=op, files=out_files)
 
 

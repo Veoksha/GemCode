@@ -85,8 +85,9 @@ async def _publish_subtask_report(
 ) -> None:
     """
     Durable report path for *all* in-process subagents:
+    - Publish to in-memory event bus (always available)
     - Publish to runtime bus when available
-    - Otherwise append to fleet-root `.gemcode/audit.log`
+    - Append to fleet reports for cross-session persistence
     """
     try:
         from gemcode.org import resolve_fleet_root
@@ -105,6 +106,7 @@ async def _publish_subtask_report(
         "result": result,
     }
 
+    # ── Always persist to fleet reports ───────────────────────────────────
     try:
         from gemcode.fleet_reports import maybe_append_agent_report
 
@@ -112,7 +114,24 @@ async def _publish_subtask_report(
     except Exception:
         pass
 
-    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
+    # ── Publish to in-memory bus (always available) ───────────────────────
+    try:
+        from gemcode.event_bus import BusMessage, get_bus
+
+        bus = get_bus()
+        await bus.publish(BusMessage(
+            topic="agent.report",
+            from_addr="subagent",
+            to_addr="manager",
+            payload=payload,
+        ))
+    except Exception:
+        pass
+
+    # ── Also try IPC if daemon is running (bonus) ─────────────────────────
+    from gemcode.kaira_ipc import fleet_manager_ipc_path
+
+    sock = str(fleet_manager_ipc_path(fleet_root))
     try:
         if Path(sock).exists():
             from gemcode.kaira_client import KairaIpcClient
@@ -120,18 +139,10 @@ async def _publish_subtask_report(
             c = await KairaIpcClient.connect(socket_path=str(sock))
             try:
                 await c.publish(topic="agent.report", to="manager", from_addr="subagent", payload=payload)
-                return
             finally:
                 await c.close()
     except Exception:
         pass
-
-    try:
-        from gemcode.audit import append_audit
-
-        append_audit(fleet_root, {"event": "agent.report", "payload": payload})
-    except Exception:
-        return
 
 
 def make_run_subtask_tool(cfg: GemCodeConfig):

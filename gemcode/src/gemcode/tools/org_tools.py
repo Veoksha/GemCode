@@ -9,6 +9,15 @@ from gemcode.config import GemCodeConfig
 from gemcode.org import ensure_member_skill, find_member, hire_member, list_members, org_tree, resolve_fleet_root
 
 
+def _get_mesh(cfg: GemCodeConfig):
+  """Get or create the in-process agent mesh (always available, no daemon needed)."""
+  try:
+    from gemcode.agent_mesh import ensure_mesh
+    return ensure_mesh(cfg)
+  except Exception:
+    return None
+
+
 def make_org_tools(cfg: GemCodeConfig) -> list:
   root = resolve_fleet_root(cfg.project_root)
 
@@ -100,7 +109,6 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
 
     from_addr = str(getattr(m, "address", "") or getattr(m, "name", "") or "")
     member_dict = (m.to_dict() if hasattr(m, "to_dict") else {})
-    # Capabilities snapshot: keep it small and stable.
     caps = {
       "kind": member_dict.get("kind"),
       "address": member_dict.get("address") or from_addr,
@@ -120,6 +128,7 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
       "notify_chain": chain,
     }
 
+    # ── Always persist to fleet reports (works without daemon) ─────────────
     try:
       from gemcode.fleet_reports import maybe_append_org_report
 
@@ -127,17 +136,32 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
     except Exception:
       pass
 
+    # ── Publish to in-memory bus (always available) ───────────────────────
+    try:
+      from gemcode.event_bus import BusMessage, get_bus
+
+      bus = get_bus()
+      for to_addr in chain:
+        await bus.publish(BusMessage(
+          topic="org.report",
+          from_addr=from_addr,
+          to_addr=str(to_addr or "manager"),
+          payload=payload,
+        ))
+    except Exception:
+      pass
+
+    # ── Also try IPC if daemon is running (bonus, not required) ───────────
     if not _bus_enabled():
       return
 
-    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
-    # If runtime IPC isn't up, still persist the report locally.
+    from gemcode.kaira_ipc import fleet_manager_ipc_path
+
+    sock = str(fleet_manager_ipc_path(fleet_root))
     try:
       if not Path(sock).exists():
-        _audit_fallback(payload, why="ipc_socket_missing")
-        return
+        return  # No daemon, but that's fine — bus + fleet reports already handled it
     except Exception:
-      _audit_fallback(payload, why="ipc_socket_stat_failed")
       return
 
     try:
@@ -145,7 +169,6 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
 
       c = await KairaIpcClient.connect(socket_path=str(sock))
       try:
-        # Notify parent, grandparent, ... (and manager).
         for to_addr in chain:
           await c.publish(
             topic="org.report",
@@ -155,9 +178,8 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
           )
       finally:
         await c.close()
-    except Exception as e:
-      _audit_fallback(payload, why=f"ipc_publish_failed: {type(e).__name__}: {e}")
-      return
+    except Exception:
+      pass
 
   def org_list() -> dict:
     """List available org members (workers)."""
@@ -207,6 +229,83 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
     if not task:
       return {"ok": False, "error": "missing task"}
 
+    # ── Strategy 1: In-process Agent Mesh (always available) ──────────────
+    # The mesh runs real ADK agents in-process with their own sessions.
+    # This is the PRIMARY path — no daemon required.
+    mesh = _get_mesh(cfg)
+    if mesh is not None:
+      try:
+        # For kaira_workers, run async (non-blocking) by default
+        # For subagents, run sync (blocking) to return result immediately
+        wait = (m.kind != "kaira_worker")
+        result = await mesh.delegate_to_member(
+          member=m,
+          task=task,
+          context=ctx,
+          priority=0,
+          wait=wait,
+        )
+        if result.get("ok"):
+          return {"ok": True, "delegated_to": m.to_dict(), **result}
+        # If mesh delegation failed, fall through to other strategies
+      except Exception:
+        pass
+
+    # ── Strategy 2: Kaira Daemon IPC (if running) ─────────────────────────
+    if m.kind == "kaira_worker":
+      try:
+        from gemcode.kaira_client import KairaIpcClient
+        fleet_root = resolve_fleet_root(getattr(cfg, "project_root", Path.cwd()))
+        from gemcode.kaira_ipc import fleet_manager_ipc_path
+
+        sock_s = str(fleet_manager_ipc_path(fleet_root))
+        if Path(sock_s).exists():
+          client = await KairaIpcClient.connect(socket_path=sock_s)
+          try:
+            session_id = str(getattr(cfg, "_active_session_id", "") or "")
+            notify_chain = _ancestor_addresses_for(m)
+            header = (
+              f"You are {m.name} ({m.title}).\n"
+              f"Role description: {m.description or '(none)'}\n\n"
+              "Do the assigned task. Keep outputs concise and actionable.\n"
+            )
+            prompt = header + "\nTask:\n" + task
+            if ctx:
+              prompt += "\n\nContext:\n" + ctx
+            meta = {
+              "org": {
+                "member": (m.to_dict() if hasattr(m, "to_dict") else {}),
+                "capabilities": {
+                  "kind": getattr(m, "kind", ""),
+                  "address": getattr(m, "address", "") or getattr(m, "name", ""),
+                  "workspace_rel": getattr(m, "workspace_rel", "") or "",
+                  "reports_to": getattr(m, "reports_to", "") or "",
+                },
+                "task": task,
+                "context": ctx,
+                "notify_chain": notify_chain,
+              }
+            }
+            res = await client.request(
+              action="enqueue",
+              prompt=prompt,
+              priority=0,
+              session_id=session_id,
+              meta=meta,
+            )
+            if res.get("ok"):
+              job_id = str(res.get("job_id") or "")
+              await _publish_org_report(
+                m=m, status="delegated", task=task, context=ctx, job_id=job_id,
+                result={"kind": "kaira_worker", "job_id": job_id},
+              )
+              return {"ok": True, "delegated_to": m.to_dict(), "job_id": job_id}
+          finally:
+            await client.close()
+      except Exception:
+        pass
+
+    # ── Strategy 3: In-process subtask fallback ───────────────────────────
     header = (
       f"You are {m.name} ({m.title}).\n"
       f"Role description: {m.description or '(none)'}\n\n"
@@ -218,89 +317,6 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
     if ctx:
       prompt += "\n\nContext:\n" + ctx
 
-    if m.kind == "kaira_worker":
-      # Delegate to Kaira via IPC enqueue (background). If IPC is unavailable,
-      # fall back to an in-process subagent run so delegation still "just works".
-      try:
-        from gemcode.kaira_client import KairaIpcClient
-        fleet_root = resolve_fleet_root(getattr(cfg, "project_root", Path.cwd()))
-        sock_s = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
-        client = await KairaIpcClient.connect(socket_path=sock_s)
-        try:
-          session_id = str(getattr(cfg, "_active_session_id", "") or "")
-          notify_chain = _ancestor_addresses_for(m)
-          # Attach org metadata so the runtime can auto-publish org.report when
-          # the job finishes/fails (default, no extra prompting needed).
-          meta = {
-            "org": {
-              "member": (m.to_dict() if hasattr(m, "to_dict") else {}),
-              "capabilities": {
-                "kind": getattr(m, "kind", ""),
-                "address": getattr(m, "address", "") or getattr(m, "name", ""),
-                "workspace_rel": getattr(m, "workspace_rel", "") or "",
-                "reports_to": getattr(m, "reports_to", "") or "",
-              },
-              "task": task,
-              "context": ctx,
-              "notify_chain": notify_chain,
-            }
-          }
-          res = await client.request(
-            action="enqueue",
-            prompt=prompt,
-            priority=0,
-            session_id=session_id,
-            meta=meta,
-          )
-          if not res.get("ok"):
-            await _publish_org_report(
-              m=m,
-              status="failed",
-              task=task,
-              context=ctx,
-              error=str(res.get("error") or "enqueue_failed"),
-            )
-            return {"ok": False, "error": res.get("error") or "enqueue_failed"}
-          job_id = str(res.get("job_id") or "")
-          await _publish_org_report(
-            m=m,
-            status="delegated",
-            task=task,
-            context=ctx,
-            job_id=job_id,
-            result={"kind": "kaira_worker", "job_id": job_id},
-          )
-          return {"ok": True, "delegated_to": m.to_dict(), "job_id": job_id}
-        finally:
-          await client.close()
-      except Exception as e:
-        # Fallback: run as a subagent right now (best-effort). This keeps UX
-        # consistent when users think "agent delegation" should always work.
-        try:
-          from gemcode.tools.subtask import make_run_subtask_tool
-
-          run_subtask = make_run_subtask_tool(cfg)
-          out = await run_subtask(prompt, "")
-          result = out.get("result") if isinstance(out, dict) else out
-          await _publish_org_report(
-            m=m,
-            status="finished",
-            task=task,
-            context=ctx,
-            result={"kind": "fallback_subagent", "error": f"kaira_ipc_unavailable: {type(e).__name__}: {e}", "result": result},
-          )
-          return {"ok": True, "delegated_to": m.to_dict(), "result": result, "fallback": "subagent"}
-        except Exception as e2:
-          await _publish_org_report(
-            m=m,
-            status="failed",
-            task=task,
-            context=ctx,
-            error=f"kaira_ipc_unavailable: {type(e).__name__}: {e}; fallback_subagent_failed: {type(e2).__name__}: {e2}",
-          )
-          return {"ok": False, "error": f"kaira_ipc_unavailable: {type(e).__name__}: {e}"}
-
-    # Delegate to an in-process isolated subagent.
     try:
       from gemcode.tools.subtask import make_run_subtask_tool
 
@@ -308,22 +324,15 @@ def make_org_tools(cfg: GemCodeConfig) -> list:
       out = await run_subtask(prompt, "")
       result = out.get("result") if isinstance(out, dict) else out
       await _publish_org_report(
-        m=m,
-        status="finished",
-        task=task,
-        context=ctx,
-        result=result,
+        m=m, status="finished", task=task, context=ctx, result=result,
       )
       return {"ok": True, "delegated_to": m.to_dict(), "result": result}
     except Exception as e:
       await _publish_org_report(
-        m=m,
-        status="failed",
-        task=task,
-        context=ctx,
-        error=f"subagent_failed: {type(e).__name__}: {e}",
+        m=m, status="failed", task=task, context=ctx,
+        error=f"all_strategies_failed: {type(e).__name__}: {e}",
       )
-      return {"ok": False, "error": f"subagent_failed: {type(e).__name__}: {e}"}
+      return {"ok": False, "error": f"delegation_failed: {type(e).__name__}: {e}"}
 
   async def org_spawn(
     name: str,

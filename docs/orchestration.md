@@ -1,247 +1,324 @@
-# Orchestration: Kaira daemon (GemCode Runtime), agent fleet, and parallel work
+# Orchestration: Agent Mesh, Event Bus, and Multi-Agent Coordination
 
-This page documents the “multi-agent” surfaces in GemCode: the **Kaira daemon** (GemCode Runtime), the **agent fleet** registry (members + workspaces), and the automatic manager behaviors that can route work and improve worker skills over time.
+This page documents GemCode's multi-agent orchestration system: the **Agent Mesh** (in-process coordination), the **Event Bus** (agent communication), **Self-Triggering Agents**, **Delegation Learning**, and the optional **A2A Bridge** for cross-machine agents.
 
-## What changed (high-level improvements)
+## Architecture Overview
 
-GemCode gained these orchestration features:
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         GemCode Process                              │
+│                                                                     │
+│  ┌──────────┐    ┌──────────────┐    ┌───────────────────────────┐ │
+│  │ CLI/TUI  │───▶│  run_turn()  │───▶│       Agent Mesh          │ │
+│  └──────────┘    └──────────────┘    │  ┌─────────────────────┐  │ │
+│                                      │  │  Priority Queue     │  │ │
+│                                      │  │  Concurrent Runner  │  │ │
+│                                      │  │  Full-Power Agents  │  │ │
+│                                      │  └──────────┬──────────┘  │ │
+│                                      └─────────────┼─────────────┘ │
+│                                                    │                │
+│  ┌─────────────────────────────────────────────────▼─────────────┐ │
+│  │                       Event Bus                                │ │
+│  │  org.report │ job.report │ checkpoint.created │ agent.report   │ │
+│  └──┬──────────────┬──────────────┬──────────────┬───────────────┘ │
+│     │              │              │              │                   │
+│  ┌──▼───┐    ┌────▼────┐   ┌────▼────┐   ┌────▼──────────────┐   │
+│  │Fleet │    │Trigger  │   │Learning │   │Intelligence       │   │
+│  │Report│    │Engine   │   │Loop     │   │Layer              │   │
+│  └──────┘    └─────────┘   └─────────┘   └───────────────────┘   │
+│                                                                     │
+│  [Optional: Kaira Daemon for always-on server mode]                 │
+│  [Optional: A2A Bridge for cross-machine agents]                    │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-- **Kaira IPC (two-way)**: a running `gemcode runtime` daemon (alias: `gemcode kaira`) exposes a Unix-socket JSONL control plane and event stream.
-- **Persistent job registry**: runtime jobs are stored under `.gemcode/kaira/jobs/` (queued/running/finished/failed, timestamps, last output).
-- **Live event streaming**: the TUI can subscribe and display job lifecycle + text/tool deltas while you keep using GemCode normally.
-- **HITL bridge**: background jobs can request approvals (tool confirmations) and the interactive TUI can answer them.
-- **Agent fleet registry**: you can model a “fleet/org chart” of members (roles), each with a workspace under `.gemcode/agents/`.
-- **Parallel subtasks**: the agent can run multiple isolated subtasks concurrently (`spawn_subtasks`).
-- **Manager automation**: optional heuristics can auto-fan-out complex prompts, auto-route pre-review to org members, and auto-improve member skills when formatting/contracts aren’t met.
+## Agent Mesh (In-Process Orchestration)
 
-## Kaira daemon (GemCode Runtime)
+The Agent Mesh is the primary orchestration layer. It runs **inside** the main GemCode process — no separate daemon required.
+
+### What it does
+- Manages a priority queue of agent jobs
+- Runs jobs concurrently (default: 3 parallel agents)
+- Each job gets a **full-power Runner** (same as the TUI/CLI — all tools, model routing, memory, MCP)
+- Results are published to the Event Bus and persisted to fleet reports
+- Auto-starts on the first `run_turn()` call
+
+### Key difference from the old system
+Previously, delegation required a manually-started `gemcode runtime` daemon. Now the mesh works automatically — delegation, background work, and agent coordination all function out of the box.
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GEMCODE_MESH_CONCURRENCY` | 3 | Max concurrent mesh jobs |
+
+## Event Bus (Agent Communication)
+
+The Event Bus is an in-memory pub/sub system that enables agent-to-agent communication without Unix sockets.
+
+### Topics
+
+| Topic | Published when | Subscribers |
+|-------|---------------|-------------|
+| `job.queued` | Job enqueued on mesh | TUI, triggers |
+| `job.started` | Job begins execution | TUI, triggers |
+| `job.report` | Job completes or fails | Triggers, learning, fleet reports |
+| `org.report` | Org delegation completes | Triggers, learning, fleet reports |
+| `agent.report` | Subtask completes | Fleet reports |
+| `checkpoint.created` | Files are about to be modified | Triggers (opt-in verification) |
+| `org.assign` | External delegation request | Mesh |
+
+### How agents communicate
+1. Agent A completes work → publishes `org.report` to bus
+2. Trigger Engine sees the event → auto-activates Agent B (e.g., verifier)
+3. Agent B runs verification → publishes its own `job.report`
+4. Learning Loop records both outcomes
+5. Next turn: fleet reports are drained into the user's prompt
+
+## Self-Triggering Agents
+
+Agents can auto-activate when specific bus events occur. Configured via `.gemcode/triggers.json`.
+
+### Default triggers
+
+| Agent | Watches | Condition | Action |
+|-------|---------|-----------|--------|
+| verifier | `job.report` | status=finished | Review completed work for correctness |
+| kaira | `job.report` | status=failed | Diagnose failure and attempt fix |
+| verifier | `checkpoint.created` | (any) | Verify changed files (disabled by default) |
+
+### Managing triggers
+
+From the agent (tools):
+```
+triggers_list()           — show all triggers
+triggers_add(agent, on_topic, action, when={...}, cooldown_s=60)
+triggers_remove(agent)    — remove all triggers for an agent
+```
+
+From the filesystem:
+```json
+// .gemcode/triggers.json
+{
+  "triggers": [
+    {
+      "agent": "verifier",
+      "on_topic": "job.report",
+      "when": {"status": "finished"},
+      "action": "Review the completed job output.",
+      "cooldown_s": 120,
+      "enabled": true
+    }
+  ]
+}
+```
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GEMCODE_AGENT_TRIGGERS` | 1 | Enable self-triggering agents |
+
+## Delegation Learning
+
+GemCode remembers which agents succeed at which tasks and uses that history for future routing.
+
+### How it works
+1. Every delegation outcome (member, task, status, duration) is recorded to `.gemcode/delegation_memory.jsonl`
+2. `suggest_agent_for_task(task)` analyzes history and recommends the best agent
+3. The intelligence layer injects delegation hints into prompts
+4. Over time, routing gets smarter without manual configuration
+
+### Tools
+
+```
+suggest_delegate(task)    — get a recommendation based on history
+org_delegate(member, task, context)  — delegate with auto-learning
+```
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GEMCODE_DELEGATION_LEARNING` | 1 | Enable delegation memory |
+
+## Intelligence Layer
+
+The intelligence layer makes **structural decisions** (not prompt injection) that connect all systems:
+
+### Pre-turn (before the model runs)
+- Checks delegation history → suggests best agent for the task
+- Auto-enables capabilities based on project profile (e.g., if this project always uses web search, enable it)
+- Injects minimal delegation context (facts, not instructions)
+
+### Post-turn (after the model completes)
+- Records which tools were used → updates project profile
+- If risky changes detected (3+ file writes) → auto-triggers verifier via mesh
+- Delegation outcomes → stored for future routing
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GEMCODE_AGENT_INTELLIGENCE` | 1 | Enable intelligence layer |
+| `GEMCODE_AUTO_VERIFY` | 1 | Auto-verify after risky changes |
+
+## Agent Fleet (Org System)
+
+The org system models a team of specialized agents stored in `.gemcode/org.json`.
+
+### Default members
+
+| Name | Title | Kind | Role |
+|------|-------|------|------|
+| kaira | BackgroundWorker | kaira_worker | Runs background jobs (tests/lint/scans) |
+| verifier | Verifier | subagent | Independent review and sanity checks |
+
+### Managing the fleet
+
+From the REPL/TUI:
+```
+/agent list              — show all members
+/agent tree              — show hierarchy
+/agent create <name> <title> <kind> [reports_to] [address] [description]
+/agent assign <member> <task>
+/agent improve <member> <lessons>
+```
+
+From the agent (tools):
+```
+org_list()               — list members
+org_hire(name, title, kind, ...)  — create a member
+org_delegate(member, task, context)  — delegate work
+org_spawn(name, title, kind, task)   — hire + delegate in one call
+org_improve(member, lessons)  — append to member's skill
+org_tree()               — show hierarchy
+```
+
+### How delegation works (priority order)
+
+1. **Agent Mesh** (primary) — always available, runs full-power agents in-process
+2. **Kaira Daemon IPC** (if running) — for always-on server mode
+3. **In-process subtask** (fallback) — blocking but guaranteed to work
+
+### Skills binding
+
+Each org member can have an assigned GemSkill (`skill_name` field). When delegated to via the mesh, their skill is automatically loaded and injected into their prompt.
+
+## A2A Bridge (Cross-Machine Agents)
+
+GemCode integrates with Google's Agent2Agent (A2A) protocol for cross-machine agent communication.
+
+### Expose an agent as a network service
+```
+a2a_expose(member="verifier", port=8001)
+```
+This creates an A2A server that other GemCode instances (or any A2A-compatible framework) can connect to.
+
+### Connect to a remote agent
+```
+a2a_connect(name="remote-reviewer", description="External code reviewer", agent_card_url="http://host:8001/.well-known/agent-card.json")
+```
+This registers the remote agent as an org member that can be delegated to like any local agent.
+
+### List A2A-capable agents
+```
+a2a_list()
+```
+
+### Requirements
+A2A is included by default (`google-adk[a2a]` in dependencies). No extra install needed.
+
+## Fleet Reports (Cross-Session Persistence)
+
+Background agent results are persisted to `.gemcode/fleet_reports.jsonl` and automatically drained into the next user turn.
+
+### How it works
+1. Mesh job completes → result appended to `fleet_reports.jsonl`
+2. Next `run_turn()` → drains the file into the prompt preamble
+3. Main agent sees background results without manual copy/paste
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GEMCODE_FLEET_REPORTS_INJECT` | 1 | Drain fleet reports into prompts |
+| `GEMCODE_FLEET_REPORTS_MAX_CHARS` | 14000 | Max chars drained per turn |
+
+## Kaira Daemon (Optional Always-On Mode)
+
+The Kaira daemon is still available for server/always-on scenarios but is no longer required for basic orchestration.
+
+### When to use the daemon
+- You want agents running 24/7 (not just during interactive sessions)
+- You need scheduled automations (cron/interval/nightly)
+- You want multiple terminals to share a job queue
 
 ### Start the daemon
-
-In a separate terminal:
-
 ```bash
 gemcode runtime -C .
-# (alias)
+# or
 gemcode kaira -C .
 ```
 
-The runtime reads prompts from stdin (and can also be controlled over IPC). Each prompt becomes a queued job.
-
-### Local scheduled automations (hourly/nightly/cron)
-
-Kaira can run local scheduled automations from:
-- `.gemcode/automations/*.json`
-
-Enable:
-
+### Scheduled automations
 ```bash
 gemcode runtime -C . --automations
 ```
 
-Optional heartbeat (enqueue a status prompt every N seconds):
-
-```bash
-gemcode runtime -C . --heartbeat-every-s 240 --heartbeat-prompt "Heartbeat: summarise XAUUSD status"
+Automations are configured in `.gemcode/automations/*.json`:
+```json
+{
+  "name": "nightly-tests",
+  "enabled": true,
+  "prompt": "Run the full test suite and report results.",
+  "triggers": [{"kind": "nightly", "at": "02:00"}]
+}
 ```
 
-#### Managing automations from the model (normal GemCode mode)
-In addition to the `/automations ...` slash commands, the main GemCode agent can manage schedules via function tools:
+## Where State Lives
 
-- `automations_list()` — list automation configs under `.gemcode/automations/*.json`
-- `automations_init(name, prompt=..., trigger_kind=nightly|daily|interval|cron, ...)` — create an automation config
-- `automations_run(name)` — enqueue an automation immediately via runtime IPC (requires a running runtime socket)
+| Path | Purpose |
+|------|---------|
+| `.gemcode/org.json` | Agent fleet registry |
+| `.gemcode/fleet_reports.jsonl` | Background agent results |
+| `.gemcode/delegation_memory.jsonl` | Delegation learning history |
+| `.gemcode/triggers.json` | Self-trigger configuration |
+| `.gemcode/project_profile.json` | Project capability profile |
+| `.gemcode/agents/<id>-<slug>/` | Per-agent workspaces |
+| `.gemcode/skills/<member-name>/` | Per-member skills |
+| `.gemcode/automations/*.json` | Scheduled job configs |
+| `.gemcode/kaira/jobs/` | Daemon job records |
+| `.gemcode/ipc.sock` | Daemon IPC socket |
 
-### Single-terminal mode (TUI + embedded Kaira)
+## Quick Start
 
-If you want Kaira to run without a second terminal, embed it in the GemCode TUI:
-
+### Minimal (works immediately, no setup)
 ```bash
-GEMCODE_TUI_WITH_KAIRA=1 gemcode -C .
+gemcode -C /path/to/project --yes "Analyze this codebase"
 ```
+The mesh, bus, triggers, and learning all activate automatically.
 
-The TUI will start Kaira headless (IPC-only) and also auto-subscribe to its event stream, so job output appears inline.
+### With delegation
+```bash
+gemcode -C /path/to/project --yes
+```
+Then in the REPL:
+```
+> Analyze the auth module and fix any security issues. Delegate verification to the verifier.
+```
+The agent will call `org_delegate("verifier", ...)` → mesh runs verifier → result flows back.
 
-### TUI auto-connect + stream events
-
-Start your normal GemCode TUI/REPL:
-
+### With always-on daemon
+Terminal 1:
+```bash
+gemcode runtime -C . --super --automations
+```
+Terminal 2:
 ```bash
 gemcode -C .
 ```
-
-If a Kaira socket exists, GemCode will auto-connect and print:
-- job queued/started/finished/failed/cancelled
-- text deltas (streamed output)
-- tool call + tool result summaries
-- permission requests (HITL)
-
-### Control-plane commands (from GemCode REPL/TUI)
-
-These talk to the Kaira daemon via IPC:
-
-```text
+```
+/agent assign kaira "Run the full test suite"
 /kaira jobs
-/kaira job <job_id_prefix>
-/kaira cancel <job_id_prefix>
 ```
-
-### Follow a single job (reduce noise)
-
-In the TUI:
-
-```text
-/kaira follow <job_id_prefix>
-/kaira unfollow
-```
-
-This filters the Kaira event stream to a single job id prefix.
-
-## Agent fleet (“GemCode as an organisation”)
-
-Agent registry data is stored under `.gemcode/org.json`.
-
-Each agent also has a dedicated workspace under:
-- `.gemcode/agents/<id>-<slug>/`
-
-Inside an agent workspace, GemCode supports an optional “constitution” folder:
-- `workspace/GOALS.md`
-- `workspace/POLICIES.md`
-- `workspace/SKILLS.md`
-- `workspace/HEARTBEAT.md`
-- `workspace/skills/*/SKILL.md`
-
-When you run `gemcode -C .gemcode/agents/<id>-<slug>`, those files are automatically injected into the agent instruction.
-
-### List and view the agent tree
-
-```text
-/agent list
-/agent tree
-```
-
-The **`/agents`** command is an alias for **`/agent`** (for example `/agents list`).
-
-### Create agents (roles)
-
-```text
-/agent create <name> <title> [kaira_worker|subagent] [reports_to] [address] [description...]
-```
-
-Examples:
-
-```text
-/agent create verifier "QA / test planner" subagent manager verifier "Find risks, propose tests, review plans."
-/agent create kaira "Background worker" kaira_worker manager kaira "Run parallel jobs and return structured reports."
-```
-
-### Delegate / trigger work to an agent
-
-```text
-/agent assign <member> <task...>
-/agent trigger <member> <task...>   # same bus path as assign (recommended name)
-```
-
-Direct enqueue to a **worker’s** runtime socket (that agent must be running `gemcode runtime` in its workspace):
-
-```text
-/agent send <member> <prompt...>
-```
-
-Notes:
-- `/agent assign` and **`/agent trigger`** both publish `topic=org.assign` to the **fleet-root** manager runtime (if the IPC socket is reachable). If not, GemCode falls back to in-process `org_delegate(...)`.
-- The runtime manager translates `org.assign` into a queued job that runs `org_delegate(...)` and emits `topic=org.report` bus messages up the reporting chain.
-
-### Improve an agent (append to their skill)
-
-```text
-/agent improve <member> <lessons...>
-```
-
-### Repair/scaffold an agent workspace constitution
-
-For older agents (or if you deleted the folder), you can re-scaffold the `workspace/` files:
-
-```text
-/agent workspace init <name|id>
-```
-
-## Automatic manager behaviors (optional)
-
-These are opt-in via environment variables. They are designed to make GemCode behave like a manager: it can fan out work, route to the right “employees”, and enforce structured reports.
-
-### Auto fan-out guidance (prompt decomposition)
-
-When a prompt looks broad, GemCode can guide the model to run parallel subtasks first:
-
-- `GEMCODE_AUTO_FANOUT=1`
-- `GEMCODE_AUTO_FANOUT_THRESHOLD=0.6`
-
-The model will be nudged to call:
-- `spawn_subtasks(tasks=[...], max_concurrency=4)`
-
-### Manager dispatch (deterministic pre-delegation)
-
-When a prompt looks complex, GemCode can pre-delegate a quick “risk + verification steps” review to an agent (for example `verifier`) and inject that into the main agent prompt:
-
-- `GEMCODE_MANAGER_DISPATCH=1`
-- `GEMCODE_MANAGER_DISPATCH_THRESHOLD=0.7`
-
-### Structured worker reports (JSON) + auto retry
-
-When the TUI receives a Kaira `job_report` event, it prefers `report_json`. If missing, it can request a single “reformat as STRICT JSON” follow-up job:
-
-- `GEMCODE_KAIRA_REPORT_RETRY=1`
-
-### Self-improving members (auto skill tweaks)
-
-If workers repeatedly fail the report contract (for example missing JSON reports), the manager can append a small lesson to that member’s skill automatically:
-
-- `GEMCODE_ORG_AUTO_IMPROVE=1`
-
-### Fleet report inbox + auto-continue (hands-off summaries)
-
-Background `org.report` / `job.report` / `agent.report` completions append to **`.gemcode/fleet_reports.jsonl`** at the fleet root. That file is **drained** into the next model turn (any code path that uses `run_turn`, and the default GemCode TUI — `gemcode/tui/scrollback.py`) so the manager sees results without copying bus logs.
-
-Optional **automatic follow-up** (no extra typing):
-
-- `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE=1`
-- `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MODE=tui` (default) — after each turn, if the inbox still has lines, the TUI (`GEMCODE_TUI=1`) or plain REPL schedules up to **N** extra “fleet digest” turns.
-- `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MODE=enqueue` — debounced low-priority **runtime job** that drains inbox inside the worker (requires `gemcode runtime`).
-- `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MODE=both` — TUI/REPL digest turns **and** debounced enqueue.
-- `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MAX=3` — max chained digest turns per user message (default 3).
-- `GEMCODE_FLEET_REPORTS_ENQUEUE_DEBOUNCE_S=0.45` — coalesce bursty report lines before enqueue.
-
-Disable injection entirely: `GEMCODE_FLEET_REPORTS_INJECT=0`.
-
-#### How to verify (tests + manual)
-
-- **Automated (inbox + fleet root):** from the repo root, run  
-  `python3 -m pytest gemcode/tests/test_fleet_reports.py -v`  
-  This covers `resolve_fleet_root`, append/drain of `fleet_reports.jsonl`, truncation, and inject-off behavior. The full suite is `python3 -m pytest gemcode/tests/`.
-- **Manual (orchestration + runtime):** in a throwaway directory with a valid Gemini/API setup: (1) `gemcode runtime -C .` in one terminal; (2) `gemcode -C .` in another; (3) `/agent create` a member, `/agent trigger <member> <small task>`; (4) watch `.gemcode/fleet_reports.jsonl` for new lines after the worker finishes; (5) send any message in the manager UI and confirm the reply incorporates the drained report (or enable `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE=1` and confirm an extra digest turn). Optional: `gemcode runtime attach -C .` to see `bus_message` / `org.report` on the bus.
-
-## Super mode with Kaira and sub-agents
-
-Background jobs use the same `GemCodeConfig` as the daemon. For fully autonomous workers (no IPC tool-confirmation waits, no interactive `get_user_choice`), start the runtime with:
-
-```bash
-gemcode runtime -C . --super
-```
-
-Or set `GEMCODE_SUPER_MODE=1` in the environment before launching `gemcode runtime`.
-
-Sub-agents spawned via `run_subtask` / `spawn_subtasks` inherit the parent config, so super mode applies to their tool list (including the non-interactive `get_user_choice`) when the parent session was started in super mode.
-
-Details: [`tools-and-permissions.md`](tools-and-permissions.md#super-mode-fully-autonomous).
-
-## Where the state lives
-
-Common `.gemcode/` locations:
-
-- **Kaira jobs**: `.gemcode/kaira/jobs/`
-- **Kaira IPC socket**: `.gemcode/ipc.sock`
-- **Agent registry**: `.gemcode/org.json`
-- **Role skills**: `.gemcode/skills/<member-name>/SKILL.md`
-- **Agent workspaces**: `.gemcode/agents/<id>-<slug>/`
-

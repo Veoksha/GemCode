@@ -14,6 +14,73 @@ def default_ipc_socket_path(project_root: Path) -> Path:
   return project_root / ".gemcode" / "ipc.sock"
 
 
+def _manager_ipc_marker_path(fleet_root: Path) -> Path:
+  return fleet_root / ".gemcode" / "manager_ipc.txt"
+
+
+def fleet_manager_ipc_path(fleet_root: Path) -> Path:
+  """
+  Unix socket for the *fleet-root* manager runtime (org.assign, job queue).
+
+  Resolution order:
+  1. ``<fleet_root>/.gemcode/manager_ipc.txt`` (single line: absolute socket path),
+     written when ``gemcode runtime`` starts at the fleet root — supports ``--socket``.
+  2. ``<fleet_root>/.gemcode/ipc.sock`` if it exists (canonical default).
+  3. ``GEMCODE_KAIRA_SOCKET`` if it exists (legacy / advanced).
+  4. The canonical default path even if missing (clear connect error).
+
+  This avoids stale ``GEMCODE_KAIRA_SOCKET`` entries in shell rc hijacking orchestration
+  when the real manager socket is the fleet default.
+  """
+  try:
+    marker = _manager_ipc_marker_path(fleet_root)
+    if marker.is_file():
+      first = marker.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+      if first:
+        p = Path(first[0].strip()).expanduser()
+        try:
+          if p.exists():
+            return p
+        except OSError:
+          pass
+  except OSError:
+    pass
+
+  primary = default_ipc_socket_path(fleet_root)
+  try:
+    if primary.exists():
+      return primary
+  except OSError:
+    pass
+
+  raw = (os.environ.get("GEMCODE_KAIRA_SOCKET") or "").strip()
+  if raw:
+    env_p = Path(raw).expanduser()
+    try:
+      if env_p.exists():
+        return env_p
+    except OSError:
+      pass
+  return primary
+
+
+def fleet_manager_ipc_path_for_workspace(project_root: Path) -> Path:
+  """Resolve fleet root from *project_root* (agent workspace or fleet root), then socket path."""
+  from gemcode.org import resolve_fleet_root
+
+  return fleet_manager_ipc_path(resolve_fleet_root(project_root))
+
+
+def maybe_write_manager_ipc_marker(*, fleet_root: Path, socket_path: Path) -> None:
+  """Persist manager bind path so clients find ``gemcode runtime --socket`` without env."""
+  try:
+    p = _manager_ipc_marker_path(fleet_root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(str(socket_path.resolve()) + "\n", encoding="utf-8")
+  except OSError:
+    pass
+
+
 @dataclass
 class IpcClient:
   writer: asyncio.StreamWriter

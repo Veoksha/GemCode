@@ -72,6 +72,9 @@ class GemCodeConfig:
   """Runtime options (CLI + env)."""
 
   project_root: Path
+  # When set (``gemcode runtime --socket``), Kaira binds this path instead of
+  # ``<project_root>/.gemcode/ipc.sock``. Does not use GEMCODE_KAIRA_SOCKET.
+  runtime_ipc_bind_path: Path | None = None
   model: str = field(default_factory=lambda: os.environ.get("GEMCODE_MODEL", "gemini-3.1-pro-preview"))
   # Model mode: fast|balanced|quality|auto
   model_mode: str = field(

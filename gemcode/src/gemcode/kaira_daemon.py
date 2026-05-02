@@ -16,7 +16,12 @@ import json
 from gemcode.config import GemCodeConfig
 from gemcode.capability_routing import apply_capability_routing
 from gemcode.model_routing import pick_effective_model
-from gemcode.kaira_ipc import KairaIpcServer, default_ipc_socket_path, job_event
+from gemcode.kaira_ipc import (
+  KairaIpcServer,
+  default_ipc_socket_path,
+  job_event,
+  maybe_write_manager_ipc_marker,
+)
 from gemcode.kaira_job_store import (
   KairaJobStore,
   JobRecord,
@@ -1043,12 +1048,13 @@ class KairaDaemon:
     try:
       from pathlib import Path
 
-      sock_env = os.environ.get("GEMCODE_KAIRA_SOCKET")
-      sock_path = (
-        Path(sock_env).expanduser()
-        if sock_env and str(sock_env).strip()
-        else default_ipc_socket_path(self.cfg.project_root)
-      )
+      bind_override = getattr(self.cfg, "runtime_ipc_bind_path", None)
+      if bind_override is not None:
+        sock_path = Path(bind_override).expanduser().resolve()
+      else:
+        # Always bind from project layout — never GEMCODE_KAIRA_SOCKET (that env is for
+        # clients and breaks when it points at a stale or wrong path).
+        sock_path = default_ipc_socket_path(self.cfg.project_root)
       async def _on_bus(ev: dict) -> None:
         await self._handle_bus_message(ev)
       self._ipc = KairaIpcServer(
@@ -1061,6 +1067,14 @@ class KairaDaemon:
         set_concurrency_fn=lambda n: self.set_concurrency(n),
       )
       await self._ipc.start()
+      try:
+        from gemcode.org import resolve_fleet_root
+
+        fr = resolve_fleet_root(self.cfg.project_root)
+        if fr.resolve() == Path(self.cfg.project_root).resolve():
+          maybe_write_manager_ipc_marker(fleet_root=fr, socket_path=sock_path)
+      except Exception:
+        pass
       print(f"[kaira] ipc_socket={sock_path}", file=sys.stderr, flush=True)
     except Exception as e:
       self._ipc = None

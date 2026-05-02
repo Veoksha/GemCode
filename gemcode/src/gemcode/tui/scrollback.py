@@ -23,7 +23,6 @@ from gemcode.tui.input_handler import GemCodeInputHandler
 from gemcode.tui.welcome_rich import print_shortcuts_hint, print_welcome_dashboard
 
 _ADK_REQUEST_CONFIRMATION = "adk_request_confirmation"
-_KAIRA_SOCKET_DEFAULT = ".gemcode/ipc.sock"
 
 
 def format_tool_call_extras(fc) -> str:
@@ -297,7 +296,9 @@ async def run_gemcode_scrollback_tui(
     if not _embed_kaira_enabled():
       return
     # Avoid starting if a socket already exists (external daemon running).
-    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / _KAIRA_SOCKET_DEFAULT)
+    from gemcode.kaira_ipc import default_ipc_socket_path
+
+    sock = str(default_ipc_socket_path(cfg.project_root))
     try:
       from pathlib import Path as _Path
 
@@ -365,7 +366,9 @@ async def run_gemcode_scrollback_tui(
       # to the shared parent project socket (fleet root) so org reports and jobs
       # from all agents show up in the TUI by default.
       fleet_root = resolve_fleet_root(cfg.project_root)
-      sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / _KAIRA_SOCKET_DEFAULT)
+      from gemcode.kaira_ipc import fleet_manager_ipc_path
+
+      sock = str(fleet_manager_ipc_path(fleet_root))
       # Always-on behavior: keep trying to connect so background jobs / bus
       # messages appear even if the daemon starts AFTER the TUI.
       backoff_s = 1.0

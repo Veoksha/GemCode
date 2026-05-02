@@ -20,8 +20,10 @@ GemCode is designed for repository-native work rather than copy-paste chat workf
 | REPL | Stateful terminal interaction |
 | TUI | GemCode terminal UI (scrollback-style; `tui/scrollback.py`) |
 | IDE stdio | Editor integration over JSONL stdin/stdout |
-| Kaira | Priority-queue scheduler for background jobs |
-| Live audio (future scope) | Planned: microphone-driven Gemini Live sessions (currently experimental/unreliable) |
+| Agent Mesh | In-process multi-agent orchestration (automatic) |
+| Kaira daemon | Optional always-on background scheduler |
+| A2A server | Cross-machine agent communication via Google A2A protocol |
+| Live audio (experimental) | Microphone-driven Gemini Live sessions |
 
 ## Recommended reading order
 
@@ -168,34 +170,25 @@ gemcode -C . --attach ./report.pdf "Summarize this"
 gemcode kaira -C .
 ```
 
-### Orchestration (Kaira + org delegation)
+### Orchestration (Agent Mesh + Multi-Agent)
 
-Background completions are visible on the runtime **bus** and also accumulated in **`.gemcode/fleet_reports.jsonl`** for the next manager turn (optional auto-continue). See `../docs/orchestration.md`.
+GemCode includes a built-in multi-agent orchestration system that works automatically — no separate daemon required.
+
+**Key features:**
+- **Agent Mesh** — in-process concurrent agent execution with full tool access
+- **Event Bus** — agents communicate via pub/sub (no Unix sockets needed)
+- **Self-Triggering Agents** — agents auto-activate on events (e.g., verifier reviews completed work)
+- **Delegation Learning** — remembers which agents succeed at which tasks
+- **A2A Bridge** — expose/consume agents across machines via Google's A2A protocol
+
+Quick example in the REPL:
+```text
+> Analyze the auth module. Delegate security review to the verifier.
+```
+The agent calls `org_delegate("verifier", ...)` → mesh runs a full-power verifier agent → result flows back automatically.
 
 Docs:
-- `../docs/orchestration.md`
-
-In one terminal:
-
-```bash
-gemcode kaira -C .
-```
-
-In another terminal:
-
-```bash
-gemcode -C .
-```
-
-Then in the REPL/TUI:
-
-```text
-/org tree
-/org hire verifier "QA / test planner" subagent gemcode "Find risks, propose tests, review plans."
-/org assign verifier "Review the plan and propose tests"
-/kaira jobs
-/kaira follow <job_id_prefix>
-```
+- [`../docs/orchestration.md`](../docs/orchestration.md)
 
 ### Start the IDE bridge
 ```bash
@@ -228,10 +221,20 @@ Status note:
 | `/rules` | Inspect active rules |
 | `/diff` | Show current diff/checkpoint diff |
 | `/rewind` | Restore checkpoints |
-| `/review` | Run a review workflow |
+| `/review` | Run a parallel code review pipeline |
 | `/eval` | Run evaluation gates |
 | `/kaira` | Show scheduler usage help |
 | `/super` | Super mode: auto-approve tools, no GemCode HITL · `/super off` |
+
+## Orchestration commands
+
+| Command | Purpose |
+|---|---|
+| `/agent list` | Show all org members |
+| `/agent tree` | Show org hierarchy |
+| `/agent create` | Create a new agent member |
+| `/agent assign <member> <task>` | Delegate work to a member |
+| `/agent improve <member> <lessons>` | Improve a member's skill |
 
 Detailed behavior:
 - [`../docs/cli-and-repl.md`](../docs/cli-and-repl.md)
@@ -240,11 +243,15 @@ Detailed behavior:
 
 | Capability | What it adds |
 |---|---|
-| Deep research | research-focused tool routing and optional dedicated model path |
-| Embeddings | semantic search and optional embedding-backed memory |
-| Memory | retrieval-oriented persistent memory |
+| Agent Mesh | In-process multi-agent orchestration (automatic, no daemon needed) |
+| A2A Bridge | Cross-machine agent communication via Google A2A protocol |
+| Self-Triggers | Agents auto-activate on events (verification, failure recovery) |
+| Delegation Learning | Remembers successful patterns, suggests optimal routing |
+| Deep research | Research-focused tool routing and optional dedicated model path |
+| Embeddings | Semantic search and optional embedding-backed memory |
+| Memory | Retrieval-oriented persistent memory |
 | Browser/computer use | Playwright-backed browser automation and inspection |
-| Live audio | Gemini Live microphone sessions |
+| Live audio | Gemini Live microphone sessions (experimental) |
 
 Detailed behavior:
 - [`../docs/capabilities.md`](../docs/capabilities.md)

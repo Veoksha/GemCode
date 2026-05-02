@@ -98,7 +98,9 @@ def prepend_drain_to_prompt(project_root: Path, prompt: str) -> str:
 def _enqueue_digest_job_sync(fleet_root: Path) -> None:
   if not has_pending_fleet_reports(fleet_root):
     return
-  sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
+  from gemcode.kaira_ipc import fleet_manager_ipc_path
+
+  sock = str(fleet_manager_ipc_path(fleet_root))
   if not Path(sock).is_file():
     return
   digest = (

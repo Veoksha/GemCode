@@ -109,7 +109,7 @@ def make_automations_tools(cfg: GemCodeConfig) -> list:
   async def automations_run(name: str) -> dict[str, Any]:
     """
     Enqueue an automation's prompt into the Kaira runtime now (best-effort).
-    Requires a running runtime socket (GEMCODE_KAIRA_SOCKET or <root>/.gemcode/ipc.sock).
+    Requires a running manager runtime (see ``fleet_manager_ipc_path`` / ``manager_ipc.txt``).
     """
     target = (name or "").strip().lower()
     if not target:
@@ -123,9 +123,9 @@ def make_automations_tools(cfg: GemCodeConfig) -> list:
 
     try:
       from gemcode.kaira_client import KairaIpcClient
-      import os
+      from gemcode.kaira_ipc import fleet_manager_ipc_path_for_workspace
 
-      sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(root / ".gemcode" / "ipc.sock")
+      sock = str(fleet_manager_ipc_path_for_workspace(root))
       client = await KairaIpcClient.connect(socket_path=sock)
       try:
         sid = (a.session_id or str(getattr(cfg, "_active_session_id", "") or ""))

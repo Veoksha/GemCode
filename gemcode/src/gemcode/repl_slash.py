@@ -1460,8 +1460,10 @@ async def process_repl_slash(
         out("Tip: /automations list")
         out()
         return ReplSlashResult(skip_model_turn=True)
-      # Enqueue via Kaira IPC.
-      sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+      # Enqueue via Kaira IPC (fleet manager socket).
+      from gemcode.kaira_ipc import fleet_manager_ipc_path_for_workspace
+
+      sock = str(fleet_manager_ipc_path_for_workspace(cfg.project_root))
       try:
         from gemcode.kaira_client import KairaIpcClient
 
@@ -1969,7 +1971,9 @@ async def process_repl_slash(
     if args_s:
       parts = args_s.split()
       sub = parts[0].strip().lower()
-      sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+      from gemcode.kaira_ipc import fleet_manager_ipc_path_for_workspace
+
+      sock = str(fleet_manager_ipc_path_for_workspace(cfg.project_root))
       if sub in ("follow",) and len(parts) >= 2:
         job_id = parts[1].strip()
         os.environ["GEMCODE_KAIRA_FOLLOW_JOB"] = job_id
@@ -2112,7 +2116,9 @@ async def process_repl_slash(
       /bus to alice topic chat hello
     """
     args_b = (sc.args or "").strip()
-    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
+    from gemcode.kaira_ipc import fleet_manager_ipc_path_for_workspace
+
+    sock = str(fleet_manager_ipc_path_for_workspace(cfg.project_root))
     if not args_b or args_b.lower() in ("help", "?"):
       out("Bus — lightweight client-to-client messages (via Kaira IPC)")
       out()
@@ -2425,14 +2431,25 @@ async def process_repl_slash(
 
   # ── /runtime ────────────────────────────────────────────────────────────
   if name == "runtime":
-    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(cfg.project_root / ".gemcode" / "ipc.sock")
-    out("Runtime:")
+    from gemcode.kaira_ipc import fleet_manager_ipc_path_for_workspace
+    from gemcode.org import resolve_fleet_root
+
+    fleet_root = resolve_fleet_root(cfg.project_root)
+    sock_path = fleet_manager_ipc_path_for_workspace(cfg.project_root)
+    sock = str(sock_path)
+    try:
+      sock_ok = sock_path.exists()
+    except OSError:
+      sock_ok = False
+    out("Runtime (fleet manager — org.assign / job queue):")
+    out(f"  fleet root: {fleet_root}")
     out(f"  socket: {sock}")
+    out(f"  socket on disk: {'yes (daemon likely up)' if sock_ok else 'no — run: gemcode runtime -C ' + str(fleet_root)}")
     out()
     out("Commands:")
-    out(f"  gemcode runtime -C {cfg.project_root}")
+    out(f"  gemcode runtime -C \"{fleet_root}\"")
     out(f"  gemcode runtime attach --socket {sock}")
-    out(f"  gemcode -C {cfg.project_root} --connect {sock}")
+    out(f"  gemcode -C \"{fleet_root}\" --connect {sock}")
     out()
     return ReplSlashResult(skip_model_turn=True)
 
@@ -2741,8 +2758,10 @@ async def process_repl_slash(
       try:
         from gemcode.org import resolve_fleet_root
         from gemcode.kaira_client import KairaIpcClient
+        from gemcode.kaira_ipc import fleet_manager_ipc_path
+
         fleet_root = resolve_fleet_root(cfg.project_root)
-        sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
+        sock = str(fleet_manager_ipc_path(fleet_root))
         client = await KairaIpcClient.connect(socket_path=sock)
         try:
           res = await client.publish(
@@ -2761,7 +2780,7 @@ async def process_repl_slash(
         return ReplSlashResult(skip_model_turn=True)
       except Exception as e:
         # Runtime is unavailable; do in-turn delegation deterministically (no model mediation).
-        out(f"[agent] runtime unavailable ({type(e).__name__}); delegating in-turn")
+        out(f"[agent] runtime unavailable ({type(e).__name__}: {e}); delegating in-turn")
         try:
           from gemcode.tools.org_tools import make_org_tools
 
@@ -2841,8 +2860,10 @@ async def process_repl_slash(
       ws = (fleet_root / (getattr(m, "workspace_rel", "") or "")).resolve()
       out(f"Agent {m.name} ({m.id}) workspace:")
       out(f"  {ws}")
-      out("Run (separate terminal recommended):")
+      out("Worker runtime (this agent's jobs):")
       out(f"  gemcode runtime -C \"{ws}\"")
+      out("Fleet manager (required for /agent trigger and background org queue):")
+      out(f"  gemcode runtime -C \"{fleet_root}\"")
       out()
       return ReplSlashResult(skip_model_turn=True)
 
@@ -2857,8 +2878,10 @@ async def process_repl_slash(
       try:
         from gemcode.org import resolve_fleet_root
         from gemcode.kaira_client import KairaIpcClient
+        from gemcode.kaira_ipc import fleet_manager_ipc_path
+
         fleet_root = resolve_fleet_root(cfg.project_root)
-        sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
+        sock = str(fleet_manager_ipc_path(fleet_root))
         client = await KairaIpcClient.connect(socket_path=sock)
         try:
           res = await client.publish(
@@ -2876,7 +2899,7 @@ async def process_repl_slash(
         out()
         return ReplSlashResult(skip_model_turn=True)
       except Exception as e:
-        out(f"[agent] runtime unavailable ({type(e).__name__}); delegating in-turn")
+        out(f"[agent] runtime unavailable ({type(e).__name__}: {e}); delegating in-turn")
         try:
           from gemcode.tools.org_tools import make_org_tools
 

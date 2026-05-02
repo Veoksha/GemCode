@@ -195,8 +195,60 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
   except Exception:
     pass
 
+  # Mesh status tool — lets the agent inspect the orchestration state
+  try:
+    from gemcode.agent_mesh import get_mesh
+
+    def mesh_status() -> dict:
+      """Show the current agent mesh status (running/queued/completed jobs)."""
+      m = get_mesh(cfg)
+      if m is None:
+        return {"ok": False, "error": "mesh not initialized"}
+      return {"ok": True, **m.status()}
+
+    mesh_status.__name__ = "mesh_status"
+    tools.append(mesh_status)
+  except Exception:
+    pass
+
   try:
     tools.extend(make_automations_tools(cfg))
+  except Exception:
+    pass
+
+  # A2A tools — expose/connect agents across machines
+  try:
+    from gemcode.a2a_bridge import make_a2a_tools
+    tools.extend(make_a2a_tools(cfg))
+  except Exception:
+    pass
+
+  # Self-triggering agent tools
+  try:
+    from gemcode.agent_triggers import make_trigger_tools
+    tools.extend(make_trigger_tools(cfg))
+  except Exception:
+    pass
+
+  # Delegation suggestion tool — uses learning history
+  try:
+    from gemcode.delegation_learning import suggest_agent_for_task, load_delegation_history
+
+    def suggest_delegate(task: str) -> dict:
+      """Suggest the best org member to delegate a task to, based on past successes."""
+      suggestion = suggest_agent_for_task(cfg.project_root, task)
+      recent = load_delegation_history(cfg.project_root, limit=5, status="finished")
+      return {
+        "ok": True,
+        "suggested_agent": suggestion or "(no history yet — try any member)",
+        "recent_successes": [
+          {"member": h.get("member"), "task": h.get("task_prefix", "")[:100]}
+          for h in recent
+        ],
+      }
+
+    suggest_delegate.__name__ = "suggest_delegate"
+    tools.append(suggest_delegate)
   except Exception:
     pass
 

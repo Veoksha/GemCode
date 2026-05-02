@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 from gemcode.ide_protocol import IdeEmitter, make_response, parse_json_line
@@ -15,8 +16,9 @@ class KairaIpcClient:
   emitter: IdeEmitter
 
   @classmethod
-  async def connect(cls, *, socket_path: str) -> "KairaIpcClient":
-    reader, writer = await asyncio.open_unix_connection(socket_path)
+  async def connect(cls, *, socket_path: str | Path) -> "KairaIpcClient":
+    sp = str(Path(socket_path).expanduser())
+    reader, writer = await asyncio.open_unix_connection(sp)
     return cls(reader=reader, writer=writer, emitter=IdeEmitter(stream=writer))
 
   async def close(self) -> None:

@@ -20,89 +20,6 @@ from google.genai import types
 
 _HITL_PROMPT_LOCK = Lock()
 
-async def _maybe_enqueue_kaira_autopilot(*, cfg: "GemCodeConfig", session_id: str) -> None:
-  """If Kaira IPC is available, enqueue background quality checks after edits."""
-  try:
-    enabled = os.environ.get("GEMCODE_KAIRA_AUTOPILOT", "1").strip().lower() in (
-      "1",
-      "true",
-      "yes",
-      "on",
-    )
-    if not enabled:
-      return
-    # Only run when files were touched (edit tools track this).
-    touched = getattr(cfg, "_touched_paths", None)
-    if not touched:
-      return
-    # Avoid enqueuing repeatedly within the same session unless touched paths change.
-    last_fp = str(getattr(cfg, "_kaira_autopilot_fp", "") or "")
-    fp = ",".join(sorted(str(x) for x in touched))[:4000]
-    if fp and fp == last_fp:
-      return
-    object.__setattr__(cfg, "_kaira_autopilot_fp", fp)
-
-    try:
-      from gemcode.org import resolve_fleet_root
-
-      fleet_root = resolve_fleet_root(cfg.project_root)
-    except Exception:
-      fleet_root = cfg.project_root
-
-    sock = os.environ.get("GEMCODE_KAIRA_SOCKET") or str(fleet_root / ".gemcode" / "ipc.sock")
-    if not Path(sock).exists():
-      return
-    # Heuristic: suggest likely checks, but let the agent choose based on repo.
-    prompt = (
-      "You are Kaira (background worker). Run the most relevant automated quality checks for this repo "
-      "based on its files, and report succinctly.\n\n"
-      "Rules:\n"
-      "- Prefer fast checks first (lint/typecheck/unit tests).\n"
-      "- If Python: try `pytest -q` (or detect other common runners).\n"
-      "- If Node: try `npm test` / `npm run lint` when package.json exists.\n"
-      "- If there are failures, include the smallest actionable summary and exact command to reproduce.\n"
-      "- If everything passes, say PASS and list what you ran.\n"
-      "- Return a final STRICT JSON report with keys: status, summary, evidence, recommended_next_actions.\n\n"
-      f"Touched files (recent): {', '.join(sorted(list(touched))[:30])}"
-    )
-
-    # Org-aware routing: delegate to the kaira org member if present so the
-    # manager/worker hierarchy stays consistent.
-    try:
-      auto_org = os.environ.get("GEMCODE_AUTO_SLASH_ORG", "1").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-      )
-      if auto_org:
-        from gemcode.org import find_member
-        m = find_member(fleet_root, "kaira")
-        if m is not None and m.kind == "kaira_worker":
-          from gemcode.tools.org_tools import make_org_tools
-          tools = make_org_tools(cfg)
-          org_delegate = None
-          for t in tools:
-            if getattr(t, "__name__", "") == "org_delegate":
-              org_delegate = t
-              break
-          if org_delegate is not None:
-            await org_delegate("kaira", prompt, "")  # type: ignore[misc]
-            return
-    except Exception:
-      pass
-
-    from gemcode.kaira_client import KairaIpcClient
-
-    client = await KairaIpcClient.connect(socket_path=sock)
-    try:
-      # Low priority by default; user can override with env in future.
-      await client.request(action="enqueue", prompt=prompt, priority=-1, session_id=session_id)
-    finally:
-      await client.close()
-  except Exception:
-    return
-
 
 def _events_to_text(events: list[Any]) -> str:
   """Best-effort extraction of assistant text from ADK events."""
@@ -126,12 +43,10 @@ def _events_to_text(events: list[Any]) -> str:
 
 def _is_retryable_context_model_error(text: str) -> bool:
   t = (text or "").lower()
-  # Key off GemCode's user hint added in `model_errors.py`.
   if "request may be too large" in t:
     return True
   if "gemcode_max_context_chars" in t or "gemcode_tool_result_max_chars" in t:
     return True
-  # Fallback heuristics (avoid generic "something broke").
   if "context" in t and ("too large" in t or "token" in t or "length" in t):
     return True
   return False
@@ -149,13 +64,25 @@ async def run_turn(
     consume_fleet_reports: bool = True,
 ) -> list:
   """Execute one user message; collect all Events (caller aggregates text)."""
-  # Dynamic risk score: updated each user message; later refined by tool outcomes.
-  # This is intentionally heuristic but configurable via env knobs.
+  # Ensure the in-process agent mesh is available for this session.
+  if cfg is not None:
+    try:
+      from gemcode.agent_mesh import ensure_mesh
+      mesh = ensure_mesh(cfg)
+      try:
+        mesh.start()
+      except Exception:
+        pass
+    except Exception:
+      pass
+
   if cfg is not None:
     try:
       object.__setattr__(cfg, "_active_session_id", session_id)
     except Exception:
       pass
+
+    # Drain fleet reports (results from background agents) into this turn's prompt.
     if consume_fleet_reports:
       try:
         from gemcode.fleet_reports import drain_for_prompt
@@ -165,11 +92,19 @@ async def run_turn(
           prompt = preamble + "\n\n---\n\n" + (prompt or "")
       except Exception:
         pass
+
+    # Intelligence layer: structural decisions + delegation context
+    try:
+      from gemcode.agent_intelligence import enhance_turn
+      prompt = enhance_turn(cfg, prompt)
+    except Exception:
+      pass
+
+    # Risk score: used by dynamic_policy.py for token budget scaling.
     try:
       import re
       p = (prompt or "")[:20_000]
       risk = 0.0
-      # Complexity signals
       if len(p) > 600:
         risk += 0.15
       if len(p) > 2000:
@@ -182,64 +117,13 @@ async def run_turn(
         risk += 0.1
       if attachment_paths:
         risk = min(1.0, risk + 0.12)
-      # Multi-file hints
       if p.count("/") >= 6 or p.count(".py") + p.count(".ts") + p.count(".tsx") >= 3:
         risk += 0.1
-      # Clamp 0..1
       risk = max(0.0, min(1.0, float(risk)))
       object.__setattr__(cfg, "_risk_score", risk)
     except Exception:
       pass
 
-    # Deterministic manager dispatcher: pre-delegate certain work to org members
-    # and inject their results into the prompt before the main agent runs.
-    try:
-      auto_mgr = os.environ.get("GEMCODE_MANAGER_DISPATCH", "1").strip().lower() in (
-        "1","true","yes","on"
-      )
-      if auto_mgr:
-        import re
-        p0 = (prompt or "")[:12_000]
-        # Only do this for broad/complex prompts.
-        score = float(getattr(cfg, "_parallelism_score", 0.0) or 0.0)
-        if score >= float(os.environ.get("GEMCODE_MANAGER_DISPATCH_THRESHOLD", "0.7")):
-          from gemcode.tools.org_tools import make_org_tools
-          tools = make_org_tools(cfg)
-          org_delegate = None
-          for t in tools:
-            if getattr(t, "__name__", "") == "org_delegate":
-              org_delegate = t
-              break
-          # Ask verifier for a quick risk check / plan critique (fast, in-process).
-          if org_delegate is not None and re.search(r"\\b(fix|refactor|rewrite|change|implement)\\b", p0, re.I):
-            v = await org_delegate("verifier", "Review the requested task and list key risks + verification steps.", p0)  # type: ignore[misc]
-            if isinstance(v, dict) and v.get("ok") and v.get("result"):
-              object.__setattr__(cfg, "_manager_verifier_context", str(v.get("result"))[:4000])
-    except Exception:
-      pass
-    # Parallelism score: heuristic signal for automatic subtask fan-out.
-    try:
-      import re
-      p2 = (prompt or "")[:20_000]
-      par = 0.0
-      if len(p2) > 800:
-        par += 0.15
-      if len(p2) > 2400:
-        par += 0.2
-      if re.search(r"\b(analy[sz]e|audit|map|inventory|scan|survey)\b", p2, re.I):
-        par += 0.2
-      if re.search(r"\b(refactor|migrate|rewrite|redesign|architecture)\b", p2, re.I):
-        par += 0.2
-      if re.search(r"\b(across|entire|whole|end-to-end|e2e|multiple modules|many files)\b", p2, re.I):
-        par += 0.2
-      if p2.count("/") >= 8 or p2.count(".py") + p2.count(".ts") + p2.count(".tsx") >= 5:
-        par += 0.15
-      if attachment_paths:
-        par += 0.08
-      par = max(0.0, min(1.0, float(par)))
-      object.__setattr__(cfg, "_parallelism_score", par)
-    except Exception:
-      pass
   run_config = (
     RunConfig(max_llm_calls=max_llm_calls) if max_llm_calls is not None else None
   )
@@ -258,9 +142,6 @@ async def run_turn(
     return out
 
   def _extract_hint_and_tool(fc: types.FunctionCall) -> tuple[str, str]:
-    # generate_request_confirmation_event() builds:
-    # - args.originalFunctionCall.{name,args,...}
-    # - args.toolConfirmation.{hint, ...}
     tool_name = "unknown_tool"
     hint = ""
     try:
@@ -284,10 +165,7 @@ async def run_turn(
         print("Please answer 'y' or 'n'.")
 
   retry_enabled = os.environ.get("GEMCODE_ENABLE_MODEL_ERROR_RETRY", "1").lower() in (
-    "1",
-    "true",
-    "yes",
-    "on",
+    "1", "true", "yes", "on",
   )
   retry_max_attempts = int(
     os.environ.get("GEMCODE_MODEL_ERROR_RETRY_MAX_ATTEMPTS", "2")
@@ -305,8 +183,7 @@ async def run_turn(
     for attempt in range(retry_max_attempts):
       collected: list = []
 
-      # Apply token-budget reset only once per user turn, even if we must
-      # resume across multiple ADK tool-confirmation handoffs.
+      # Apply token-budget reset only once per user turn.
       state_delta = None
       if cfg is not None and cfg.token_budget:
         from gemcode.config import token_budget_invocation_reset
@@ -317,26 +194,14 @@ async def run_turn(
       if attachment_paths:
         from gemcode.multimodal_input import build_user_content
 
-        # Optional HITL gate for local attachment reads/upload materialization.
-        # This is separate from workspace trust: the OS may still require
-        # user-granted "Files and Folders" permissions on first access.
-        # If approved once, we don't re-prompt for the rest of this session.
         attach_allow = True
         if hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
-          # Default-on: attachments can read any local file path (not workspace-scoped),
-          # but we ask once per session so the user is in control and macOS can trigger
-          # its permission prompt at the moment we attempt the read.
           attach_allow = os.environ.get("GEMCODE_ATTACHMENTS_ASK", "1").lower() not in (
-            "0",
-            "false",
-            "no",
-            "off",
+            "0", "false", "no", "off",
           )
           if cfg is not None:
-            # If user already approved earlier in this session, don't prompt again.
             if bool(getattr(cfg, "_attachments_allowed", False)):
               attach_allow = True
-            # If yes-to-all is enabled, auto-allow attachments.
             elif bool(getattr(cfg, "yes_to_all", False)):
               attach_allow = True
               object.__setattr__(cfg, "_attachments_allowed", True)
@@ -347,7 +212,6 @@ async def run_turn(
               if attach_allow:
                 object.__setattr__(cfg, "_attachments_allowed", True)
         else:
-          # Non-interactive sessions can't prompt; default to allow.
           attach_allow = True
         effective_attachments = attachment_paths if attach_allow else None
 
@@ -360,48 +224,7 @@ async def run_turn(
         for w in attach_warn:
           print(f"[gemcode] {w}", file=sys.stderr)
       else:
-        effective_prompt = prompt
-        # Auto fan-out: when prompt looks broad, guide model to spawn parallel
-        # isolated subtasks first (bounded) and then synthesise.
-        try:
-          auto_on = os.environ.get("GEMCODE_AUTO_FANOUT", "1").strip().lower() in (
-            "1",
-            "true",
-            "yes",
-            "on",
-          )
-          threshold = float(os.environ.get("GEMCODE_AUTO_FANOUT_THRESHOLD", "0.6"))
-          if auto_on and cfg is not None:
-            score = float(getattr(cfg, "_parallelism_score", 0.0) or 0.0)
-            already = bool(getattr(cfg, "_auto_fanout_applied", False))
-            if (not already) and score >= threshold:
-              object.__setattr__(cfg, "_auto_fanout_applied", True)
-              effective_prompt = (
-                "Before you answer, do a quick parallel exploration pass:\n"
-                "- Decompose this into 3–6 independent investigation subtasks.\n"
-                "- Call `spawn_subtasks(tasks=[...], max_concurrency=4)` to run them in parallel.\n"
-                "- If an org member is appropriate, prefer delegating with `org_delegate` / `org_spawn`.\n"
-                "- Synthesize the results into a single plan/answer, then proceed.\n\n"
-                + (prompt or "")
-              )
-        except Exception:
-          pass
-
-        # Inject dispatcher context (e.g., verifier critique) if available.
-        try:
-          if cfg is not None:
-            ctx = str(getattr(cfg, "_manager_verifier_context", "") or "").strip()
-            if ctx:
-              effective_prompt = (
-                "Manager pre-delegation result (verifier):\n"
-                + ctx
-                + "\n\nUser request:\n"
-                + (effective_prompt or "")
-              )
-        except Exception:
-          pass
-
-        current_message = types.Content(role="user", parts=[types.Part(text=effective_prompt)])
+        current_message = types.Content(role="user", parts=[types.Part(text=prompt)])
 
       async def _await_runner_events(
         *, next_message: types.Content, do_reset: bool
@@ -421,12 +244,7 @@ async def run_turn(
         return events
 
       # Runner handoff loop: if tools request confirmations, we pause here to
-      # ask HITL, then send back function responses so ADK can re-execute the
-      # tools.
-      #
-      # Transient API errors (HTTP 503, 429) are retried here with exponential
-      # backoff. on_model_error returns None for these, so the exception
-      # propagates from runner.run_async and we catch it below.
+      # ask HITL, then send back function responses so ADK can re-execute.
       do_reset = True
       transient_attempts = 0
       while True:
@@ -445,7 +263,6 @@ async def run_turn(
               f"Retrying in {delay:.0f}s (attempt {transient_attempts}/{len(API_TRANSIENT_RETRY_DELAYS_SEC)})...\n"
             )
             print(_msg, file=sys.stderr)
-            # Surface retry notice in TUI if available.
             if _tui_active:
               try:
                 from gemcode.tui import scrollback as _sb
@@ -453,12 +270,9 @@ async def run_turn(
               except Exception:
                 pass
             await asyncio.sleep(delay)
-            # Retry the same message from scratch (session history is intact in SQLite).
             continue
-          # Non-transient or out of retries: re-raise so the TUI surfaces it.
           raise
 
-        # Reset transient counter after a successful model call.
         transient_attempts = 0
         collected.extend(events)
 
@@ -466,7 +280,6 @@ async def run_turn(
         if not confirmation_fcs:
           break
 
-        # If interactive ask is disabled, auto-reject to avoid hanging on stdin.
         interactive_enabled = bool(
           getattr(cfg, "interactive_permission_ask", False)
           and hasattr(sys.stdin, "isatty")
@@ -508,11 +321,9 @@ async def run_turn(
           )
 
         current_message = types.Content(role="user", parts=parts)
-        # Subsequent resumes must not re-reset token budgets.
         do_reset = False
 
-      # Retry decision: if we detect context/length failures, tighten budgets
-      # and re-run once.
+      # Retry decision: if we detect context/length failures, tighten budgets.
       if (
         attempt == 0
         and retry_enabled
@@ -533,12 +344,14 @@ async def run_turn(
           )
           continue
 
-      # Background autopilot: if we touched files, enqueue Kaira checks (best-effort).
+      # Post-turn intelligence: learn from what just happened
       if cfg is not None:
         try:
-          await _maybe_enqueue_kaira_autopilot(cfg=cfg, session_id=session_id)
+          from gemcode.agent_intelligence import post_turn_learn
+          post_turn_learn(cfg, collected)
         except Exception:
           pass
+
       return collected
   finally:
     if cfg is not None and orig_ctx_chars is not None:

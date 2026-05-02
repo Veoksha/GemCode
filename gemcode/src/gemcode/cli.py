@@ -1123,7 +1123,7 @@ def main() -> None:
 
     cfg = GemCodeConfig(project_root=args.directory)
     if getattr(args, "socket", None):
-      os.environ["GEMCODE_KAIRA_SOCKET"] = str(args.socket)
+      cfg.runtime_ipc_bind_path = Path(args.socket).expanduser().resolve()
     if args.model:
       cfg.model_overridden = True
       cfg.model = args.model
