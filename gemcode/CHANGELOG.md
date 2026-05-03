@@ -1,3 +1,7 @@
+## Unreleased
+
+- **TUI / fleet inbox**: **`/fleet`**, **`/fleet show`**, **`/fleet digest`** — drain or peek `.gemcode/fleet_reports.jsonl` without guessing (habits and mesh complete while idle at ❯; auto-continue only chains after assistant turns). Throttled **`job.report`** hint in the TUI (`GEMCODE_FLEET_TUI_NOTIFY`, `GEMCODE_FLEET_TUI_NOTIFY_MIN_S`). Bus **`job.report`** payloads include **`habit`** metadata when present.
+
 ## 0.4.13
 
 - **Agent mesh**: **`GEMCODE_MESH_WORKER_UNATTENDED`** defaults to **on** (`1`): each mesh job uses non-blocking tool policy (`yes_to_all`, no interactive HITL) so background workers do not steal the main TUI for bash / `org_delegate` / writes. Set **`=0`** so mesh workers inherit the manager’s `--yes` / HITL settings.

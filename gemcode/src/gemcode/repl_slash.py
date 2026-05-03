@@ -91,6 +91,61 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True)
 
+  # ── /fleet (fleet_reports.jsonl — habits / mesh without waiting for a model turn) ─
+  if name in ("fleet", "fleet_reports", "reports"):
+    from gemcode.fleet_reports import (
+      fleet_digest_prompt,
+      has_pending_fleet_reports,
+      inject_enabled,
+      preview_fleet_inbox,
+    )
+
+    try:
+      object.__setattr__(cfg, "_fleet_auto_chain", 0)
+    except Exception:
+      pass
+
+    sub = (sc.args or "").strip()
+    sub_l = sub.lower()
+    first = sub_l.split()[0] if sub_l else ""
+
+    if sub_l in ("help", "?") or (not sub_l and not has_pending_fleet_reports(cfg.project_root)):
+      out("Fleet inbox (`.gemcode/fleet_reports.jsonl` at fleet root):")
+      out("  /fleet            If reports are pending: run a digest turn (drains inbox into the model).")
+      out("  /fleet digest     Same, when you want to force digest.")
+      out("  /fleet show       Print pending lines without draining (peek only).")
+      out("While the TUI is idle at ❯, auto-continue only runs after an assistant reply;")
+      out("mesh/habit completions still land in the inbox — use /fleet or any message to drain.")
+      if not inject_enabled():
+        out("  (GEMCODE_FLEET_REPORTS_INJECT=0 — inbox is not written.)")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub_l in ("show", "peek", "cat") or first in ("show", "peek", "cat"):
+      out(preview_fleet_inbox(cfg.project_root))
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if sub_l in ("digest", "summarize", "sum") or first in ("digest", "summarize", "sum"):
+      if not has_pending_fleet_reports(cfg.project_root):
+        out("[fleet] no pending reports in inbox.")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      return ReplSlashResult(model_prompt=fleet_digest_prompt())
+
+    if not sub_l:
+      if has_pending_fleet_reports(cfg.project_root):
+        return ReplSlashResult(model_prompt=fleet_digest_prompt())
+      out("[fleet] no pending reports. Try `/fleet help`.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if not has_pending_fleet_reports(cfg.project_root):
+      out("[fleet] no pending reports in inbox.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+    return ReplSlashResult(model_prompt=fleet_digest_prompt())
+
   # ── /attach (queue files for the next user message: PDF, images, audio, …) ─
   if name in ("attach", "file", "image", "img"):
     raw_i = (sc.args or "").strip()

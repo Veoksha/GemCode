@@ -336,7 +336,7 @@ Each habit run is a **mesh job**. When it finishes, the output is written to **`
 
 - **While you are chatting**, **`GEMCODE_FLEET_REPORTS_AUTO_CONTINUE` defaults to on**: after each assistant response, if reports are still queued, GemCode injects a short **digest turn** so the **manager** (main session) summarizes new background output in a conversational way—without you typing “check fleet”.
 - **Opt out** (save tokens): set **`GEMCODE_FLEET_REPORTS_AUTO_CONTINUE=0`** — you’ll only see habit output when it’s drained into your **next** normal message.
-- **While you are idle at the prompt** (no turns running), the GemCode TUI still waits for keyboard input; new fleet lines accumulate until the **next** turn processes them or digest runs after a completed assistant reply. For idle wake-ups without the TUI, run **`gemcode runtime`** and use **`GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MODE=enqueue`** (debounced digest jobs on the fleet socket)—see [`configuration.md`](configuration.md#ui-and-behavior).
+- **While you are idle at the prompt** (no turns running), the TUI does **not** auto-run model turns; new fleet lines accumulate until you send **any message**, run **`/fleet`** (digest) or **`/fleet show`** (peek), or finish another assistant turn (then auto-continue may chain). The TUI can print a **throttled hint** when **`job.report`** lands (`GEMCODE_FLEET_TUI_NOTIFY`). For idle wake-ups via **`gemcode runtime`**, use **`GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MODE=enqueue`** (debounced digest jobs on the fleet socket)—see [`configuration.md`](configuration.md#ui-and-behavior).
 
 ### Schedule types
 

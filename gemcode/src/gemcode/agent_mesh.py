@@ -391,18 +391,22 @@ class AgentMesh:
       duration_ms = int(time.time() * 1000) - start_ms
 
       # Publish completion
+      _jr_finished: dict[str, Any] = {
+        "job_id": job.job_id,
+        "session_id": job.session_id,
+        "status": "finished",
+        "member": job.member_name,
+        "report": result_text[:8000],
+        "duration_ms": duration_ms,
+      }
+      _hm0 = job.meta.get("habit") if isinstance(job.meta, dict) else None
+      if isinstance(_hm0, dict):
+        _jr_finished["habit"] = _hm0
       await self._bus.publish(BusMessage(
         topic="job.report",
         from_addr=job.member_name or "mesh",
         to_addr="manager",
-        payload={
-          "job_id": job.job_id,
-          "session_id": job.session_id,
-          "status": "finished",
-          "member": job.member_name,
-          "report": result_text[:8000],
-          "duration_ms": duration_ms,
-        },
+        payload=_jr_finished,
       ))
 
       # Also publish org.report if this was an org delegation
@@ -459,17 +463,21 @@ class AgentMesh:
       job.status = "failed"
       job.error = f"{type(e).__name__}: {e}"
 
+      _jr_failed: dict[str, Any] = {
+        "job_id": job.job_id,
+        "session_id": job.session_id,
+        "status": "failed",
+        "member": job.member_name,
+        "error": job.error,
+      }
+      _hm1 = job.meta.get("habit") if isinstance(job.meta, dict) else None
+      if isinstance(_hm1, dict):
+        _jr_failed["habit"] = _hm1
       await self._bus.publish(BusMessage(
         topic="job.report",
         from_addr=job.member_name or "mesh",
         to_addr="manager",
-        payload={
-          "job_id": job.job_id,
-          "session_id": job.session_id,
-          "status": "failed",
-          "member": job.member_name,
-          "error": job.error,
-        },
+        payload=_jr_failed,
       ))
 
       # Persist failure to fleet reports

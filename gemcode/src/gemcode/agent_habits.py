@@ -324,9 +324,11 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
     They fire as long as GemCode is open (REPL/TUI session).
 
     Results go to the fleet inbox (.gemcode/fleet_reports.jsonl). Fleet auto-continue
-    (GEMCODE_FLEET_REPORTS_AUTO_CONTINUE, default on) can inject digest turns after each assistant
-    reply so the main agent summarizes habit output. Set GEMCODE_FLEET_REPORTS_AUTO_CONTINUE=0 to
-    only drain on your next normal message.
+    (GEMCODE_FLEET_REPORTS_AUTO_CONTINUE, default on) runs digest turns **after each assistant
+    reply** when the inbox still has entries — it does **not** wake the model while the TUI is
+    idle at the prompt. While waiting at ❯, use **`/fleet`** (digest) or **`/fleet show`** (peek),
+    or send any message; the TUI also prints a throttled hint when mesh jobs finish
+    (GEMCODE_FLEET_TUI_NOTIFY).
 
     Args:
       name: Unique name for this habit (e.g., "test-watch", "nightly-audit").

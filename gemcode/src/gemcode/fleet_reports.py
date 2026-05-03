@@ -366,3 +366,60 @@ def drain_for_prompt(project_root: Path, *, max_chars: int | None = None) -> str
       "increase GEMCODE_FLEET_REPORTS_MAX_CHARS to drain more per turn)"
     )
   return header + body
+
+
+def preview_fleet_inbox(project_root: Path, *, max_chars: int | None = None) -> str:
+  """
+  Format pending fleet inbox lines without draining the file (for ``/fleet show``).
+  """
+  if max_chars is None:
+    try:
+      max_chars = int(os.environ.get("GEMCODE_FLEET_REPORTS_MAX_CHARS", "14000"))
+    except Exception:
+      max_chars = 14_000
+  try:
+    from gemcode.org import resolve_fleet_root
+
+    fleet_root = resolve_fleet_root(project_root)
+  except Exception:
+    fleet_root = project_root
+  p = _fleet_reports_path(fleet_root)
+  if not p.is_file():
+    return "(no `.gemcode/fleet_reports.jsonl` yet — background jobs append here when they finish)"
+  try:
+    raw = p.read_text(encoding="utf-8", errors="replace")
+  except Exception:
+    return "(could not read fleet_reports.jsonl)"
+  if not raw.strip():
+    return "(fleet inbox is empty)"
+
+  lines_in = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+  blocks: list[str] = []
+  total = 0
+  truncated = False
+  for line in lines_in:
+    try:
+      rec = json.loads(line)
+    except Exception:
+      continue
+    if not isinstance(rec, dict):
+      continue
+    b = _format_record(rec)
+    if not b:
+      continue
+    need = len(b) + 2
+    if total + need > max_chars:
+      truncated = True
+      break
+    blocks.append(b)
+    total += need
+
+  if not blocks:
+    return "(fleet inbox has no readable entries)"
+  header = "Fleet / agent reports (preview — inbox not cleared):\n\n"
+  body = "\n\n".join(blocks)
+  if truncated:
+    body += (
+      "\n\n… (truncated; increase GEMCODE_FLEET_REPORTS_MAX_CHARS or run /fleet show after /fleet digest)"
+    )
+  return header + body

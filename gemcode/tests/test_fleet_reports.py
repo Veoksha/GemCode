@@ -12,6 +12,7 @@ from gemcode.fleet_reports import (
   has_pending_fleet_reports,
   inject_enabled,
   maybe_append_org_report,
+  preview_fleet_inbox,
 )
 from gemcode.org import resolve_fleet_root
 
@@ -98,3 +99,24 @@ def test_inject_disabled_skips_append(tmp_path: Path, monkeypatch: pytest.Monkey
   append_fleet_report(tmp_path, topic="org.report", payload={"status": "finished"})
   p = tmp_path / ".gemcode" / "fleet_reports.jsonl"
   assert not p.exists()
+
+
+def test_preview_fleet_inbox_does_not_clear(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+  monkeypatch.setenv("GEMCODE_FLEET_REPORTS_INJECT", "1")
+  (tmp_path / ".gemcode").mkdir()
+  maybe_append_org_report(
+      tmp_path,
+      {
+          "status": "finished",
+          "job_id": "j-preview",
+          "task": "t",
+          "member": {"name": "w"},
+          "result": {"report": "hello"},
+      },
+  )
+  p = tmp_path / ".gemcode" / "fleet_reports.jsonl"
+  assert p.read_text(encoding="utf-8").strip()
+  prev = preview_fleet_inbox(tmp_path)
+  assert "preview" in prev.lower() or "Fleet / agent reports" in prev
+  assert "hello" in prev
+  assert p.read_text(encoding="utf-8").strip()

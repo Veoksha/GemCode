@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass
 
 from google.adk.agents.run_config import RunConfig
@@ -277,6 +278,84 @@ async def run_gemcode_scrollback_tui(
       get_session_id=lambda: _current_session_id_holder[0],
       get_cfg=lambda: cfg,
   )
+
+  # When mesh/habit jobs finish, fleet_reports.jsonl updates while we are idle at ❯.
+  # Auto-continue only runs after an *assistant* turn, so print a throttled hint.
+  _tui_loop = asyncio.get_running_loop()
+  _last_fleet_notify_s = [0.0]
+
+  def _on_mesh_job_report_notify(msg: object) -> None:
+    if os.environ.get("GEMCODE_FLEET_TUI_NOTIFY", "1").strip().lower() in (
+        "0", "false", "no", "off",
+    ):
+      return
+    try:
+      from gemcode.event_bus import BusMessage
+
+      if not isinstance(msg, BusMessage) or msg.topic != "job.report":
+        return
+      pl = msg.payload if isinstance(msg.payload, dict) else {}
+      if str(pl.get("status") or "").strip().lower() not in ("finished", "failed"):
+        return
+    except Exception:
+      return
+    try:
+      min_gap = float(os.environ.get("GEMCODE_FLEET_TUI_NOTIFY_MIN_S", "8") or "8")
+    except Exception:
+      min_gap = 8.0
+    now = time.time()
+    if now - _last_fleet_notify_s[0] < min_gap:
+      return
+    _last_fleet_notify_s[0] = now
+
+    def _print_hint() -> None:
+      try:
+        mem = ""
+        if isinstance(msg.payload, dict):
+          mem = str(msg.payload.get("member") or "").strip()
+        habit = ""
+        if isinstance(msg.payload, dict):
+          hm = msg.payload.get("habit")
+          if isinstance(hm, dict):
+            habit = str(hm.get("name") or "").strip()
+        bits = []
+        if mem:
+          bits.append(mem)
+        if habit:
+          bits.append(f"habit:{habit}")
+        extra = f" ({' · '.join(bits)})" if bits else ""
+        line = (
+            f"{ansi.dim}[gemcode] Background job finished{extra} — "
+            f"/fleet to summarize inbox (any message also drains).{ansi.reset}"
+        )
+        if input_handler.is_interactive():
+          try:
+            from prompt_toolkit.patch_stdout import patch_stdout
+
+            with patch_stdout():
+              print(line, flush=True)
+          except Exception:
+            print(line, flush=True)
+        else:
+          print(line, flush=True)
+      except Exception:
+        pass
+
+    try:
+      _tui_loop.call_soon_threadsafe(_print_hint)
+    except Exception:
+      pass
+
+  try:
+    from gemcode.event_bus import get_bus
+
+    get_bus().subscribe(
+        topic="job.report",
+        to_addr="manager",
+        callback=_on_mesh_job_report_notify,
+    )
+  except Exception:
+    pass
 
   # ── Optional: embed Kaira daemon in this TUI ─────────────────────────────
   # This enables continuous background automation without requiring a second
