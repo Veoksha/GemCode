@@ -2,15 +2,15 @@
 In-process Agent Mesh — the orchestration backbone.
 
 This module provides a lightweight, always-available agent coordination layer
-that works WITHOUT the Kaira daemon. It manages:
+that does not require **`gemcode runtime`** for **`org_delegate`**. It manages:
 
 1. Live agent instances (real ADK LlmAgents with their own Runners)
-2. Job queue (asyncio priority queue for background work)
+2. Job queue (asyncio priority queue on a **dedicated background thread / event loop**)
 3. Event routing (via the in-memory EventBus)
 4. Automatic result reporting (fleet reports + bus messages)
 
-When the Kaira daemon IS running, the mesh bridges to it via IPC.
-When it's NOT running, everything still works in-process.
+Optional **`gemcode runtime`** is a separate fleet-manager process (IPC, automations, stdin queue).
+Slash **`/agent assign`** / **`trigger`** publish `org.assign` over IPC when the socket is up; otherwise the REPL falls back to **`org_delegate`** (this mesh). The mesh also subscribes to **`org.assign`** on the in-process bus for the same payload shape.
 """
 
 from __future__ import annotations

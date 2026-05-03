@@ -174,7 +174,7 @@ Any A2A-compatible agent (GemCode, LangGraph, CrewAI) can connect.
 | **Skills** | `list_skills`, `load_skill`, `skills_manifest` |
 | **Checkpoints** | `checkpoints_list`, `checkpoint_undo` |
 | **Orchestration** | `org_list`, `org_hire`, `org_tree`, `org_delegate`, `org_spawn`, `org_improve` |
-| **Mesh** | `mesh_status`, `mesh_delegate`, `mesh_report`, `mesh_enqueue` |
+| **Mesh** | `mesh_status`, `mesh_delegate`, `mesh_report`, `mesh_enqueue`, `agent_dm`, `agent_broadcast` |
 | **A2A** | `a2a_expose`, `a2a_connect`, `a2a_list` |
 | **Triggers** | `triggers_list`, `triggers_add`, `triggers_remove` |
 | **Habits** | `habits_add`, `habits_list`, `habits_remove`, `habits_pause`, `habits_resume` |

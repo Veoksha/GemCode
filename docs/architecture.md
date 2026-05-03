@@ -33,7 +33,7 @@ This layer parses commands and flags, loads environment configuration, selects t
 This layer defines the configuration model, environment-variable defaults, capability toggles, and per-turn model selection heuristics.
 
 ### Orchestration and intelligence
-- `gemcode/src/gemcode/agent_mesh.py` — In-process multi-agent orchestration
+- `gemcode/src/gemcode/agent_mesh.py` — Multi-agent orchestration (scheduler in a **background thread** + dedicated asyncio loop; bus + fleet reports)
 - `gemcode/src/gemcode/event_bus.py` — In-memory pub/sub for agent communication
 - `gemcode/src/gemcode/agent_intelligence.py` — Pre/post-turn learning and structural decisions
 - `gemcode/src/gemcode/agent_triggers.py` — Self-triggering agents (event-driven activation)
@@ -291,7 +291,7 @@ Loaded from `.gemcode/openapi/` by `gemcode/src/gemcode/openapi_loader.py`.
 - `.gemcode/artifacts/`
 - `.gemcode/tool-results/`
 - `.gemcode/audit.log`
-- `.gemcode/fleet_reports.jsonl` — inbox for completed `org.report` / `job.report` / `agent.report` (drained into the next manager turn when `GEMCODE_FLEET_REPORTS_INJECT=1`)
+- `.gemcode/fleet_reports.jsonl` — inbox for completed `org.report` / `job.report` / `agent.report` plus **`agent.dm`** / **`agent.broadcast`** lines (drained into the next manager turn when `GEMCODE_FLEET_REPORTS_INJECT=1`)
 - `.gemcode/debug.yaml` when debug logging is enabled
 
 ### Memory layers

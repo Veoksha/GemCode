@@ -34,17 +34,20 @@ This page documents GemCode's multi-agent orchestration system: the **Agent Mesh
 
 ## Agent Mesh (In-Process Orchestration)
 
-The Agent Mesh is the primary orchestration layer. It runs **inside** the main GemCode process — no separate daemon required.
+The Agent Mesh is the primary orchestration layer. It runs in a **dedicated daemon thread** inside the GemCode process with its **own asyncio event loop** (see `gemcode/src/gemcode/agent_mesh.py`). That separation matters for the GemCode TUI: the TUI’s loop is often blocked on `prompt_toolkit` input, so mesh jobs, **habits**, and **triggers** would not make reliable progress on the same loop. With the background thread, work keeps running; outcomes still land in **`.gemcode/fleet_reports.jsonl`** and are drained on the **next** user turn (or via bus subscribers).
+
+No separate **`gemcode runtime`** process is required for **`org_delegate`** or mesh-backed background agents.
 
 ### What it does
 - Manages a priority queue of agent jobs
 - Runs jobs concurrently (default: 3 parallel agents)
 - Each job gets a **full-power Runner** (same as the TUI/CLI — all tools, model routing, memory, MCP)
 - Results are published to the Event Bus and persisted to fleet reports
-- Auto-starts on the first `run_turn()` call
+- Auto-starts when the first job is enqueued (background thread + scheduler)
 
-### Key difference from the old system
-Previously, delegation required a manually-started `gemcode runtime` daemon. Now the mesh works automatically — delegation, background work, and agent coordination all function out of the box.
+### Key difference from older releases
+- **`org_delegate`** no longer attempts Kaira/runtime IPC. The mesh is the primary path; an in-process **subtask** fallback runs if the mesh path fails.
+- Optional **`gemcode runtime`** remains useful for a **separate** fleet-manager queue, IPC attach, **`/agent assign`** / **`/agent trigger`** when the socket is up, and **`.gemcode/automations/`** — not for basic `org_delegate`.
 
 ### Configuration
 
@@ -64,9 +67,11 @@ The Event Bus is an in-memory pub/sub system that enables agent-to-agent communi
 | `job.started` | Job begins execution | TUI, triggers |
 | `job.report` | Job completes or fails | Triggers, learning, fleet reports |
 | `org.report` | Org delegation completes | Triggers, learning, fleet reports |
-| `agent.report` | Subtask completes | Fleet reports |
+| `agent.report` | Subtask / mesh worker status | Fleet reports |
+| `agent.dm` | Mesh worker sends a direct message to another member | Fleet reports (formatted inbox line) |
+| `agent.broadcast` | Mesh worker broadcasts to fleet + manager | Fleet reports (formatted inbox line) |
 | `checkpoint.created` | Files are about to be modified | Triggers (opt-in verification) |
-| `org.assign` | External delegation request | Mesh |
+| `org.assign` | Delegation request (e.g. in-process bus) | Mesh handler (`delegate_to_member`) |
 
 ### How agents communicate
 1. Agent A completes work → publishes `org.report` to bus
@@ -74,6 +79,15 @@ The Event Bus is an in-memory pub/sub system that enables agent-to-agent communi
 3. Agent B runs verification → publishes its own `job.report`
 4. Learning Loop records both outcomes
 5. Next turn: fleet reports are drained into the user's prompt
+
+### Agent-to-agent messaging (mesh workers)
+
+While running inside a mesh job, agents get extra tools (see `AgentMesh._build_mesh_tools_for_job`):
+
+- **`agent_dm(to, message)`** — publishes `agent.dm` on the bus and appends a line to **`fleet_reports.jsonl`** (manager sees it on the next drain).
+- **`agent_broadcast(message)`** — publishes `agent.broadcast` and appends to **`fleet_reports.jsonl`**.
+
+Formatted inbox examples (from `fleet_reports.py`): `[agent.dm] verifier → kaira: "…"`, `[agent.broadcast] kaira: "…"`.
 
 ## Self-Triggering Agents
 

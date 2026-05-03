@@ -12,6 +12,7 @@ GemCode is a local-first, self-evolving coding agent built on Google Gemini and 
 - **Scheduled habits** — agents wake up on cron/interval to run tests, audits, checks
 - **Cross-machine agents** — expose/consume agents via Google A2A protocol
 - **58 built-in tools** — filesystem, shell, web, search, memory, orchestration, synthesis
+- **Mesh worker sessions** add `agent_dm` / `agent_broadcast` (bus + `fleet_reports.jsonl` inbox formatting)
 - **Full ADK integration** — native sub-agents, transfer_to_agent, output_key, workflow agents
 
 All state lives under `.gemcode/` in the project root. No external services required beyond a Gemini API key.

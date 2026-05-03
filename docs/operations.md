@@ -152,17 +152,19 @@ In addition to job events, the IPC stream also supports a lightweight message bu
 This enables multi-client coordination (e.g. two terminals running GemCode) without requiring a second transport.
 
 Practical usage:
-- `/agent assign` or **`/agent trigger`** (same payload) publishes `topic=org.assign` to the runtime (if available). **`/agents`** is an alias for **`/agent`**.
-- runtime reacts by enqueueing a background run that performs the delegation and emits `topic=org.report`
+- **`/agent assign`** or **`/agent trigger`** (same `org.assign` payload): tries the **fleet manager IPC** socket first (`fleet_manager_ipc_path`). If the **`gemcode runtime`** is up, the daemon consumes `topic=org.assign` and runs its queue path. If IPC is unavailable, GemCode **falls back** to the **`org_delegate`** tool (Agent Mesh — no daemon required). **`/agents`** is an alias for **`/agent`**.
+- The **`org_delegate(...)` tool** (model-called) **does not** use runtime IPC. It always goes through the **Agent Mesh** (background thread + in-process queue), with a **subtask** fallback if the mesh path fails.
 
 #### Delegation reporting (default)
-When a task is delegated to a runtime-backed agent (`kaira_worker`) using `org_delegate(...)`, the enqueued job carries delegation metadata. When the job finishes or fails, the runtime automatically publishes:
-- `bus_message topic=org.report` to `manager` (and the full `reports_to` chain when present)
+Completion signals use the **event bus** plus the **fleet report inbox** — not a second manual copy/paste:
 
-This avoids the “delegated… then nothing” void: the manager UI receives a completion event without requiring a second prompt.
+- Mesh/runtime work publishes **`org.report`** / **`job.report`** / **`agent.report`** (and mesh tools can emit **`agent.dm`** / **`agent.broadcast`**), which append to **`.gemcode/fleet_reports.jsonl`** when configured.
+- With `GEMCODE_ORG_BUS_REPORTS=1` (default), `org_delegate` also emits **`bus_message`** events (`topic=org.report`) so live subscribers see outcomes immediately.
+
+This avoids the “delegated… then nothing” void: the manager session sees results on the **next** turn (inbox drain) and/or via bus subscriptions.
 
 #### Fleet report inbox (manager model context)
-Bus events are **not** ADK conversation turns. Completed `org.report` / `job.report` / `agent.report` also append to **`.gemcode/fleet_reports.jsonl`** at the fleet root. The next manager turn prepends that inbox (when `GEMCODE_FLEET_REPORTS_INJECT=1`) for both `run_turn` and the GemCode TUI. Optional automatic digest turns or runtime enqueue: see [`orchestration.md`](orchestration.md#fleet-report-inbox--auto-continue-hands-off-summaries) and [`configuration.md`](configuration.md#ui-and-behavior).
+Bus events are **not** ADK conversation turns. Completed `org.report` / `job.report` / `agent.report` (and formatted **`agent.dm`** / **`agent.broadcast`** lines) append to **`.gemcode/fleet_reports.jsonl`** at the fleet root. The next manager turn prepends that inbox (when `GEMCODE_FLEET_REPORTS_INJECT=1`) for both `run_turn` and the GemCode TUI. Optional automatic digest turns or runtime enqueue: see [`orchestration.md`](orchestration.md#fleet-report-inbox--auto-continue-hands-off-summaries) and [`configuration.md`](configuration.md#ui-and-behavior).
 
 ## Eval and autotune
 

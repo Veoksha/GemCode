@@ -163,7 +163,7 @@ Use when you want **no human-in-the-loop** for GemCode’s own gates. Super mode
 ### Seeing “agent work” in real time
 There are two relevant execution styles:
 
-- **Runtime-backed agents (`kaira_worker`)**: jobs stream `job_*` events over IPC and will publish `org.report` on completion by default.
+- **`kaira_worker` org members**: delegated via **`org_delegate`** on the **Agent Mesh** (async `wait=False` — returns a `job_id` while the mesh runs the worker). **`/agent assign`** / **`trigger`** still prefer **fleet runtime IPC** when `gemcode runtime` is up, then fall back to the same mesh path.
 - **In-process subagents (`run_subtask` / `spawn_subtasks`)**: the parent emits `agent.report` lifecycle events; for a raw stream, attach to the runtime IPC (when running) with `gemcode runtime attach -C .`.
 
 **Safety:** this is intentionally dangerous on untrusted codebases. Prefer `--yes`, `/trust`, and optional `--interactive-ask` when you want guardrails.
