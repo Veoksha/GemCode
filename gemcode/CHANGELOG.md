@@ -1,3 +1,7 @@
+## 0.4.9
+
+- **Agents**: Delegation no longer depends on Kaira; agent direct messaging and broadcast support.
+
 ## 0.4.2
 
 - **Repo hygiene**: `run-gemcode-tui.sh` is no longer tracked; add your own local copy or use `pip install -e gemcode` / `PYTHONPATH=gemcode/src python -m gemcode.cli`.
