@@ -16,8 +16,10 @@ Slash **`/agent assign`** / **`trigger`** publish `org.assign` over IPC when the
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import copy
 import os
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -42,6 +44,8 @@ class AgentJob:
   result: str = ""
   error: str = ""
   created_ms: int = field(default_factory=lambda: int(time.time() * 1000))
+  # When set, completed with this AgentJob from the mesh thread (cross-thread wait).
+  completion_future: concurrent.futures.Future | None = None
 
 
 def _apply_mesh_worker_unattended_policy(cfg: GemCodeConfig) -> None:
@@ -80,6 +84,11 @@ class AgentMesh:
     self._sem = asyncio.Semaphore(self.max_concurrency)
     self._running: dict[str, asyncio.Task] = {}
     self._completed: list[AgentJob] = []
+    self._completed_lock = threading.Lock()
+    self._enqueue_lock = threading.Lock()
+    self._bg_thread_ident: int | None = None
+    # >0 while executing a mesh job on the background loop (nested delegate avoids deadlock).
+    self._mesh_job_depth: int = 0
     self._scheduler_task: asyncio.Task | None = None
     self._stop: asyncio.Event | None = None  # Created in background loop
     self._bg_thread: "threading.Thread | None" = None
@@ -172,6 +181,7 @@ class AgentMesh:
       """Background thread entry: create a new event loop and run the scheduler."""
       self._bg_loop = asyncio.new_event_loop()
       asyncio.set_event_loop(self._bg_loop)
+      self._bg_thread_ident = threading.current_thread().ident
       try:
         self._bg_loop.run_until_complete(self._bg_main())
       except Exception:
@@ -190,7 +200,9 @@ class AgentMesh:
     self._stop = asyncio.Event()  # Create in the correct loop
 
     # Start all sub-systems in this loop
-    self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+    # Tests can set PYTEST_GEMCODE_MESH_SCHEDULER=0 to inspect the queue without workers consuming it.
+    if os.environ.get("PYTEST_GEMCODE_MESH_SCHEDULER", "").strip() != "0":
+      self._scheduler_task = asyncio.create_task(self._scheduler_loop())
 
     if self._trigger_engine is not None:
       self._trigger_engine.start()
@@ -217,6 +229,40 @@ class AgentMesh:
       except Exception:
         pass
 
+  def _is_on_mesh_thread(self) -> bool:
+    ident = threading.current_thread().ident
+    return self._bg_thread_ident is not None and ident == self._bg_thread_ident
+
+  def _wait_bg_loop_ready(self, timeout_s: float = 5.0) -> bool:
+    """Wait until the background thread has assigned ``_bg_loop``."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+      if self._bg_loop is not None:
+        return True
+      if self._bg_thread is not None and not self._bg_thread.is_alive():
+        return False
+      time.sleep(0.001)
+    return self._bg_loop is not None
+
+  def wait_for_pending_enqueues(self, timeout: float = 5.0) -> None:
+    """
+    Block until callbacks scheduled with ``call_soon_threadsafe`` (for enqueues
+    from other threads) have run on the mesh loop. Useful in tests.
+    """
+    if self._bg_loop is None:
+      return
+    fut: concurrent.futures.Future[None] = concurrent.futures.Future()
+
+    def _poke() -> None:
+      if not fut.done():
+        try:
+          fut.set_result(None)
+        except Exception:
+          pass
+
+    self._bg_loop.call_soon_threadsafe(_poke)
+    fut.result(timeout=timeout)
+
   def enqueue(
     self,
     *,
@@ -225,10 +271,13 @@ class AgentMesh:
     session_id: str = "",
     member_name: str = "",
     meta: dict[str, Any] | None = None,
+    completion_future: concurrent.futures.Future | None = None,
   ) -> str:
-    """Enqueue a job and return its job_id. Thread-safe."""
+    """Enqueue a job and return its job_id. Safe to call from any thread."""
     job_id = f"mesh_{uuid.uuid4().hex[:10]}"
-    self._seq += 1
+    with self._enqueue_lock:
+      self._seq += 1
+      seq = self._seq
     job = AgentJob(
       job_id=job_id,
       prompt=prompt,
@@ -236,21 +285,44 @@ class AgentMesh:
       session_id=session_id or str(uuid.uuid4()),
       member_name=member_name,
       meta=meta or {},
+      completion_future=completion_future,
     )
-    # Higher priority = runs first (negate for min-heap)
-    self._queue.put_nowait((-priority, self._seq, job))
+    item = (-priority, seq, job)
 
-    # Publish queued event
-    self._bus.publish_sync(BusMessage(
-      topic="job.queued",
-      from_addr="mesh",
-      to_addr="manager",
-      payload={"job_id": job_id, "member": member_name, "priority": priority},
-    ))
+    def do_put() -> None:
+      try:
+        self._queue.put_nowait(item)
+      except Exception as e:
+        fut = job.completion_future
+        if fut is not None and not fut.done():
+          try:
+            fut.set_exception(e)
+          except Exception:
+            pass
+        return
+      self._bus.publish_sync(BusMessage(
+        topic="job.queued",
+        from_addr="mesh",
+        to_addr="manager",
+        payload={"job_id": job_id, "member": member_name, "priority": priority},
+      ))
 
-    # Auto-start the background thread if not running
     if self._bg_thread is None or not self._bg_thread.is_alive():
       self.start()
+
+    if not self._wait_bg_loop_ready():
+      fut = job.completion_future
+      if fut is not None and not fut.done():
+        try:
+          fut.set_exception(RuntimeError("mesh background loop failed to start"))
+        except Exception:
+          pass
+      return job_id
+
+    if self._is_on_mesh_thread():
+      do_put()
+    else:
+      self._bg_loop.call_soon_threadsafe(do_put)
 
     return job_id
 
@@ -303,39 +375,60 @@ class AgentMesh:
     if context:
       full_prompt += "\n\nContext:\n" + context
 
+    org_meta = {
+      "org": {
+        "member": m.to_dict() if hasattr(m, "to_dict") else {},
+        "task": task,
+        "context": context,
+      }
+    }
+
+    if not wait:
+      job_id = self.enqueue(
+        prompt=full_prompt,
+        priority=priority,
+        session_id="",
+        member_name=m.name,
+        meta=org_meta,
+      )
+      return {"ok": True, "job_id": job_id, "delegated_to": m.name, "async": True}
+
+    # Nested wait=True from inside a running mesh job would deadlock the scheduler
+    # (parent holds a concurrency slot while the child waits for another slot).
+    if self._mesh_job_depth > 0:
+      job_id = f"mesh_{uuid.uuid4().hex[:10]}"
+      with self._enqueue_lock:
+        self._seq += 1
+      inline_job = AgentJob(
+        job_id=job_id,
+        prompt=full_prompt,
+        priority=priority,
+        session_id="",
+        member_name=m.name,
+        meta=org_meta,
+      )
+      await self._run_job_inner(inline_job)
+      if inline_job.status == "finished":
+        return {"ok": True, "job_id": job_id, "result": inline_job.result}
+      return {"ok": False, "job_id": job_id, "error": inline_job.error}
+
+    loop = asyncio.get_running_loop()
+    fut: concurrent.futures.Future[AgentJob] = concurrent.futures.Future()
     job_id = self.enqueue(
       prompt=full_prompt,
       priority=priority,
       session_id="",
       member_name=m.name,
-      meta={
-        "org": {
-          "member": m.to_dict() if hasattr(m, "to_dict") else {},
-          "task": task,
-          "context": context,
-        }
-      },
+      meta=org_meta,
+      completion_future=fut,
     )
-
-    if not wait:
-      return {"ok": True, "job_id": job_id, "delegated_to": m.name, "async": True}
-
-    # Wait for completion
-    result = await self._wait_for_job(job_id, timeout=300.0)
-    return result
-
-  async def _wait_for_job(self, job_id: str, timeout: float = 300.0) -> dict[str, Any]:
-    """Wait for a specific job to complete."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-      for job in self._completed:
-        if job.job_id == job_id:
-          if job.status == "finished":
-            return {"ok": True, "job_id": job_id, "result": job.result}
-          else:
-            return {"ok": False, "job_id": job_id, "error": job.error}
-      await asyncio.sleep(0.1)
-    return {"ok": False, "job_id": job_id, "error": "timeout"}
+    try:
+      job = await asyncio.wait_for(asyncio.wrap_future(fut, loop=loop), timeout=300.0)
+    except asyncio.TimeoutError:
+      return {"ok": False, "job_id": job_id, "error": "timeout"}
+    if job.status == "finished":
+      return {"ok": True, "job_id": job_id, "result": job.result}
+    return {"ok": False, "job_id": job_id, "error": job.error}
 
   async def _handle_org_assign(self, msg: BusMessage) -> None:
     """Handle org.assign bus messages (A2A-style delegation)."""
@@ -373,6 +466,14 @@ class AgentMesh:
 
   async def _run_job(self, job: AgentJob) -> None:
     """Execute a single job using a fresh ADK Runner."""
+    self._mesh_job_depth += 1
+    try:
+      await self._run_job_inner(job)
+    finally:
+      self._mesh_job_depth -= 1
+
+  async def _run_job_inner(self, job: AgentJob) -> None:
+    """Full job lifecycle (shared by the scheduler and nested inline delegation)."""
     job.status = "running"
     start_ms = int(time.time() * 1000)
 
@@ -499,10 +600,17 @@ class AgentMesh:
         pass
 
     finally:
-      self._completed.append(job)
-      # Keep completed list bounded
-      if len(self._completed) > 200:
-        self._completed = self._completed[-100:]
+      cf = job.completion_future
+      if cf is not None and not cf.done():
+        try:
+          cf.set_result(job)
+        except Exception:
+          pass
+      with self._completed_lock:
+        self._completed.append(job)
+        # Keep completed list bounded
+        if len(self._completed) > 200:
+          self._completed = self._completed[-100:]
 
   async def _execute_agent_turn(self, job: AgentJob) -> str:
     """
@@ -740,15 +848,18 @@ class AgentMesh:
 
   def status(self) -> dict[str, Any]:
     """Get mesh status for debugging/display."""
+    with self._completed_lock:
+      recent = [
+        {"job_id": j.job_id, "member": j.member_name, "status": j.status}
+        for j in self._completed[-10:]
+      ]
+      n_completed = len(self._completed)
     return {
       "running_jobs": len(self._running),
       "queued_jobs": self._queue.qsize(),
-      "completed_jobs": len(self._completed),
+      "completed_jobs": n_completed,
       "max_concurrency": self.max_concurrency,
-      "recent_completed": [
-        {"job_id": j.job_id, "member": j.member_name, "status": j.status}
-        for j in self._completed[-10:]
-      ],
+      "recent_completed": recent,
     }
 
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -63,22 +65,52 @@ def test_mesh_singleton(tmp_path: Path) -> None:
 
 
 def test_mesh_enqueue(tmp_path: Path) -> None:
-  cfg = GemCodeConfig(project_root=tmp_path)
-  mesh = AgentMesh(cfg, max_concurrency=2)
-  job_id = mesh.enqueue(prompt="test task", priority=5, member_name="worker")
-  assert job_id.startswith("mesh_")
-  assert mesh._queue.qsize() == 1
+  old_s = os.environ.get("PYTEST_GEMCODE_MESH_SCHEDULER")
+  old_h = os.environ.get("GEMCODE_AGENT_HABITS")
+  os.environ["PYTEST_GEMCODE_MESH_SCHEDULER"] = "0"
+  os.environ["GEMCODE_AGENT_HABITS"] = "0"
+  try:
+    cfg = GemCodeConfig(project_root=tmp_path)
+    mesh = AgentMesh(cfg, max_concurrency=2)
+    job_id = mesh.enqueue(prompt="test task", priority=5, member_name="worker")
+    assert job_id.startswith("mesh_")
+    mesh.wait_for_pending_enqueues()
+    assert mesh._queue.qsize() == 1
+  finally:
+    if old_s is None:
+      os.environ.pop("PYTEST_GEMCODE_MESH_SCHEDULER", None)
+    else:
+      os.environ["PYTEST_GEMCODE_MESH_SCHEDULER"] = old_s
+    if old_h is None:
+      os.environ.pop("GEMCODE_AGENT_HABITS", None)
+    else:
+      os.environ["GEMCODE_AGENT_HABITS"] = old_h
 
 
 def test_mesh_status(tmp_path: Path) -> None:
-  cfg = GemCodeConfig(project_root=tmp_path)
-  mesh = AgentMesh(cfg, max_concurrency=2)
-  mesh.enqueue(prompt="task1", priority=1, member_name="a")
-  mesh.enqueue(prompt="task2", priority=2, member_name="b")
-  status = mesh.status()
-  assert status["queued_jobs"] == 2
-  assert status["running_jobs"] == 0
-  assert status["max_concurrency"] == 2
+  old_s = os.environ.get("PYTEST_GEMCODE_MESH_SCHEDULER")
+  old_h = os.environ.get("GEMCODE_AGENT_HABITS")
+  os.environ["PYTEST_GEMCODE_MESH_SCHEDULER"] = "0"
+  os.environ["GEMCODE_AGENT_HABITS"] = "0"
+  try:
+    cfg = GemCodeConfig(project_root=tmp_path)
+    mesh = AgentMesh(cfg, max_concurrency=2)
+    mesh.enqueue(prompt="task1", priority=1, member_name="a")
+    mesh.enqueue(prompt="task2", priority=2, member_name="b")
+    mesh.wait_for_pending_enqueues()
+    status = mesh.status()
+    assert status["queued_jobs"] == 2
+    assert status["running_jobs"] == 0
+    assert status["max_concurrency"] == 2
+  finally:
+    if old_s is None:
+      os.environ.pop("PYTEST_GEMCODE_MESH_SCHEDULER", None)
+    else:
+      os.environ["PYTEST_GEMCODE_MESH_SCHEDULER"] = old_s
+    if old_h is None:
+      os.environ.pop("GEMCODE_AGENT_HABITS", None)
+    else:
+      os.environ["GEMCODE_AGENT_HABITS"] = old_h
 
 
 def test_mesh_bus_integration(tmp_path: Path) -> None:
@@ -88,17 +120,21 @@ def test_mesh_bus_integration(tmp_path: Path) -> None:
   bus = get_bus()
 
   received: list[BusMessage] = []
+  got = threading.Event()
+
+  async def capture(msg: BusMessage) -> None:
+    received.append(msg)
+    got.set()
 
   async def run():
-    sub = bus.subscribe(topic="job.queued")
+    bus.subscribe(topic="job.queued", callback=capture)
     mesh.enqueue(prompt="hello", priority=0, member_name="test")
-    # Give the sync publish a moment to schedule
-    await asyncio.sleep(0.1)
-    msg = await sub.get(timeout=1.0)
-    if msg:
-      received.append(msg)
+    mesh.wait_for_pending_enqueues()
 
   asyncio.run(run())
+  # Mesh loop processes publish asynchronously on a background thread.
+  assert got.wait(timeout=3.0), "timed out waiting for job.queued on bus"
+  time.sleep(0.01)
   assert len(received) == 1
   assert received[0].payload["member"] == "test"
 
@@ -139,19 +175,34 @@ def test_apply_mesh_worker_unattended_off_inherits_manager(tmp_path: Path) -> No
 
 def test_mesh_priority_ordering(tmp_path: Path) -> None:
   """Higher priority jobs should be dequeued first."""
-  cfg = GemCodeConfig(project_root=tmp_path)
-  mesh = AgentMesh(cfg, max_concurrency=1)
+  old_s = os.environ.get("PYTEST_GEMCODE_MESH_SCHEDULER")
+  old_h = os.environ.get("GEMCODE_AGENT_HABITS")
+  os.environ["PYTEST_GEMCODE_MESH_SCHEDULER"] = "0"
+  os.environ["GEMCODE_AGENT_HABITS"] = "0"
+  try:
+    cfg = GemCodeConfig(project_root=tmp_path)
+    mesh = AgentMesh(cfg, max_concurrency=1)
 
-  mesh.enqueue(prompt="low", priority=1, member_name="a")
-  mesh.enqueue(prompt="high", priority=10, member_name="b")
-  mesh.enqueue(prompt="mid", priority=5, member_name="c")
+    mesh.enqueue(prompt="low", priority=1, member_name="a")
+    mesh.enqueue(prompt="high", priority=10, member_name="b")
+    mesh.enqueue(prompt="mid", priority=5, member_name="c")
+    mesh.wait_for_pending_enqueues()
 
-  # Drain the queue manually to check ordering
-  items = []
-  while not mesh._queue.empty():
-    neg_pri, seq, job = mesh._queue.get_nowait()
-    items.append((job.prompt, job.priority))
+    # Drain the queue manually to check ordering
+    items = []
+    while not mesh._queue.empty():
+      neg_pri, seq, job = mesh._queue.get_nowait()
+      items.append((job.prompt, job.priority))
 
-  assert items[0] == ("high", 10)
-  assert items[1] == ("mid", 5)
-  assert items[2] == ("low", 1)
+    assert items[0] == ("high", 10)
+    assert items[1] == ("mid", 5)
+    assert items[2] == ("low", 1)
+  finally:
+    if old_s is None:
+      os.environ.pop("PYTEST_GEMCODE_MESH_SCHEDULER", None)
+    else:
+      os.environ["PYTEST_GEMCODE_MESH_SCHEDULER"] = old_s
+    if old_h is None:
+      os.environ.pop("GEMCODE_AGENT_HABITS", None)
+    else:
+      os.environ["GEMCODE_AGENT_HABITS"] = old_h
