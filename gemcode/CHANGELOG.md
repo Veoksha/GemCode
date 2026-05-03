@@ -1,3 +1,7 @@
+## 0.4.12
+
+- **Habits / fleet inbox**: `job.report` lines include **member** and **habit** metadata; **`GEMCODE_FLEET_REPORTS_AUTO_CONTINUE` defaults to on** so the manager can digest background output after assistant turns (set `=0` to opt out). Friendlier digest prompt; docs and `habits_add` help updated.
+
 ## 0.4.11
 
 - **UX**: `GEMCODE_AFC_PROMPT` defaults to **off** — no blocking `afc>` stdin when MCP/OpenAPI toolsets are present (keeps all tools; use `GEMCODE_AFC_PROMPT=1` to restore the prompt). Docs and `/afc` help updated.
