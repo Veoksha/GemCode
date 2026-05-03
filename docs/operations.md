@@ -197,16 +197,17 @@ Python package version lives in:
 PyPI publishing is driven by `v*` tags.
 
 Safe release flow:
-1. bump package version
-2. commit version bump
-3. tag the release
-4. push branch
-5. push tag
+1. bump package version in `gemcode/pyproject.toml` and `gemcode/CHANGELOG.md`
+2. update the **static PyPI version badge** in the repo root `README.md` (search `badge/PyPI-v`) so it matches the new version
+3. commit version bump
+4. tag the release
+5. push branch
+6. push tag
 
 Example:
 
 ```bash
-git add gemcode/pyproject.toml
+git add gemcode/pyproject.toml gemcode/CHANGELOG.md README.md
 git commit -m "chore(release): bump gemcode to X.Y.Z"
 git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin main
