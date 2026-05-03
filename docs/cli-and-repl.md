@@ -43,6 +43,11 @@ Enablement is controlled by `GEMCODE_TUI` (default on in a TTY). When active, it
 - integrated status, tool display, and optional **GemCode Runtime** job/event stream (Unix socket)
 - the same **fleet report inbox** drain as `run_turn`: completed background reports in `.gemcode/fleet_reports.jsonl` are prepended each turn when `GEMCODE_FLEET_REPORTS_INJECT=1` (see [`orchestration.md`](orchestration.md#fleet-report-inbox--auto-continue-hands-off-summaries))
 
+TUI also shows a live one-line spinner with timing while work runs:
+**Thinking… → Running… → Querying…** (e.g. `Running… (42s)`). These timers should
+continue updating even during long shell tools (tests/builds) because shell tools
+run off the UI loop (threaded/async) rather than blocking the TUI event loop.
+
 ## Main CLI invocations
 
 ### Basic prompt

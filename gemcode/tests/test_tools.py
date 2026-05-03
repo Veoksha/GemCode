@@ -2,6 +2,8 @@ from pathlib import Path
 import sys
 from unittest.mock import MagicMock
 
+import pytest
+
 from gemcode.hitl_session import HITL_STICKY_SESSION_KEY
 
 from gemcode.config import GemCodeConfig
@@ -43,7 +45,8 @@ def test_read_file(tmp_path: Path, monkeypatch) -> None:
   assert out["content"] == "hello"
 
 
-def test_run_command_allowlist_bypass_after_shell_gate(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_run_command_allowlist_bypass_after_shell_gate(tmp_path: Path, monkeypatch) -> None:
   """Interactive approval arms one shot: rm works without being on GEMCODE_ALLOW_COMMANDS."""
   monkeypatch.setenv("GEMCODE_HOME", str(tmp_path / ".gemstate"))
   trust_root(tmp_path, trusted=True)
@@ -53,22 +56,23 @@ def test_run_command_allowlist_bypass_after_shell_gate(tmp_path: Path, monkeypat
   tgt.write_text("hi", encoding="utf-8")
   arm_confirmed_shell_basename("rm")
   run_command = make_run_command(cfg)
-  out = run_command("rm", ["x.txt"])
+  out = await run_command("rm", ["x.txt"])
   assert out.get("exit_code") == 0
   assert not tgt.exists()
   # Gate is not consumed when a different executable runs first (still non-allowlisted).
   arm_confirmed_shell_basename("rm")
   assert "uname" not in cfg.allow_commands
-  wrong = run_command("uname", ["-a"])
+  wrong = await run_command("uname", ["-a"])
   assert "not in allowlist" in str(wrong.get("error", ""))
   tgt2 = tmp_path / "y.txt"
   tgt2.write_text("z", encoding="utf-8")
-  ok2 = run_command("rm", ["y.txt"])
+  ok2 = await run_command("rm", ["y.txt"])
   assert ok2.get("exit_code") == 0
   assert not tgt2.exists()
 
 
-def test_run_command_sticky_session_bypasses_allowlist(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_run_command_sticky_session_bypasses_allowlist(tmp_path: Path, monkeypatch) -> None:
   monkeypatch.setenv("GEMCODE_HOME", str(tmp_path / ".gemstate"))
   trust_root(tmp_path, trusted=True)
   cfg = GemCodeConfig(project_root=tmp_path)
@@ -76,12 +80,13 @@ def test_run_command_sticky_session_bypasses_allowlist(tmp_path: Path, monkeypat
   run_command = make_run_command(cfg)
   ctx = MagicMock()
   ctx.state = {HITL_STICKY_SESSION_KEY: True}
-  out = run_command("uname", ["-a"], tool_context=ctx)
+  out = await run_command("uname", ["-a"], tool_context=ctx)
   assert out.get("exit_code") == 0
   assert (out.get("stdout") or out.get("stderr") or "").strip()
 
 
-def test_run_command_cwd_subdir(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_run_command_cwd_subdir(tmp_path: Path, monkeypatch) -> None:
   monkeypatch.setenv("GEMCODE_HOME", str(tmp_path / ".gemstate"))
   trust_root(tmp_path, trusted=True)
   cfg = GemCodeConfig(project_root=tmp_path)
@@ -91,7 +96,7 @@ def test_run_command_cwd_subdir(tmp_path: Path, monkeypatch) -> None:
   run_command = make_run_command(cfg)
   ctx = MagicMock()
   ctx.state = {HITL_STICKY_SESSION_KEY: True}
-  out = run_command(
+  out = await run_command(
       "python3",
       ["-c", "print(open('marker.txt').read())"],
       cwd_subdir="nest",
@@ -101,14 +106,15 @@ def test_run_command_cwd_subdir(tmp_path: Path, monkeypatch) -> None:
   assert "in-nest" in (out.get("stdout") or "")
 
 
-def test_run_command_background_returns_pid(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_run_command_background_returns_pid(tmp_path: Path, monkeypatch) -> None:
   monkeypatch.setenv("GEMCODE_HOME", str(tmp_path / ".gemstate"))
   trust_root(tmp_path, trusted=True)
   cfg = GemCodeConfig(project_root=tmp_path)
   run_command = make_run_command(cfg)
   ctx = MagicMock()
   ctx.state = {HITL_STICKY_SESSION_KEY: True}
-  out = run_command(
+  out = await run_command(
       "python3",
       ["-c", "print(1)"],
       background=True,
@@ -118,14 +124,15 @@ def test_run_command_background_returns_pid(tmp_path: Path, monkeypatch) -> None
   assert isinstance(out.get("pid"), int)
 
 
-def test_run_command_extra_env_merges(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_run_command_extra_env_merges(tmp_path: Path, monkeypatch) -> None:
   monkeypatch.setenv("GEMCODE_HOME", str(tmp_path / ".gemstate"))
   trust_root(tmp_path, trusted=True)
   cfg = GemCodeConfig(project_root=tmp_path)
   run_command = make_run_command(cfg)
   ctx = MagicMock()
   ctx.state = {HITL_STICKY_SESSION_KEY: True}
-  out = run_command(
+  out = await run_command(
       "python3",
       ["-c", "import os; print(os.environ.get('GEMCODE_TEST_EXTRA', ''))"],
       extra_env_keys=["GEMCODE_TEST_EXTRA"],

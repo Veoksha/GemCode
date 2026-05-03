@@ -3,6 +3,10 @@
 - **Docs:** Multi-agent model—fleet **`habits.json`** vs per-member skills/workspaces/runtime ([`orchestration.md`](../docs/orchestration.md)); stopping background work (**`/mesh halt`**, **`mesh_halt`**, **`habits_clear_all`**); **`/fleet`** and **`/mesh`** in [`cli-and-repl.md`](../docs/cli-and-repl.md); mesh singleton **`project_root`** in [`configuration.md`](../docs/configuration.md); user manual section in **`README.md`**.
 - **Mesh control:** **`halt_jobs`**, **`mesh_halt`** tool, **`/mesh`** slash, **`habits_clear_all`** — cancel running mesh tasks and drain the queue (habit removal alone does not stop in-flight work). Cancelled jobs do not emit **`job.report`** (fewer trigger follow-ups).
 
+## 0.4.18
+
+- **TUI timers:** Fix elapsed-time spinner freezing during long tool runs by making `bash` and `run_command` tools async/threaded (no longer block the TUI event loop). Added note in [`cli-and-repl.md`](../docs/cli-and-repl.md).
+
 ## 0.4.16
 
 - **Mesh:** Nested **`delegate_to_member(wait=True)`** only on the mesh thread (manager loop no longer mis-runs worker lifecycle when `_mesh_job_depth > 0`). **Singleton** **`project_root`** sync on **`ensure_mesh` / `get_mesh`** + trigger **`reload`**.

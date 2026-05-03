@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import shutil
@@ -45,7 +46,7 @@ def make_run_command(cfg: GemCodeConfig):
       except Exception:
         pass
 
-  def run_command(
+  def _run_command_sync(
     command: str,
     args: list[str] | None = None,
     timeout_seconds: int = 120,
@@ -199,5 +200,44 @@ def make_run_command(cfg: GemCodeConfig):
       }
     except subprocess.TimeoutExpired:
       return {"error": f"Timeout after {timeout_seconds}s"}
+
+  async def run_command(
+    command: str,
+    args: list[str] | None = None,
+    timeout_seconds: int = 120,
+    tool_context: ToolContext | None = None,
+    cwd_subdir: str = ".",
+    background: bool = False,
+    extra_env_keys: list[str] | None = None,
+    extra_env_values: list[str] | None = None,
+  ) -> dict:
+    """
+    Async wrapper for allowlisted subprocess execution.
+
+    Why: synchronous subprocess calls block the TUI event loop, freezing the live
+    spinner timers while tools run. We offload blocking work to a thread.
+    """
+    if background:
+      return _run_command_sync(
+        command,
+        args=args,
+        timeout_seconds=timeout_seconds,
+        tool_context=tool_context,
+        cwd_subdir=cwd_subdir,
+        background=True,
+        extra_env_keys=extra_env_keys,
+        extra_env_values=extra_env_values,
+      )
+    return await asyncio.to_thread(
+      _run_command_sync,
+      command,
+      args,
+      timeout_seconds,
+      tool_context,
+      cwd_subdir,
+      False,
+      extra_env_keys,
+      extra_env_values,
+    )
 
   return run_command

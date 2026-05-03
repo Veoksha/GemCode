@@ -38,7 +38,7 @@ def make_bash_tool(cfg: GemCodeConfig):
             except Exception:
                 pass
 
-    def bash(
+    def _bash_sync(
         command: str,
         timeout_seconds: int = 120,
         cwd_subdir: str = ".",
@@ -231,6 +231,30 @@ def make_bash_tool(cfg: GemCodeConfig):
             return result
         except subprocess.TimeoutExpired:
             return {"error": f"Timeout after {timeout_seconds}s", "command": command}
+
+    async def bash(
+        command: str,
+        timeout_seconds: int = 120,
+        cwd_subdir: str = ".",
+        background: bool = False,
+    ) -> dict:
+        """
+        Async wrapper for bash execution.
+
+        Why: synchronous subprocess calls block the TUI event loop, freezing the
+        live spinner timers ("Running…", "Querying…"). We run blocking shell work
+        on a worker thread so the UI keeps updating.
+        """
+        if background:
+            # Background start is quick; keep it synchronous for simplicity.
+            return _bash_sync(command, timeout_seconds=timeout_seconds, cwd_subdir=cwd_subdir, background=True)
+        return await asyncio.to_thread(
+            _bash_sync,
+            command,
+            timeout_seconds,
+            cwd_subdir,
+            False,
+        )
 
     return bash
 
