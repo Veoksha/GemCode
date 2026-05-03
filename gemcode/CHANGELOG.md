@@ -1,3 +1,7 @@
+## 0.4.10
+
+- **Docs**: Agent Mesh on a **background thread** (habits/triggers while TUI waits); **`org_delegate`** is mesh-only (no runtime IPC); **`agent_dm`** / **`agent_broadcast`** and fleet inbox formatting; clarified **`/agent assign|trigger`** IPC vs mesh fallback; **`agent_mesh.py`** module docstring aligned.
+
 ## 0.4.9
 
 - **Agents**: Delegation no longer depends on Kaira; agent direct messaging and broadcast support.

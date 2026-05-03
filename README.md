@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/gemcode/"><img src="https://img.shields.io/pypi/v/gemcode?label=PyPI&style=flat-square" alt="PyPI"></a>
+  <a href="https://github.com/Veoksha/GemCode/releases"><img src="https://img.shields.io/github/v/tag/Veoksha/GemCode?label=release&style=flat-square" alt="GitHub release tag"></a>
   <a href="https://github.com/Veoksha/GemCode/blob/main/gemcode/LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/Python-3.11%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/Tools-58-green?style=flat-square" alt="Tools">
