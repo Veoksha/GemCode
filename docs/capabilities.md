@@ -112,7 +112,7 @@ This capability is currently **experimental** and may be unavailable or unreliab
 
 ## Super mode (cross-cutting)
 
-Super mode is not a separate capability bundle; it changes **permission and UX behavior** across the normal tool surface (CLI, REPL, GemCode TUI, Kaira). It enables maximum autonomy: auto-approved mutations/shell, no GemCode HITL, skipped AFC stdin prompt, and automatic `get_user_choice` (first option).
+Super mode is not a separate capability bundle; it changes **permission and UX behavior** across the normal tool surface (CLI, REPL, GemCode TUI, **`gemcode runtime`** jobs). It enables maximum autonomy: auto-approved mutations/shell, no GemCode HITL, skipped AFC stdin prompt, and automatic `get_user_choice` (first option).
 
 See:
 - [`tools-and-permissions.md`](tools-and-permissions.md#super-mode-fully-autonomous)

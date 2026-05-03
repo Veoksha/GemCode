@@ -29,7 +29,7 @@ Most coding agents treat every turn as isolated — read files, make changes, fo
 | **Heals its own mistakes** | After every change, auto-runs tests. If they fail, auto-fixes. Closed loop: change → verify → fix → verify → done. |
 | **Creates its own tools** | When it repeats the same multi-step operation, it synthesizes a reusable script. Future invocations use the tool instead of repeating steps. |
 | **Runs a team of agents** | Org members are real ADK sub-agents with their own workspace, memory, and persistent history. They delegate, verify, and fix each other's work. |
-| **Wakes up on schedule** | Agents run recurring tasks — test watch every 30 min, nightly security audit, hourly status check. No daemon needed. |
+| **Wakes up on schedule** | **Habits** and **triggers** run in-process (no extra terminal). **File automations** under `.gemcode/automations/` need a running **`gemcode runtime`** (optionally `--automations`). |
 | **Gets smarter every session** | Skills self-improve from successes. Delegation learning remembers which agent handles what best. Capabilities auto-enable based on project patterns. |
 
 ---
@@ -127,7 +127,7 @@ habits_add("test-watch", "kaira", "Run pytest -q and report", every_minutes=30)
 habits_add("nightly-audit", "verifier", "Full security review", daily_at="02:00")
 ```
 
-Agents wake up on schedule, do their work, report back. No daemon needed — runs inside the main process.
+Agents wake up on schedule, do their work, report back. Habits execute via the in-process scheduler (no separate `gemcode runtime` required for basic recurring prompts).
 
 ---
 
@@ -140,7 +140,7 @@ Each org member is a **full GemCode session** — own workspace, own memory, own
 | Path | When to use | How it works |
 |------|-------------|--------------|
 | **Synchronous** (ADK native) | Quick reviews, exploration | LLM calls `transfer_to_agent` → ADK routes → result in session state |
-| **Asynchronous** (mesh) | Long tasks, tests, builds | `org_delegate("kaira", "run tests")` → background job → result via fleet reports |
+| **Asynchronous** (mesh) | Long tasks, tests, builds | `org_delegate("<member>", "run tests")` → background job → result via fleet reports (often a `kaira_worker` org member) |
 
 ### Self-triggering agents
 

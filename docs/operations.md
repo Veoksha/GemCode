@@ -103,8 +103,8 @@ Fix:
 - On startup it will automatically migrate legacy instruction filenames to `gemcode.md` when `gemcode.md` does not already exist.
 - If `gemcode.md` already exists, GemCode removes the legacy filename and preserves any content under `gemcode_legacy_instructions.md`.
 
-## Kaira daemon operations (GemCode Runtime)
-Kaira is the name of GemCode’s runtime daemon. It is a queue-based service that runs **GemCode jobs** in the background. It is not an external add-on; it uses the same GemCode tool surface and configuration.
+## GemCode Runtime daemon operations
+**GemCode Runtime** (`gemcode runtime`; “Kaira” is the legacy module/name) is a queue-based service that runs **GemCode jobs** in the background. It is not an external add-on; it uses the same GemCode tool surface and configuration.
 
 Operational expectations:
 - reads prompts from stdin
@@ -113,8 +113,8 @@ Operational expectations:
 - best used for background or repeated work
 
 ### Multi-terminal attach (same project)
-The Kaira daemon exposes a local Unix-socket control plane and event stream at:
-- `.gemcode/ipc.sock`
+The GemCode Runtime exposes a local Unix-socket control plane and event stream (default bind path at fleet root):
+- `.gemcode/ipc.sock` (also recorded in `.gemcode/manager_ipc.txt` when the runtime starts there)
 
 Multiple GemCode REPL/TUI instances can attach to the same daemon at the same time.
 
@@ -129,8 +129,8 @@ gemcode runtime attach -C .
 ```
 
 Relevant settings:
-- `GEMCODE_KAIRA_AUTO_CONNECT=1` (default): TUI auto-connects when `.gemcode/ipc.sock` exists
-- `GEMCODE_KAIRA_SOCKET=/path/to/ipc.sock`: override socket path
+- `GEMCODE_KAIRA_AUTO_CONNECT=1` (default): TUI auto-connects using fleet socket discovery when a runtime is up
+- `GEMCODE_KAIRA_SOCKET=/path/to/ipc.sock`: **fallback** client path only when fleet-default sockets are missing (runtime bind itself uses `--socket` or the default path — see [`configuration.md`](configuration.md#ui-and-behavior))
 
 ### Runtime alias
 `gemcode runtime` is the preferred spelling. `gemcode kaira` is an alias kept for compatibility.

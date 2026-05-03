@@ -27,7 +27,7 @@ This page documents GemCode's multi-agent orchestration system: the **Agent Mesh
 │  │Report│    │Engine   │   │Loop     │   │Layer              │   │
 │  └──────┘    └─────────┘   └─────────┘   └───────────────────┘   │
 │                                                                     │
-│  [Optional: Kaira Daemon for always-on server mode]                 │
+│  [Optional: GemCode Runtime daemon — queue + IPC + file automations]  │
 │  [Optional: A2A Bridge for cross-machine agents]                    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -296,7 +296,7 @@ Background agent results are persisted to `.gemcode/fleet_reports.jsonl` and aut
 
 ## Agent Habits (Scheduled Recurring Tasks)
 
-Habits let agents run tasks on a schedule — every N minutes, daily at a time, or via cron. They run inside the main GemCode process (no daemon needed).
+Habits let agents run tasks on a schedule — every N minutes, daily at a time, or via cron. They run inside the main GemCode process. (File-based **automations** under `.gemcode/automations/` are different: they are driven by **`gemcode runtime --automations`**.)
 
 ### Adding habits
 
@@ -429,7 +429,7 @@ Tools persist in `.gemcode/synthesized_tools/` as executable scripts with compan
 
 ## Kaira Daemon (Optional Always-On Mode)
 
-The Kaira daemon is still available for server/always-on scenarios but is no longer required for basic orchestration.
+The optional **GemCode Runtime** daemon (`gemcode runtime`) remains the right tool for always-on queues, IPC attach, and file automations; it is not required for the in-process Agent Mesh.
 
 ### When to use the daemon
 - You want agents running 24/7 (not just during interactive sessions)

@@ -55,8 +55,8 @@ Important groups:
 - `GEMCODE_OUTPUT_STYLE`
 - `GEMCODE_AFC_PROMPT`
 - `GEMCODE_AFC_DEFAULT` — when set to `all` or `callables`, skips the interactive `afc>` prompt and preselects the tool mode when non-callable toolsets (MCP/OpenAPI) are present.
-- `GEMCODE_TUI_WITH_KAIRA` — when `1`/`true`/`yes`/`on`, starts a headless Kaira daemon inside the GemCode TUI so Kaira jobs stream inline (single-terminal mode).
-- `GEMCODE_KAIRA_AUTO_CONNECT` — when `1`/`true`/`yes`/`on` (default), the GemCode TUI auto-connects to a running Kaira daemon via `.gemcode/ipc.sock` and streams job output inline.
+- `GEMCODE_TUI_WITH_KAIRA` — when `1`/`true`/`yes`/`on`, starts a headless **GemCode Runtime** inside the GemCode TUI process so background jobs stream inline (single-terminal mode). Env name is historical (“Kaira”).
+- `GEMCODE_KAIRA_AUTO_CONNECT` — when `1`/`true`/`yes`/`on` (default), the GemCode TUI auto-connects to a running runtime using fleet socket discovery (see `GEMCODE_KAIRA_SOCKET` below) and streams job output inline.
 - `GEMCODE_KAIRA_SOCKET` — optional **fallback** IPC path for clients when the fleet-default socket does not exist yet. GemCode resolves the manager socket in this order: `.gemcode/manager_ipc.txt` (written when `gemcode runtime` starts at the **fleet root**), then `<fleet_root>/.gemcode/ipc.sock` if present, then this env var if its path exists. **`gemcode runtime` no longer binds using this variable** (use `--socket` or the default path only) so a stale value in shell rc cannot hijack the daemon.
 - `GEMCODE_ORG_BUS_REPORTS` — when `1`/`true`/`yes`/`on` (default), `org_delegate` emits `bus_message` events (`topic=org.report`) so multiple GemCode clients (and supervisors) can receive delegation results without scraping job logs. Finished/failed org reports are still written to `.gemcode/fleet_reports.jsonl` for the manager session when injection is on, even if this is `0`.
 - **Fleet report inbox (manager session)** — completed `org.report` / `job.report` / `agent.report` outcomes append to `.gemcode/fleet_reports.jsonl` at the **fleet root** (`resolve_fleet_root`). They are prepended to the next model turn when:
@@ -66,8 +66,8 @@ Important groups:
 - `GEMCODE_RUNTIME_MANAGER` — when `1`/`true`/`yes`/`on` (default), enables a minimal runtime manager loop that reacts to bus messages (e.g. `topic=org.assign` triggers an org delegation run; `topic=job.report` with `failed` triggers one automatic fix attempt).
 - `GEMCODE_AGENT_HEARTBEAT_EVERY_S` — when set to a positive integer, the runtime publishes `topic=agent.heartbeat` periodically on the local bus. Useful for monitoring multi-agent setups.
 - `GEMCODE_PARENT_SOCKET` — optional parent runtime IPC socket path. When set (typically in a child agent workspace), the child runtime will also publish `agent.heartbeat` to the parent runtime.
-- `GEMCODE_AUTOMATIONS` — when `1`/`true`/`yes`/`on`, enables local scheduled automations from `.gemcode/automations/*.json` (executed by Kaira).
-- `GEMCODE_KAIRA_HEARTBEAT_EVERY_S` — optional heartbeat interval (seconds) for Kaira (enqueues a heartbeat prompt repeatedly when automations are enabled).
+- `GEMCODE_AUTOMATIONS` — when `1`/`true`/`yes`/`on`, enables local scheduled automations from `.gemcode/automations/*.json` (executed by the **GemCode Runtime** daemon when running with `--automations`).
+- `GEMCODE_KAIRA_HEARTBEAT_EVERY_S` — optional heartbeat interval (seconds) for the runtime (enqueues a heartbeat prompt repeatedly when automations are enabled).
 - `GEMCODE_KAIRA_HEARTBEAT_PROMPT` — optional prompt text used by the heartbeat job.
 
 ### Agent instruction tuning

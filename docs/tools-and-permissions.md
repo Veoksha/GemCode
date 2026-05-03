@@ -140,11 +140,11 @@ Use when you want **no human-in-the-loop** for GemCode’s own gates. Super mode
 
 1. **Mutations and shell** — same as `--yes`: `before_tool` allows `write_file`, `search_replace`, `run_command`, `bash`, computer-use tools, etc. (`gemcode/src/gemcode/callbacks.py`).
    - This includes **fleet/orchestration mutations** like `org_delegate`, `org_hire`, `org_spawn`, `automations_run`, etc.
-2. **ADK `request_confirmation` handoffs** — auto-confirmed in the one-shot CLI (`invoke.py`), GemCode TUI, and Kaira job runner when `yes_to_all` / super mode applies (so runs do not block on stdin or IPC approval).
+2. **ADK `request_confirmation` handoffs** — auto-confirmed in the one-shot CLI (`invoke.py`), GemCode TUI, and **GemCode Runtime** job runner when `yes_to_all` / super mode applies (so runs do not block on stdin or IPC approval).
 3. **AFC tool-mode stdin prompt** — pre-selects **all tools** (`_afc_choice=all`), skipping the `afc>` prompt (`session_runtime.py`).
 4. **Attachment read/upload gate** — treated like `--yes` for the session (`_attachments_allowed`).
 5. **Workspace trust prompt (CLI)** — on first start in a TTY, the project root is trusted without `y/N` (`cli.py`).
-6. **TUI-only extras** — Kaira IPC “approve tool?” and manager “enqueue fix job?” paths auto-approve when super/`--yes` (`tui/scrollback.py`).
+6. **TUI-only extras** — Runtime IPC “approve tool?” and manager “enqueue fix job?” paths auto-approve when super/`--yes` (`tui/scrollback.py`).
 7. **`get_user_choice`** — GemCode swaps ADK’s long-running UI tool for a plain tool that returns the **first non-empty** option in `options`. Put your preferred default first. Implementation: `gemcode/src/gemcode/tools/user_choice.py` (root agent and sub-agents via `agent.py` / `tools/subtask.py`).
 
 **How to enable**

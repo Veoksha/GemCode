@@ -22,7 +22,7 @@ This layer parses commands and flags, loads environment configuration, selects t
 - Interactive REPL (line-based)
 - GemCode TUI (scrollback-style terminal UI when `GEMCODE_TUI=1`)
 - IDE stdio bridge
-- Kaira daemon (GemCode Runtime)
+- GemCode Runtime daemon (`gemcode runtime`; alias `gemcode kaira`)
 - Live audio (experimental / future scope)
 
 ### Configuration and routing
@@ -52,7 +52,7 @@ This layer provides autonomous multi-agent behavior:
 - Self-healing auto-detects verification commands and fixes failures
 - Tool synthesis creates reusable scripts from repeated patterns
 - Delegation learning remembers which agents succeed at which tasks
-- Habits run scheduled tasks autonomously (no daemon required)
+- Habits run scheduled tasks autonomously in-process (optional `gemcode runtime` for `.gemcode/automations/` and a dedicated job queue)
 - Triggers auto-activate agents on bus events
 
 ### Runtime assembly
@@ -173,7 +173,7 @@ Flow:
 
 In IDE mode, mutating shell/file tools may emit proposals instead of directly changing the filesystem.
 
-### Kaira daemon (GemCode Runtime)
+### GemCode Runtime daemon
 Entry: `gemcode runtime` (alias: `gemcode kaira`)
 
 Flow:

@@ -40,7 +40,7 @@ There is no separate fullscreen TUI package in the repo.
 Enablement is controlled by `GEMCODE_TUI` (default on in a TTY). When active, it provides:
 - native terminal scrollback (no alt-screen app)
 - slash completion (via prompt_toolkit when available)
-- integrated status, tool display, and optional Kaira event stream
+- integrated status, tool display, and optional **GemCode Runtime** job/event stream (Unix socket)
 - the same **fleet report inbox** drain as `run_turn`: completed background reports in `.gemcode/fleet_reports.jsonl` are prepended each turn when `GEMCODE_FLEET_REPORTS_INJECT=1` (see [`orchestration.md`](orchestration.md#fleet-report-inbox--auto-continue-hands-off-summaries))
 
 ## Main CLI invocations
@@ -66,7 +66,7 @@ gemcode runtime -C . --super
 
 In the REPL/TUI, run `/super` once to enable (or `/super off` to clear the flag only).
 
-Super mode implies `--yes`, skips the AFC `afc>` stdin prompt (keeps all toolsets), auto-trusts the workspace on first interactive CLI start, auto-approves ADK confirmation handoffs and (in the TUI) Kaira IPC approvals, and replaces `get_user_choice` with **first-option** auto-selection. Full list: [`tools-and-permissions.md`](tools-and-permissions.md#super-mode-fully-autonomous).
+Super mode implies `--yes`, skips the AFC `afc>` stdin prompt (keeps all toolsets), auto-trusts the workspace on first interactive CLI start, auto-approves ADK confirmation handoffs and (in the TUI) runtime IPC approvals, and replaces `get_user_choice` with **first-option** auto-selection. Full list: [`tools-and-permissions.md`](tools-and-permissions.md#super-mode-fully-autonomous).
 
 **Note:** If you turn `/super` on after the session started, rebuild the agent (new session / restart) if you rely on the non-interactive `get_user_choice` tool.
 
@@ -80,6 +80,15 @@ gemcode -C . --interactive-ask "Update the docs"
 gemcode -C . --attach ./report.pdf "Summarize this"
 gemcode -C . --image ./ui.png "What is wrong with this screen?"
 ```
+
+### Attach REPL/TUI to an existing runtime (IPC)
+Use when a **`gemcode runtime`** is already running and you want this session to use the same fleet socket (discovery order matches [`configuration.md`](configuration.md#ui-and-behavior): `manager_ipc.txt`, default `.gemcode/ipc.sock`, then `GEMCODE_KAIRA_SOCKET` if that path exists):
+
+```bash
+gemcode -C /path/to/fleet/root --connect /path/to/.gemcode/ipc.sock
+```
+
+Implementation sets `GEMCODE_KAIRA_SOCKET` and `GEMCODE_KAIRA_AUTO_CONNECT` for this process (`gemcode/src/gemcode/cli.py`).
 
 ## REPL behavior
 
@@ -123,7 +132,7 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/caveman:compress` | Compress memory file · `/caveman:compress <path> [lite|full|ultra]` |
 | `/budget` | Per-turn token budget · `/token-budget` same |
 | `/caps` | Capabilities · `/capabilities` / `/capability` same |
-| `/clear` | Fresh session · same as `/session new` |
+| `/clear` | Fresh session · alias of `/session new` (not listed in Tab completion registry; still supported) |
 | `/code` | Toggle ADK BuiltInCodeExecutor (sandboxed Python) |
 | `/compact` | Context compaction / summarization |
 | `/summarise` | Persist a durable session summary + key facts, then start a fresh session |
@@ -146,16 +155,19 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/file` | Alias of `/attach` |
 | `/image` | Alias of `/attach` (same queue) |
 | `/img` | Alias of `/attach` |
-| `/kaira` | Background job scheduler help · how to run `gemcode kaira` |
-| `/kaira jobs` | List recent Kaira jobs via IPC (when daemon is running) |
+| `/runtime` | Fleet manager socket status · how to start **`gemcode runtime`** · attach/connect hints (`gemcode/src/gemcode/repl_slash.py`) |
+| `/bus` | Publish/subscribe lightweight messages on the runtime IPC bus |
+| `/inbox` | Filters for which bus topics/addresses this UI displays |
+| `/kaira` | Background job scheduler help · **`gemcode runtime`** preferred (`gemcode kaira` is an alias) |
+| `/kaira jobs` | List recent runtime jobs via IPC (daemon reachable) |
 | `/kaira job <id>` | Show a single job record via IPC |
 | `/kaira cancel <id>` | Cancel a job via IPC |
 | `/kaira follow <id>` | (TUI) Only show events for one job id prefix |
 | `/kaira unfollow` | (TUI) Clear the follow filter |
-| `/automations` | Local scheduled automations (Kaira) + heartbeat |
+| `/automations` | Local scheduled automations (requires **GemCode Runtime** IPC when enqueueing) + heartbeat |
 | `/automations list` | List `.gemcode/automations/*.json` |
 | `/automations init <name>` | Create starter automation config |
-| `/automations run <name>` | Enqueue an automation now via Kaira IPC |
+| `/automations run <name>` | Enqueue an automation now via runtime IPC |
 | `/automations heartbeat <seconds> [prompt...]` | Heartbeat job interval + prompt |
 | `/afc` | AFC prompt defaults (`GEMCODE_AFC_DEFAULT`, `GEMCODE_AFC_PROMPT`) |
 | `/limits` | Execution limits (calls, context, …) |
@@ -254,8 +266,8 @@ In interactive mode, GemCode can ask whether to:
 
 This behavior is implemented in `gemcode/src/gemcode/session_runtime.py`.
 
-## Kaira is not the TUI
-`gemcode runtime` (alias: `gemcode kaira`) is a queued background scheduler, not the GemCode TUI.
+## GemCode Runtime is not the TUI
+**GemCode Runtime** (`gemcode runtime`; alias `gemcode kaira`) is a queued background scheduler with a Unix-socket control plane, not the GemCode TUI.
 
 If you want the TUI, use:
 
@@ -272,21 +284,21 @@ gemcode runtime attach -C .
 
 This prints a raw JSONL stream (universal for piping into other tools). The GemCode TUI renders a human-friendly subset by default.
 
-### One-terminal mode (TUI + embedded Kaira)
-If you want continuous background jobs **and** you want to see everything in the same terminal UI, you can run Kaira inside the TUI process:
+### One-terminal mode (TUI + embedded runtime)
+If you want continuous background jobs **and** you want to see everything in the same terminal UI, you can run a headless runtime inside the TUI process:
 
 ```bash
 GEMCODE_TUI_WITH_KAIRA=1 gemcode -C .
 ```
 
-In this mode, GemCode starts a headless Kaira daemon (IPC-only) and the TUI auto-subscribes to job events so Kaira output is printed inline.
+In this mode, GemCode starts a headless **GemCode Runtime** (IPC-only; env name is historical) and the TUI auto-subscribes to job events so background output is printed inline.
 
 ### Scheduled automations (local)
 The runtime can also run simple local scheduled automations (like “hourly”, “nightly”, or cron-style triggers) from:
 
 - `.gemcode/automations/*.json`
 
-Enable them when running Kaira:
+Enable them when running the runtime:
 
 ```bash
 gemcode runtime -C . --automations
@@ -304,11 +316,11 @@ If you want a queue-driven scheduler, use:
 gemcode runtime -C .
 ```
 
-## Orchestration (Kaira + Org + parallel agents)
+## Orchestration (GemCode Runtime + Org + parallel agents)
 
 GemCode supports “organisation-style” delegation and background work:
 
-- **Runtime (daemon)**: a priority-queue scheduler with an IPC control plane and event stream.
+- **Runtime (daemon)**: a priority-queue scheduler with an IPC control plane and event stream (`gemcode runtime`).
 - **Agent fleet**: persistent members under `.gemcode/org.json` with role skills under `.gemcode/skills/` and workspaces under `.gemcode/agents/`.
 - **Parallel subtasks**: the model can run isolated subtasks concurrently (`spawn_subtasks`).
 

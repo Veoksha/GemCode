@@ -25,7 +25,7 @@ All state lives under `.gemcode/` in the project root. No external services requ
 | TUI | GemCode terminal UI (scrollback-style; `tui/scrollback.py`) |
 | IDE stdio | Editor integration over JSONL stdin/stdout |
 | Agent Mesh | In-process multi-agent orchestration (automatic) |
-| Kaira daemon | Optional always-on background scheduler |
+| GemCode Runtime | Optional always-on background scheduler (`gemcode runtime`; alias `gemcode kaira`) |
 | A2A server | Cross-machine agent communication via Google A2A protocol |
 | Live audio (experimental) | Microphone-driven Gemini Live sessions |
 
@@ -175,14 +175,16 @@ gemcode -C .
 gemcode -C . --attach ./report.pdf "Summarize this"
 ```
 
-### Run the scheduler
+### Run the scheduler (background jobs + optional automations)
 ```bash
+gemcode runtime -C .
+# alias:
 gemcode kaira -C .
 ```
 
 ### Orchestration (Agent Mesh + Multi-Agent)
 
-GemCode includes a built-in multi-agent orchestration system that works automatically — no separate daemon required.
+GemCode includes a built-in multi-agent orchestration system that works automatically in-process (**Agent Mesh**). A separate **`gemcode runtime`** process is optional: use it for a dedicated job queue, IPC attach, and `.gemcode/automations/` schedules.
 
 **Key features:**
 - **Native ADK sub-agents** — org members are real ADK sub-agents with `transfer_to_agent` routing
