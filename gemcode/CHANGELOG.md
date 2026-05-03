@@ -1,3 +1,7 @@
+## 0.4.11
+
+- **UX**: `GEMCODE_AFC_PROMPT` defaults to **off** — no blocking `afc>` stdin when MCP/OpenAPI toolsets are present (keeps all tools; use `GEMCODE_AFC_PROMPT=1` to restore the prompt). Docs and `/afc` help updated.
+
 ## 0.4.10
 
 - **Docs**: Agent Mesh on a **background thread** (habits/triggers while TUI waits); **`org_delegate`** is mesh-only (no runtime IPC); **`agent_dm`** / **`agent_broadcast`** and fleet inbox formatting; clarified **`/agent assign|trigger`** IPC vs mesh fallback; **`agent_mesh.py`** module docstring aligned.
