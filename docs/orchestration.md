@@ -329,6 +329,14 @@ habits_resume("test-watch") — re-enable
 habits_remove("test-watch") — delete permanently
 ```
 
+### Manager session: habits talking back to you
+
+Each habit run is a **mesh job**. When it finishes, the output is written to **`.gemcode/fleet_reports.jsonl`** as a `job.report` (with **habit name** and **member** so lines read like a note from that worker).
+
+- **While you are chatting**, **`GEMCODE_FLEET_REPORTS_AUTO_CONTINUE` defaults to on**: after each assistant response, if reports are still queued, GemCode injects a short **digest turn** so the **manager** (main session) summarizes new background output in a conversational way—without you typing “check fleet”.
+- **Opt out** (save tokens): set **`GEMCODE_FLEET_REPORTS_AUTO_CONTINUE=0`** — you’ll only see habit output when it’s drained into your **next** normal message.
+- **While you are idle at the prompt** (no turns running), the GemCode TUI still waits for keyboard input; new fleet lines accumulate until the **next** turn processes them or digest runs after a completed assistant reply. For idle wake-ups without the TUI, run **`gemcode runtime`** and use **`GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MODE=enqueue`** (debounced digest jobs on the fleet socket)—see [`configuration.md`](configuration.md#ui-and-behavior).
+
 ### Schedule types
 
 | Type | Example | Meaning |

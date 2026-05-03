@@ -323,6 +323,11 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
     Habits run inside the main GemCode process — no separate daemon needed.
     They fire as long as GemCode is open (REPL/TUI session).
 
+    Results go to the fleet inbox (.gemcode/fleet_reports.jsonl). Fleet auto-continue
+    (GEMCODE_FLEET_REPORTS_AUTO_CONTINUE, default on) can inject digest turns after each assistant
+    reply so the main agent summarizes habit output. Set GEMCODE_FLEET_REPORTS_AUTO_CONTINUE=0 to
+    only drain on your next normal message.
+
     Args:
       name: Unique name for this habit (e.g., "test-watch", "nightly-audit").
       agent: Org member name to run this (e.g., "kaira", "verifier").

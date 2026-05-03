@@ -33,12 +33,9 @@ def inject_enabled() -> bool:
 
 
 def auto_continue_enabled() -> bool:
-  return os.environ.get("GEMCODE_FLEET_REPORTS_AUTO_CONTINUE", "").strip().lower() in (
-    "1",
-    "true",
-    "yes",
-    "on",
-  )
+  """When true, queue a manager digest after each turn if fleet reports are pending (TUI/REPL). Default on; set GEMCODE_FLEET_REPORTS_AUTO_CONTINUE=0 to disable."""
+  v = os.environ.get("GEMCODE_FLEET_REPORTS_AUTO_CONTINUE", "1").strip().lower()
+  return v not in ("0", "false", "no", "off")
 
 
 def auto_continue_mode() -> str:
@@ -59,9 +56,10 @@ def max_auto_chain() -> int:
 def fleet_digest_prompt() -> str:
   return (
     f"{_DIGEST_MARKER}\n"
-    "Background agents may have completed work; fleet reports were drained at the start of this turn if any were queued.\n"
-    "Summarize outcomes for the user in short bullets. Do not call org_delegate, org_spawn, or spawn_subtasks "
-    "unless you must fix a reported error."
+    "New background work arrived (habits, mesh jobs, or agent messages). Summarize for the user in a short, "
+    "conversational way—like you are relaying what the other agent just did. Call out what changed since last time "
+    "if the report looks like a recurring check. Do not call org_delegate, org_spawn, or spawn_subtasks unless you "
+    "must fix a reported error."
   )
 
 
@@ -248,6 +246,15 @@ def _format_record(rec: dict[str, Any]) -> str:
       f"[job.report] job_id={payload.get('job_id')} status={payload.get('status')} "
       f"session_id={payload.get('session_id')}"
     )
+    mem = str(payload.get("member") or "").strip()
+    if mem:
+      lines.append(f"  member: {mem}")
+    hab = payload.get("habit")
+    if isinstance(hab, dict):
+      hn = str(hab.get("name") or "").strip()
+      ha = str(hab.get("agent") or "").strip()
+      if hn:
+        lines.append(f"  habit: {hn}" + (f" (runs as agent `{ha}`)" if ha else ""))
     rpt = str(payload.get("report") or "").strip()
     if rpt:
       lines.append(f"  report: {rpt[:8000]}")

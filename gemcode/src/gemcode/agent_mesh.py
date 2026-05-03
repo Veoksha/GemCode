@@ -400,16 +400,21 @@ class AgentMesh:
       except Exception:
         pass
 
-      # Persist to fleet reports
+      # Persist to fleet reports (include habit + member so the manager inbox reads clearly)
       try:
         from gemcode.fleet_reports import maybe_append_job_report
         fleet_root = resolve_fleet_root(self.cfg.project_root)
-        maybe_append_job_report(fleet_root, {
+        pl: dict[str, Any] = {
           "job_id": job.job_id,
           "session_id": job.session_id,
           "status": "finished",
           "report": result_text[:8000],
-        })
+          "member": job.member_name or "",
+        }
+        hm = job.meta.get("habit") if isinstance(job.meta, dict) else None
+        if isinstance(hm, dict):
+          pl["habit"] = hm
+        maybe_append_job_report(fleet_root, pl)
       except Exception:
         pass
 
@@ -434,12 +439,17 @@ class AgentMesh:
       try:
         from gemcode.fleet_reports import maybe_append_job_report
         fleet_root = resolve_fleet_root(self.cfg.project_root)
-        maybe_append_job_report(fleet_root, {
+        plf: dict[str, Any] = {
           "job_id": job.job_id,
           "session_id": job.session_id,
           "status": "failed",
           "report": job.error[:8000],
-        })
+          "member": job.member_name or "",
+        }
+        hm = job.meta.get("habit") if isinstance(job.meta, dict) else None
+        if isinstance(hm, dict):
+          plf["habit"] = hm
+        maybe_append_job_report(fleet_root, plf)
       except Exception:
         pass
 
