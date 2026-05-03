@@ -148,6 +148,7 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/embeddings` | Semantic file search · `/embed` same |
 | `/eval` | Eval gates (tools + pytest) · `/eval llm` optional |
 | `/exit` | Leave the REPL · `/quit` same |
+| `/fleet` | Fleet inbox — `/fleet` digest · `/fleet show` peek · `/fleet help` (habits / mesh `job.report` lines) |
 | `/help` | Short help · `/?` same |
 | `/hooks` | Post-turn hook configuration |
 | `/attach` | Queue file(s) for next message (PDF, images, …) · `/image` / `/file` / `/img` · list · clear |
@@ -174,6 +175,7 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/live-audio` | How to run `gemcode live-audio` · `/liveaudio` same |
 | `/login` | How to run `gemcode login` (API key) |
 | `/maps` | Maps grounding · `/maps` on/off · `/map` same |
+| `/mesh` | In-process agent mesh — `/mesh status` · `/mesh halt` · `/mesh halt --habits` · `/mesh help` |
 | `/memory` | Persistent memory · `/memory` on/off |
 | `/mode` | Model mode: fast, balanced, quality, auto |
 | `/model` | Model info / override · `/models` same |

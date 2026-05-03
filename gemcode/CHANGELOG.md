@@ -1,3 +1,16 @@
+## 0.4.17
+
+- **Docs:** Multi-agent model—fleet **`habits.json`** vs per-member skills/workspaces/runtime ([`orchestration.md`](../docs/orchestration.md)); stopping background work (**`/mesh halt`**, **`mesh_halt`**, **`habits_clear_all`**); **`/fleet`** and **`/mesh`** in [`cli-and-repl.md`](../docs/cli-and-repl.md); mesh singleton **`project_root`** in [`configuration.md`](../docs/configuration.md); user manual section in **`README.md`**.
+- **Mesh control:** **`halt_jobs`**, **`mesh_halt`** tool, **`/mesh`** slash, **`habits_clear_all`** — cancel running mesh tasks and drain the queue (habit removal alone does not stop in-flight work). Cancelled jobs do not emit **`job.report`** (fewer trigger follow-ups).
+
+## 0.4.16
+
+- **Mesh:** Nested **`delegate_to_member(wait=True)`** only on the mesh thread (manager loop no longer mis-runs worker lifecycle when `_mesh_job_depth > 0`). **Singleton** **`project_root`** sync on **`ensure_mesh` / `get_mesh`** + trigger **`reload`**.
+
+## 0.4.15
+
+- **Mesh:** Thread-safe **`enqueue`**; **`Future`-based** wait for **`org_delegate`**; nested inline delegation from mesh workers without scheduler deadlock.
+
 ## 0.4.14
 
 - **TUI / fleet inbox**: **`/fleet`**, **`/fleet show`**, **`/fleet digest`** — drain or peek `.gemcode/fleet_reports.jsonl` without guessing (habits and mesh complete while idle at ❯; auto-continue only chains after assistant turns). Throttled **`job.report`** hint in the TUI (`GEMCODE_FLEET_TUI_NOTIFY`, `GEMCODE_FLEET_TUI_NOTIFY_MIN_S`). Bus **`job.report`** payloads include **`habit`** metadata when present.

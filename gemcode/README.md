@@ -99,6 +99,12 @@ Every GemCode run is anchored to a project root. This determines:
 - what instruction files are loaded
 - which repo-local assets are active
 
+### Multi-agent habits, skills, and mesh runtime
+
+- **Habits** for the whole fleet live in **one** file: `.gemcode/habits.json` at the **fleet root**. Each row names which **org member** runs (`agent` field), on what schedule—different members can have different prompts and intervals at once.
+- **Skills** and **per-turn runtime** are **per member**: org `skill_name`, member skill under `.gemcode/skills/`, and optional **agent workspace** `.gemcode/agents/<id>-<slug>/` (own session DB, memory, local skills). Mesh jobs use that context automatically.
+- **Stopping automation:** removing a habit only stops *new* work. To cancel **queued** or **running** mesh jobs, use **`/mesh halt`** or the **`mesh_halt`** tool (see [`orchestration.md`](../docs/orchestration.md#stopping-background-work-habits-removed-but-jobs-still-finishing)).
+
 ### `.gemcode/`
 GemCode stores project-local state under `.gemcode/`, including:
 - sessions

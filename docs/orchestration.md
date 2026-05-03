@@ -46,6 +46,12 @@ No separate **`gemcode runtime`** process is required for **`org_delegate`** or 
 - Results are published to the Event Bus and persisted to fleet reports
 - Auto-starts when the first job is enqueued (background thread + scheduler)
 
+### Per-agent context (fleet schedule vs member runtime)
+
+- **Habits** are defined in **one** fleet file, `.gemcode/habits.json`, with **many** entries. Each entry names an **`agent`** (org member) plus prompt and schedule—so *different agents can have different habits at the same time*.
+- **Skills** and **session state** are *not* inside that JSON: each member uses their org **`skill_name`**, optional **agent workspace** under `.gemcode/agents/<id>-<slug>/` (local `.gemcode/`, skills, memory), and their own **ADK SQLite session** when the mesh runs a job for them.
+- The manager’s **`ensure_mesh` / `get_mesh`** calls keep the mesh singleton aligned with the active **`project_root`** (e.g. after `gemcode -C`) so habits, triggers, and fleet paths resolve to the same tree as the UI.
+
 ### Key difference from older releases
 - **`org_delegate`** no longer attempts Kaira/runtime IPC. The mesh is the primary path; an in-process **subtask** fallback runs if the mesh path fails.
 - Optional **`gemcode runtime`** remains useful for a **separate** fleet-manager queue, IPC attach, **`/agent assign`** / **`/agent trigger`** when the socket is up, and **`.gemcode/automations/`** — not for basic `org_delegate`.
@@ -327,8 +333,21 @@ habits_add("hourly-status", "self", "Summarize git status and recent changes", c
 habits_list()              — show all habits with status
 habits_pause("test-watch") — stop firing until resumed
 habits_resume("test-watch") — re-enable
-habits_remove("test-watch") — delete permanently
+habits_remove("test-watch") — delete permanently (stops *future* enqueues only)
+habits_clear_all()         — remove every habit row (destructive)
 ```
+
+### Stopping background work (habits removed but jobs still finishing)
+
+`habits_remove` / `habits_clear_all` update **`habits.json`** only. **Queued** mesh jobs and **running** jobs (including **verifier** or other **triggers** reacting to `job.report`) continue until they finish.
+
+To **drop the queue** and **cancel running** in-process mesh tasks:
+
+- **REPL/TUI:** `/mesh halt` — clears queued jobs and cancels running mesh tasks.  
+  `/mesh halt --habits` — same, and **empties** `.gemcode/habits.json`.
+- **Tools:** `mesh_halt(clear_queued_jobs=True, cancel_running_jobs=True, remove_all_habits=False)` — set `remove_all_habits=True` to wipe all habits in one call.
+
+Use **`mesh_status`** or **`/mesh`** (no args) for queued/running counts. This applies to the **in-process mesh** (same `gemcode` process as the TUI); it is **not** the same as **`/kaira cancel`** (runtime IPC jobs).
 
 ### Manager session: habits talking back to you
 
