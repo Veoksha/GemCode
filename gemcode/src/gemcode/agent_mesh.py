@@ -9,6 +9,12 @@ that does not require **`gemcode runtime`** for **`org_delegate`**. It manages:
 3. Event routing (via the in-memory EventBus)
 4. Automatic result reporting (fleet reports + bus messages)
 
+Each queued job is bound to an **org member**. When it runs, that member gets their own
+effective ``project_root`` (agent workspace under ``.gemcode/agents/…`` when configured),
+their **skills** (member skill + workspace-local skills), **memory**, **SQLite session**,
+and capability/model routing—so different agents do not share one generic runtime even
+when habits or triggers are defined in the same fleet ``habits.json``.
+
 Optional **`gemcode runtime`** is a separate fleet-manager process (IPC, automations, stdin queue).
 Slash **`/agent assign`** / **`trigger`** publish `org.assign` over IPC when the socket is up; otherwise the REPL falls back to **`org_delegate`** (this mesh). The mesh also subscribes to **`org.assign`** on the in-process bus for the same payload shape.
 """

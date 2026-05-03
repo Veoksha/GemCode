@@ -10,9 +10,18 @@ Examples:
 - "Nightly at 2am, run a full security audit"
 - "Every 5 minutes, check for new issues in the tracker"
 
-Habits are stored in `.gemcode/habits.json` and can be managed via tools
-or the REPL. Each habit specifies:
-- Which agent runs it (org member)
+Habits are stored in **one** fleet file, `.gemcode/habits.json` (next to `org.json`),
+and can be managed via tools or the REPL. That file holds **many** rows; each row is
+one schedule and names **which org member** runs it via the ``agent`` field—so
+different agents can have different prompts, intervals, and enablement at the same time.
+
+**Not** stored in habits: each member’s **skills** (org `skill_name`, workspace-local
+skills under `.gemcode/agents/<id>-<slug>/.gemcode/skills/`) and **runtime/session**
+(SQLite session, memory, routing). Those come from org membership and the mesh worker
+context when the habit fires.
+
+Each habit specifies:
+- Which agent runs it (org member name)
 - What they do (prompt)
 - When they do it (interval, cron, or daily)
 - Whether they're enabled
@@ -296,7 +305,7 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
   """Build tools for managing agent habits."""
 
   def habits_list() -> dict:
-    """List all configured agent habits (scheduled recurring tasks)."""
+    """List all fleet habits. Each entry targets one org member (`agent`); members differ by skills/workspace when the job runs."""
     habits = load_habits(cfg.project_root)
     return {
       "ok": True,
@@ -336,7 +345,8 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
 
     Args:
       name: Unique name for this habit (e.g., "test-watch", "nightly-audit").
-      agent: Org member name to run this (e.g., "kaira", "verifier").
+      agent: Org **member** name to run this (e.g., "kaira", "verifier", "tcs_analyst").
+             That member’s own skills, workspace, and ADK session apply when the habit runs—not the manager’s.
              Use "self" or "main" to run as the main GemCode agent.
       prompt: What the agent should do each time it wakes up.
       every_minutes: Run every N minutes (e.g., 30 = every half hour).
