@@ -1,4 +1,4 @@
-## Unreleased
+## 0.4.14
 
 - **TUI / fleet inbox**: **`/fleet`**, **`/fleet show`**, **`/fleet digest`** — drain or peek `.gemcode/fleet_reports.jsonl` without guessing (habits and mesh complete while idle at ❯; auto-continue only chains after assistant turns). Throttled **`job.report`** hint in the TUI (`GEMCODE_FLEET_TUI_NOTIFY`, `GEMCODE_FLEET_TUI_NOTIFY_MIN_S`). Bus **`job.report`** payloads include **`habit`** metadata when present.
 
