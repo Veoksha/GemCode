@@ -634,11 +634,47 @@ class AgentMesh:
       )
       return {"ok": True, "job_id": job_id}
 
+    async def agent_dm(to: str, message: str) -> dict:
+      """Send a direct message to another agent via the event bus."""
+      from_name = job.member_name or 'anonymous'
+      await mesh._bus.publish(BusMessage(
+        topic='agent.dm', from_addr=from_name, to_addr=to,
+        payload={'from': from_name, 'to': to, 'message': message},
+      ))
+      try:
+        from gemcode.fleet_reports import append_fleet_report
+        fleet_root = resolve_fleet_root(mesh.cfg.project_root)
+        append_fleet_report(fleet_root, topic='agent.dm', payload={
+          'from': from_name, 'to': to, 'message': message[:4000],
+        })
+      except Exception:
+        pass
+      return {'ok': True, 'sent_to': to}
+
+    async def agent_broadcast(message: str) -> dict:
+      """Broadcast a message to all agents and the manager."""
+      from_name = job.member_name or 'anonymous'
+      await mesh._bus.publish(BusMessage(
+        topic='agent.broadcast', from_addr=from_name, to_addr='',
+        payload={'from': from_name, 'message': message},
+      ))
+      try:
+        from gemcode.fleet_reports import append_fleet_report
+        fleet_root = resolve_fleet_root(mesh.cfg.project_root)
+        append_fleet_report(fleet_root, topic='agent.broadcast', payload={
+          'from': from_name, 'message': message[:4000],
+        })
+      except Exception:
+        pass
+      return {'ok': True, 'broadcast_from': from_name}
+
     mesh_delegate.__name__ = "mesh_delegate"
     mesh_report.__name__ = "mesh_report"
     mesh_enqueue.__name__ = "mesh_enqueue"
+    agent_dm.__name__ = "agent_dm"
+    agent_broadcast.__name__ = "agent_broadcast"
 
-    return [mesh_delegate, mesh_report, mesh_enqueue]
+    return [mesh_delegate, mesh_report, mesh_enqueue, agent_dm, agent_broadcast]
 
   # ── Status / Introspection ──────────────────────────────────────────────
 

@@ -273,6 +273,17 @@ def _format_record(rec: dict[str, Any]) -> str:
     elif isinstance(res, str) and res.strip():
       lines.append(f"  result: {res[:8000]}")
 
+  elif topic == "agent.dm":
+    from_name = str(payload.get("from") or "")
+    to_name = str(payload.get("to") or "")
+    msg = str(payload.get("message") or "").strip()
+    lines.append(f"[agent.dm] {from_name} → {to_name}: {msg[:4000]}")
+
+  elif topic == "agent.broadcast":
+    from_name = str(payload.get("from") or "")
+    msg = str(payload.get("message") or "").strip()
+    lines.append(f"[agent.broadcast] {from_name}: {msg[:4000]}")
+
   return "\n".join(lines)
 
 
