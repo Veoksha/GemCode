@@ -395,7 +395,10 @@ class AgentMesh:
 
     # Nested wait=True from inside a running mesh job would deadlock the scheduler
     # (parent holds a concurrency slot while the child waits for another slot).
-    if self._mesh_job_depth > 0:
+    # Only use the inline path on the mesh thread: the manager runs on a different
+    # event loop; _mesh_job_depth can be >0 while a habit runs, but inline
+    # _run_job_inner must not run there (asyncio locks / ADK are mesh-loop-local).
+    if self._is_on_mesh_thread() and self._mesh_job_depth > 0:
       job_id = f"mesh_{uuid.uuid4().hex[:10]}"
       with self._enqueue_lock:
         self._seq += 1
@@ -868,12 +871,41 @@ class AgentMesh:
 _global_mesh: AgentMesh | None = None
 
 
+def _sync_mesh_cfg_project_root(mesh: AgentMesh, cfg: GemCodeConfig) -> None:
+  """
+  Keep the singleton aligned with the active manager ``cfg.project_root``.
+
+  If the mesh was created from a different cwd than a later ``ensure_mesh`` /
+  ``get_mesh`` (e.g. ``-C``), habits/triggers/fleet would otherwise read the
+  wrong ``.gemcode/`` tree while the UI used another.
+  """
+  try:
+    cur = Path(mesh.cfg.project_root).resolve()
+    nxt = Path(cfg.project_root).resolve()
+    if cur == nxt:
+      return
+    mesh.cfg.project_root = cfg.project_root
+    if mesh._trigger_engine is not None:
+      mesh._trigger_engine.cfg = mesh.cfg
+      mesh._trigger_engine.reload()
+    if mesh._habit_scheduler is not None:
+      mesh._habit_scheduler.cfg = mesh.cfg
+    if mesh._learner is not None:
+      mesh._learner.cfg = mesh.cfg
+    if mesh._self_healing is not None:
+      mesh._self_healing.cfg = mesh.cfg
+  except Exception:
+    pass
+
+
 def get_mesh(cfg: GemCodeConfig | None = None) -> AgentMesh | None:
   """Get or create the global agent mesh."""
   global _global_mesh
   if _global_mesh is None and cfg is not None:
     concurrency = int(os.environ.get("GEMCODE_MESH_CONCURRENCY", "3"))
     _global_mesh = AgentMesh(cfg, max_concurrency=concurrency)
+  elif _global_mesh is not None and cfg is not None:
+    _sync_mesh_cfg_project_root(_global_mesh, cfg)
   return _global_mesh
 
 
@@ -883,6 +915,8 @@ def ensure_mesh(cfg: GemCodeConfig) -> AgentMesh:
   if _global_mesh is None:
     concurrency = int(os.environ.get("GEMCODE_MESH_CONCURRENCY", "3"))
     _global_mesh = AgentMesh(cfg, max_concurrency=concurrency)
+  else:
+    _sync_mesh_cfg_project_root(_global_mesh, cfg)
   return _global_mesh
 
 
