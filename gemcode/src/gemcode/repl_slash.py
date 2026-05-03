@@ -1566,7 +1566,7 @@ async def process_repl_slash(
 
     if sub == "prompt":
       if len(parts) < 2:
-        out(f"GEMCODE_AFC_PROMPT: {os.environ.get('GEMCODE_AFC_PROMPT', '(unset => default on)')}")
+        out(f"GEMCODE_AFC_PROMPT: {os.environ.get('GEMCODE_AFC_PROMPT', '(unset => default off, no afc> prompt)')}")
         out()
         return ReplSlashResult(skip_model_turn=True)
       v2 = _norm(parts[1])
@@ -1584,7 +1584,7 @@ async def process_repl_slash(
       return ReplSlashResult(skip_model_turn=True, force_rebuild_runner=True)
 
     out("AFC:")
-    out(f"  GEMCODE_AFC_PROMPT : {os.environ.get('GEMCODE_AFC_PROMPT', '(unset => default on)')}")
+    out(f"  GEMCODE_AFC_PROMPT : {os.environ.get('GEMCODE_AFC_PROMPT', '(unset => default off)')}")
     out(f"  GEMCODE_AFC_DEFAULT: {os.environ.get('GEMCODE_AFC_DEFAULT', '(unset)')}")
     out()
     return ReplSlashResult(skip_model_turn=True)

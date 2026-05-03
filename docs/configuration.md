@@ -53,8 +53,8 @@ Important groups:
 ### UI and behavior
 - `GEMCODE_TUI`
 - `GEMCODE_OUTPUT_STYLE`
-- `GEMCODE_AFC_PROMPT`
-- `GEMCODE_AFC_DEFAULT` — when set to `all` or `callables`, skips the interactive `afc>` prompt and preselects the tool mode when non-callable toolsets (MCP/OpenAPI) are present.
+- `GEMCODE_AFC_PROMPT` — default **off** (`0`/`false`/unset): no interactive `afc>` prompt; all toolsets stay enabled when MCP/OpenAPI add non-callables (equivalent to approving “all tools”). Set to `1`/`true`/`on` to restore the stdin choice between all tools vs callable-only.
+- `GEMCODE_AFC_DEFAULT` — when `GEMCODE_AFC_PROMPT=1` and set to `all` or `callables`, skips the interactive `afc>` prompt and preselects the tool mode when non-callable toolsets (MCP/OpenAPI) are present.
 - `GEMCODE_TUI_WITH_KAIRA` — when `1`/`true`/`yes`/`on`, starts a headless **GemCode Runtime** inside the GemCode TUI process so background jobs stream inline (single-terminal mode). Env name is historical (“Kaira”).
 - `GEMCODE_KAIRA_AUTO_CONNECT` — when `1`/`true`/`yes`/`on` (default), the GemCode TUI auto-connects to a running runtime using fleet socket discovery (see `GEMCODE_KAIRA_SOCKET` below) and streams job output inline.
 - `GEMCODE_KAIRA_SOCKET` — optional **fallback** IPC path for clients when the fleet-default socket does not exist yet. GemCode resolves the manager socket in this order: `.gemcode/manager_ipc.txt` (written when `gemcode runtime` starts at the **fleet root**), then `<fleet_root>/.gemcode/ipc.sock` if present, then this env var if its path exists. **`gemcode runtime` no longer binds using this variable** (use `--socket` or the default path only) so a stale value in shell rc cannot hijack the daemon.

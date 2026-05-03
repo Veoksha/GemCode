@@ -260,11 +260,7 @@ These surface runtime telemetry around:
 ## AFC prompt behavior
 Gemini Automatic Function Calling (AFC) can be affected by non-callable toolsets such as MCP or OpenAPI toolsets.
 
-In interactive mode, GemCode can ask whether to:
-- keep **all tools**
-- restrict to **callable-only tools**
-
-This behavior is implemented in `gemcode/src/gemcode/session_runtime.py`.
+By default GemCode **does not** show the `afc>` prompt: it keeps **all tools** (set **`GEMCODE_AFC_PROMPT=1`** to ask, or use `/afc` in the REPL). Implementation: `gemcode/src/gemcode/session_runtime.py`.
 
 ## GemCode Runtime is not the TUI
 **GemCode Runtime** (`gemcode runtime`; alias `gemcode kaira`) is a queued background scheduler with a Unix-socket control plane, not the GemCode TUI.

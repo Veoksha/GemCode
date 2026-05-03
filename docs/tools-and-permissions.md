@@ -141,7 +141,7 @@ Use when you want **no human-in-the-loop** for GemCode’s own gates. Super mode
 1. **Mutations and shell** — same as `--yes`: `before_tool` allows `write_file`, `search_replace`, `run_command`, `bash`, computer-use tools, etc. (`gemcode/src/gemcode/callbacks.py`).
    - This includes **fleet/orchestration mutations** like `org_delegate`, `org_hire`, `org_spawn`, `automations_run`, etc.
 2. **ADK `request_confirmation` handoffs** — auto-confirmed in the one-shot CLI (`invoke.py`), GemCode TUI, and **GemCode Runtime** job runner when `yes_to_all` / super mode applies (so runs do not block on stdin or IPC approval).
-3. **AFC tool-mode stdin prompt** — pre-selects **all tools** (`_afc_choice=all`), skipping the `afc>` prompt (`session_runtime.py`).
+3. **AFC tool-mode stdin prompt** — pre-selects **all tools** (`_afc_choice=all`), skipping the `afc>` prompt (`session_runtime.py`). Outside super mode, **`GEMCODE_AFC_PROMPT` defaults to off** as well — same effective behavior unless you opt back into prompting.
 4. **Attachment read/upload gate** — treated like `--yes` for the session (`_attachments_allowed`).
 5. **Workspace trust prompt (CLI)** — on first start in a TTY, the project root is trusted without `y/N` (`cli.py`).
 6. **TUI-only extras** — Runtime IPC “approve tool?” and manager “enqueue fix job?” paths auto-approve when super/`--yes` (`tui/scrollback.py`).
@@ -214,12 +214,11 @@ This behavior is implemented in:
 ## Automatic Function Calling
 Gemini AFC may be degraded or disabled when non-callable toolsets are present.
 
-GemCode can prompt the user to choose between:
-- all tools
-- callable-only tools
+By default GemCode **does not** block on stdin: it keeps **all tools** (same as pressing Enter at `afc>`). Set **`GEMCODE_AFC_PROMPT=1`** if you want an interactive choice between all tools vs callable-only (MCP/OpenAPI stripped).
 
-Current user-facing configuration:
-- `GEMCODE_AFC_PROMPT`
+Configuration:
+- `GEMCODE_AFC_PROMPT` — default **off** (`0`/unset)
+- `GEMCODE_AFC_DEFAULT` — when prompting is on: `all`|`callables` to skip `afc>` via env
 
 Runtime assembly:
 - `gemcode/src/gemcode/session_runtime.py`

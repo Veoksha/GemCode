@@ -466,14 +466,14 @@ def create_runner(cfg: GemCodeConfig, extra_tools: list | None = None) -> Runner
   # composed of Python callables. Some ADK toolsets (MCP/OpenAPI/built-in
   # declarations) may be non-callable and cause AFC to be disabled.
   #
-  # If we're in an interactive terminal and the user opted into prompting,
-  # ask whether to keep "all tools" (AFC disabled) or restrict to callables
-  # (AFC enabled).
+  # By default we do **not** prompt: non-callable toolsets (MCP/OpenAPI) stay
+  # enabled (same as choosing [Enter] "all tools"; AFC may still be disabled).
+  # Set GEMCODE_AFC_PROMPT=1 to restore the interactive `afc>` choice.
   try:
     import os
     import sys
 
-    prompt_afc = os.environ.get("GEMCODE_AFC_PROMPT", "1").strip().lower() in ("1", "true", "yes", "on")
+    prompt_afc = os.environ.get("GEMCODE_AFC_PROMPT", "0").strip().lower() in ("1", "true", "yes", "on")
     afc_default = (os.environ.get("GEMCODE_AFC_DEFAULT") or "").strip().lower()
     if prompt_afc and hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
       tools_list = list(merged_extra_tools or [])
