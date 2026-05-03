@@ -146,6 +146,66 @@ async def process_repl_slash(
       return ReplSlashResult(skip_model_turn=True)
     return ReplSlashResult(model_prompt=fleet_digest_prompt())
 
+  # ── /mesh (in-process agent mesh — cancel queued/running work) ─────────────
+  if name == "mesh":
+    from gemcode.agent_mesh import get_mesh
+
+    raw_m = (sc.args or "").strip()
+    parts_m = raw_m.lower().split()
+    first_m = parts_m[0] if parts_m else ""
+
+    m = get_mesh(cfg)
+    if m is None:
+      out("[mesh] not initialized.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if first_m in ("help", "?"):
+      out("In-process agent mesh (habits, org_delegate, triggers):")
+      out("  /mesh              Show counts + short tip.")
+      out("  /mesh status       Queued / running job counts.")
+      out("  /mesh halt         Drop queued jobs and cancel running mesh tasks.")
+      out("  /mesh halt --habits   Same, and clear `.gemcode/habits.json` entirely.")
+      out("Note: `habits_remove` only stops *new* enqueues; queued or running jobs continue")
+      out("until they finish unless you `/mesh halt`. Orchestration is in this process")
+      out("(no separate daemon required for the mesh).")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if first_m in ("halt", "stop", "kill"):
+      and_habits = "--habits" in parts_m
+      try:
+        h = m.halt_jobs(clear_queue=True, cancel_running=True)
+      except Exception as e:
+        out(f"[mesh] halt failed: {type(e).__name__}: {e}")
+        out()
+        return ReplSlashResult(skip_model_turn=True)
+      out(
+        f"[mesh] halted: cleared {h.get('cleared_queued', 0)} queued job(s), "
+        f"cancelled {h.get('cancelled_running', 0)} running task(s).",
+      )
+      if and_habits:
+        from gemcode.agent_habits import save_habits
+        save_habits(cfg.project_root, [])
+        out("[mesh] also cleared `.gemcode/habits.json` (all habits removed).")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if first_m in ("status", "") or not parts_m:
+      st = m.status()
+      out(
+        f"[mesh] queued={st['queued_jobs']}  running={st['running_jobs']}  "
+        f"completed_total={st['completed_jobs']}  max_concurrency={st['max_concurrency']}",
+      )
+      if not parts_m or first_m == "":
+        out("Tip: `/mesh halt` stops queued + running work · `/mesh help`")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    out("[mesh] unknown subcommand. Try `/mesh help`.")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
   # ── /attach (queue files for the next user message: PDF, images, audio, …) ─
   if name in ("attach", "file", "image", "img"):
     raw_i = (sc.args or "").strip()

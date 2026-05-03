@@ -24,6 +24,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from gemcode.config import GemCodeConfig, _truthy_env
@@ -262,6 +263,67 @@ class AgentMesh:
 
     self._bg_loop.call_soon_threadsafe(_poke)
     fut.result(timeout=timeout)
+
+  def _call_on_mesh_loop(self, fn: Callable[[], Any], *, timeout: float = 30.0) -> Any:
+    """Run a sync callable on the mesh asyncio loop (safe from any thread)."""
+    if self._bg_thread is None or not self._bg_thread.is_alive():
+      self.start()
+    if not self._wait_bg_loop_ready():
+      raise RuntimeError("mesh background loop not available")
+    assert self._bg_loop is not None
+    fut: concurrent.futures.Future[Any] = concurrent.futures.Future()
+
+    def _wrap() -> None:
+      try:
+        fut.set_result(fn())
+      except Exception as e:
+        fut.set_exception(e)
+
+    self._bg_loop.call_soon_threadsafe(_wrap)
+    return fut.result(timeout=timeout)
+
+  def clear_pending_jobs(self) -> int:
+    """Remove jobs not yet started from the mesh queue. Returns how many were dropped."""
+
+    def _drain() -> int:
+      n = 0
+      while True:
+        try:
+          self._queue.get_nowait()
+          n += 1
+        except asyncio.QueueEmpty:
+          break
+      return n
+
+    return int(self._call_on_mesh_loop(_drain))
+
+  def cancel_running_jobs(self) -> int:
+    """Cancel in-flight mesh job tasks (habits, delegates, triggers). Returns cancel count."""
+
+    def _cancel() -> int:
+      n = 0
+      for _jid, task in list(self._running.items()):
+        if not task.done():
+          task.cancel()
+          n += 1
+      return n
+
+    return int(self._call_on_mesh_loop(_cancel))
+
+  def halt_jobs(
+      self,
+      *,
+      clear_queue: bool = True,
+      cancel_running: bool = True,
+  ) -> dict[str, Any]:
+    """Stop queued and/or running mesh work (does not edit ``habits.json``)."""
+    cleared = self.clear_pending_jobs() if clear_queue else 0
+    cancelled = self.cancel_running_jobs() if cancel_running else 0
+    return {
+      "ok": True,
+      "cleared_queued": cleared,
+      "cancelled_running": cancelled,
+    }
 
   def enqueue(
     self,
@@ -603,6 +665,9 @@ class AgentMesh:
         pass
 
     finally:
+      if job.status == "running":
+        job.status = "cancelled"
+        job.error = "cancelled"
       cf = job.completion_future
       if cf is not None and not cf.done():
         try:

@@ -330,6 +330,10 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
     or send any message; the TUI also prints a throttled hint when mesh jobs finish
     (GEMCODE_FLEET_TUI_NOTIFY).
 
+    Removing a habit only stops **future** enqueues. Jobs already queued or running (including
+    verifier/trigger follow-ups) keep going until they finish unless you call **`mesh_halt`**
+    or **`/mesh halt`**.
+
     Args:
       name: Unique name for this habit (e.g., "test-watch", "nightly-audit").
       agent: Org member name to run this (e.g., "kaira", "verifier").
@@ -391,6 +395,11 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
     save_habits(cfg.project_root, habits)
     return {"ok": True, "removed": before - len(habits)}
 
+  def habits_clear_all() -> dict:
+    """Remove every habit from `.gemcode/habits.json` (nothing will re-enqueue until you add new habits)."""
+    save_habits(cfg.project_root, [])
+    return {"ok": True, "cleared": True}
+
   def habits_pause(name: str) -> dict:
     """Pause a habit (stop it from firing until resumed)."""
     habits = load_habits(cfg.project_root)
@@ -414,7 +423,8 @@ def make_habits_tools(cfg: GemCodeConfig) -> list:
   habits_list.__name__ = "habits_list"
   habits_add.__name__ = "habits_add"
   habits_remove.__name__ = "habits_remove"
+  habits_clear_all.__name__ = "habits_clear_all"
   habits_pause.__name__ = "habits_pause"
   habits_resume.__name__ = "habits_resume"
 
-  return [habits_list, habits_add, habits_remove, habits_pause, habits_resume]
+  return [habits_list, habits_add, habits_remove, habits_clear_all, habits_pause, habits_resume]

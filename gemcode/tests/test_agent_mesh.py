@@ -173,6 +173,32 @@ def test_apply_mesh_worker_unattended_off_inherits_manager(tmp_path: Path) -> No
   assert cfg.interactive_permission_ask is True
 
 
+def test_mesh_halt_clears_pending_queue(tmp_path: Path) -> None:
+  old_s = os.environ.get("PYTEST_GEMCODE_MESH_SCHEDULER")
+  old_h = os.environ.get("GEMCODE_AGENT_HABITS")
+  os.environ["PYTEST_GEMCODE_MESH_SCHEDULER"] = "0"
+  os.environ["GEMCODE_AGENT_HABITS"] = "0"
+  try:
+    cfg = GemCodeConfig(project_root=tmp_path)
+    mesh = AgentMesh(cfg, max_concurrency=2)
+    mesh.enqueue(prompt="a", priority=1, member_name="x")
+    mesh.enqueue(prompt="b", priority=1, member_name="y")
+    mesh.wait_for_pending_enqueues()
+    assert mesh._queue.qsize() == 2
+    h = mesh.halt_jobs(clear_queue=True, cancel_running=False)
+    assert h["cleared_queued"] == 2
+    assert mesh._queue.qsize() == 0
+  finally:
+    if old_s is None:
+      os.environ.pop("PYTEST_GEMCODE_MESH_SCHEDULER", None)
+    else:
+      os.environ["PYTEST_GEMCODE_MESH_SCHEDULER"] = old_s
+    if old_h is None:
+      os.environ.pop("GEMCODE_AGENT_HABITS", None)
+    else:
+      os.environ["GEMCODE_AGENT_HABITS"] = old_h
+
+
 def test_mesh_priority_ordering(tmp_path: Path) -> None:
   """Higher priority jobs should be dequeued first."""
   old_s = os.environ.get("PYTEST_GEMCODE_MESH_SCHEDULER")

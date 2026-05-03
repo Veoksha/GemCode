@@ -206,8 +206,36 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
         return {"ok": False, "error": "mesh not initialized"}
       return {"ok": True, **m.status()}
 
+    def mesh_halt(
+      clear_queued_jobs: bool = True,
+      cancel_running_jobs: bool = True,
+      remove_all_habits: bool = False,
+    ) -> dict:
+      """
+      Stop background mesh work: drop jobs waiting in the queue, cancel jobs currently running,
+      and optionally wipe all habits. Use when habits were removed but work keeps finishing.
+
+      This is the in-process mesh (same GemCode session), not a separate ``gemcode runtime`` daemon.
+      """
+      m = get_mesh(cfg)
+      if m is None:
+        return {"ok": False, "error": "mesh not initialized"}
+      try:
+        out = m.halt_jobs(clear_queue=clear_queued_jobs, cancel_running=cancel_running_jobs)
+      except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+      if remove_all_habits:
+        from gemcode.agent_habits import save_habits
+        save_habits(cfg.project_root, [])
+        out["habits_cleared"] = True
+      else:
+        out["habits_cleared"] = False
+      return out
+
     mesh_status.__name__ = "mesh_status"
+    mesh_halt.__name__ = "mesh_halt"
     tools.append(mesh_status)
+    tools.append(mesh_halt)
   except Exception:
     pass
 

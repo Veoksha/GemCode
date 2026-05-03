@@ -237,6 +237,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("bus",         "Runtime bus — send/publish lightweight messages over IPC"),
     ("inbox",       "Bus inbox filters for this UI (to/topics)"),
     ("fleet",       "Fleet inbox — /fleet show | digest (habits / mesh reports)"),
+    ("mesh",        "In-process mesh — /mesh halt | status (stop queued/running jobs)"),
     ("agent",       "Create/manage a child agent workspace (folder + registry)"),
     # NOTE: /org and /delegate are deprecated aliases; keep working but do not list.
     ("limits",      "Execution limits (calls, context, …)"),
