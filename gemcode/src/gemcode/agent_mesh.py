@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from gemcode.config import GemCodeConfig
+from gemcode.config import GemCodeConfig, _truthy_env
 from gemcode.event_bus import BusMessage, EventBus, get_bus
 from gemcode.org import OrgMember, find_member, list_members, resolve_fleet_root
 
@@ -42,6 +42,21 @@ class AgentJob:
   result: str = ""
   error: str = ""
   created_ms: int = field(default_factory=lambda: int(time.time() * 1000))
+
+
+def _apply_mesh_worker_unattended_policy(cfg: GemCodeConfig) -> None:
+  """
+  Mesh jobs run on a background thread: there is no human at a separate keyboard.
+  When enabled (default), treat the worker like ``--yes`` and disable in-run HITL so
+  shell / org_delegate / write tools from habits and workers do not block the main TUI.
+
+  Opt out: ``GEMCODE_MESH_WORKER_UNATTENDED=0`` (mesh workers then inherit the
+  manager's ``yes_to_all`` / ``interactive_permission_ask`` as before).
+  """
+  if not _truthy_env("GEMCODE_MESH_WORKER_UNATTENDED", default=True):
+    return
+  cfg.yes_to_all = True
+  cfg.interactive_permission_ask = False
 
 
 class AgentMesh:
@@ -71,6 +86,12 @@ class AgentMesh:
     self._bg_loop: asyncio.AbstractEventLoop | None = None
     # _stop is created lazily in the background loop
     self._stop_flag = False
+
+    # Serialize ADK SqliteSessionService writes per (db, user_id, session_id).
+    # Concurrent mesh jobs for the same agent share one session row; interleaved
+    # append_event calls hit optimistic-lock checks and raise "stale session".
+    self._mesh_sqlite_session_locks: dict[str, asyncio.Lock] = {}
+    self._mesh_sqlite_session_locks_guard = asyncio.Lock()
 
     # Subscribe to org.assign messages on the bus
     self._bus.subscribe(
@@ -114,6 +135,22 @@ class AgentMesh:
   @property
   def bus(self) -> EventBus:
     return self._bus
+
+  async def _lock_sqlite_session(
+      self,
+      *,
+      db_path: Path,
+      user_id: str,
+      session_id: str,
+  ) -> asyncio.Lock:
+    """Return the asyncio lock for this ADK SQLite session (create if needed)."""
+    key = f"{db_path.resolve()}\0{user_id}\0{session_id}"
+    async with self._mesh_sqlite_session_locks_guard:
+      lock = self._mesh_sqlite_session_locks.get(key)
+      if lock is None:
+        lock = asyncio.Lock()
+        self._mesh_sqlite_session_locks[key] = lock
+      return lock
 
   def start(self) -> None:
     """Start the mesh in a dedicated background thread with its own event loop.
@@ -475,14 +512,17 @@ class AgentMesh:
     This means agents build up context over time — they remember past tasks,
     learn from their history, and maintain their own notes.
     """
+    import hashlib
+
     from gemcode.invoke import run_turn
-    from gemcode.session_runtime import create_runner
+    from gemcode.session_runtime import create_runner, session_db_path
     from gemcode.capability_routing import apply_capability_routing
     from gemcode.model_routing import pick_effective_model
 
     # Resolve the agent's workspace as their project root
     # This gives them their own .gemcode/ directory, sessions, memory, etc.
     agent_cfg = copy.deepcopy(self.cfg)
+    _apply_mesh_worker_unattended_policy(agent_cfg)
     fleet_root = resolve_fleet_root(self.cfg.project_root)
 
     if job.member_name:
@@ -507,54 +547,56 @@ class AgentMesh:
     parent_tools = self._build_parent_access_tools(fleet_root)
     all_extra = (mesh_tools or []) + (parent_tools or [])
 
-    # Create a FULL runner rooted at the agent's workspace
-    # This gives them their own SQLite session DB, their own memory, etc.
-    runner = create_runner(agent_cfg, extra_tools=all_extra or None)
+    # Stable session ID per agent (same id across jobs = durable history).
+    stable_session_id = (job.session_id or "").strip()
+    if job.member_name:
+      stable_session_id = f"agent_{hashlib.sha256(job.member_name.encode()).hexdigest()[:12]}"
+    mesh_user_id = job.member_name or "mesh"
 
-    try:
-      # Use a stable session ID per agent so they accumulate history
-      # (not a random UUID — the same agent keeps the same session across jobs)
-      stable_session_id = job.session_id
-      if job.member_name:
-        # Stable session = agent name hash (persists across jobs)
-        import hashlib
-        stable_session_id = f"agent_{hashlib.sha256(job.member_name.encode()).hexdigest()[:12]}"
-
-      # Execute the turn with full power
-      max_calls = min(int(self.cfg.max_llm_calls or 128), 128)
-      events = await run_turn(
-        runner,
-        user_id=job.member_name or "mesh",
+    sqlite_lock = await self._lock_sqlite_session(
+        db_path=session_db_path(agent_cfg),
+        user_id=mesh_user_id,
         session_id=stable_session_id,
-        prompt=job.prompt,
-        max_llm_calls=max_calls,
-        cfg=agent_cfg,
-        consume_fleet_reports=False,
-      )
+    )
 
-      # Extract text from events
-      parts: list[str] = []
-      for ev in events:
-        try:
-          if not ev.content or not ev.content.parts:
-            continue
-          if getattr(ev, "author", None) == "user":
-            continue
-          for part in ev.content.parts:
-            t = getattr(part, "text", None)
-            is_thought = getattr(part, "thought", None)
-            if isinstance(t, str) and t.strip() and not is_thought:
-              parts.append(t)
-        except Exception:
-          continue
+    async with sqlite_lock:
+      # One runner + turn at a time per session row — avoids ADK "stale session"
+      # when habits or overlapping delegations write events concurrently.
+      runner = create_runner(agent_cfg, extra_tools=all_extra or None)
 
-      return "".join(parts).strip() or "(no output)"
-    finally:
-      # Clean up the runner
       try:
-        await runner.close()
-      except Exception:
-        pass
+        max_calls = min(int(self.cfg.max_llm_calls or 128), 128)
+        events = await run_turn(
+          runner,
+          user_id=mesh_user_id,
+          session_id=stable_session_id,
+          prompt=job.prompt,
+          max_llm_calls=max_calls,
+          cfg=agent_cfg,
+          consume_fleet_reports=False,
+        )
+
+        parts: list[str] = []
+        for ev in events:
+          try:
+            if not ev.content or not ev.content.parts:
+              continue
+            if getattr(ev, "author", None) == "user":
+              continue
+            for part in ev.content.parts:
+              t = getattr(part, "text", None)
+              is_thought = getattr(part, "thought", None)
+              if isinstance(t, str) and t.strip() and not is_thought:
+                parts.append(t)
+          except Exception:
+            continue
+
+        return "".join(parts).strip() or "(no output)"
+      finally:
+        try:
+          await runner.close()
+        except Exception:
+          pass
 
   def _build_parent_access_tools(self, fleet_root: Path) -> list:
     """

@@ -205,6 +205,8 @@ The LLM calls `transfer_to_agent(agent_name='verifier')` → ADK routes natively
 
 For background work: `org_delegate("kaira", "run tests")` → mesh runs kaira as a full GemCode session → result flows back via fleet reports.
 
+**Mesh / habits reliability:** overlapping jobs for the **same** org member serialize writes to that agent’s durable SQLite session so ADK does not raise “stale session” errors. Mesh workers default to **unattended tool approval** (env **`GEMCODE_MESH_WORKER_UNATTENDED`**, on by default) so background shell / delegation / writes do not block the main TUI on HITL. See [`../docs/configuration.md`](../docs/configuration.md) and [`../docs/orchestration.md`](../docs/orchestration.md).
+
 Docs:
 - [`../docs/orchestration.md`](../docs/orchestration.md)
 

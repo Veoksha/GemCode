@@ -41,6 +41,7 @@ No separate **`gemcode runtime`** process is required for **`org_delegate`** or 
 ### What it does
 - Manages a priority queue of agent jobs
 - Runs jobs concurrently (default: 3 parallel agents)
+- **Per-session turn serialization**: two jobs targeting the **same** agent (same workspace + stable session id) still run **`run_turn` one at a time** for that session. This matches ADK’s SQLite session semantics and avoids “stale session” / `last_update_time` errors when overlapping habits or delegations would otherwise append events concurrently.
 - Each job gets a **full-power Runner** (same as the TUI/CLI — all tools, model routing, memory, MCP)
 - Results are published to the Event Bus and persisted to fleet reports
 - Auto-starts when the first job is enqueued (background thread + scheduler)

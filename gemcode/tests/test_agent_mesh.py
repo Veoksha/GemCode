@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
 
-from gemcode.agent_mesh import AgentMesh, ensure_mesh, get_mesh, reset_mesh
+from gemcode.agent_mesh import (
+  AgentMesh,
+  _apply_mesh_worker_unattended_policy,
+  ensure_mesh,
+  get_mesh,
+  reset_mesh,
+)
 from gemcode.config import GemCodeConfig
 from gemcode.event_bus import BusMessage, get_bus, reset_bus
 
@@ -19,6 +26,26 @@ def _reset():
   yield
   reset_mesh()
   reset_bus()
+
+
+@pytest.mark.asyncio
+async def test_lock_sqlite_session_same_key_reuses_lock(tmp_path: Path) -> None:
+  cfg = GemCodeConfig(project_root=tmp_path)
+  mesh = AgentMesh(cfg)
+  db = tmp_path / ".gemcode" / "sessions.sqlite"
+  a = await mesh._lock_sqlite_session(db_path=db, user_id="agent_x", session_id="sess1")
+  b = await mesh._lock_sqlite_session(db_path=db, user_id="agent_x", session_id="sess1")
+  assert a is b
+
+
+@pytest.mark.asyncio
+async def test_lock_sqlite_session_different_session_distinct_locks(tmp_path: Path) -> None:
+  cfg = GemCodeConfig(project_root=tmp_path)
+  mesh = AgentMesh(cfg)
+  db = tmp_path / ".gemcode" / "sessions.sqlite"
+  a = await mesh._lock_sqlite_session(db_path=db, user_id="agent_x", session_id="sess1")
+  b = await mesh._lock_sqlite_session(db_path=db, user_id="agent_x", session_id="sess2")
+  assert a is not b
 
 
 def test_mesh_creation(tmp_path: Path) -> None:
@@ -74,6 +101,40 @@ def test_mesh_bus_integration(tmp_path: Path) -> None:
   asyncio.run(run())
   assert len(received) == 1
   assert received[0].payload["member"] == "test"
+
+
+def test_apply_mesh_worker_unattended_default_on(tmp_path: Path) -> None:
+  cfg = GemCodeConfig(project_root=tmp_path)
+  cfg.yes_to_all = False
+  cfg.interactive_permission_ask = True
+  old = os.environ.get("GEMCODE_MESH_WORKER_UNATTENDED")
+  try:
+    os.environ.pop("GEMCODE_MESH_WORKER_UNATTENDED", None)
+    _apply_mesh_worker_unattended_policy(cfg)
+  finally:
+    if old is None:
+      os.environ.pop("GEMCODE_MESH_WORKER_UNATTENDED", None)
+    else:
+      os.environ["GEMCODE_MESH_WORKER_UNATTENDED"] = old
+  assert cfg.yes_to_all is True
+  assert cfg.interactive_permission_ask is False
+
+
+def test_apply_mesh_worker_unattended_off_inherits_manager(tmp_path: Path) -> None:
+  cfg = GemCodeConfig(project_root=tmp_path)
+  cfg.yes_to_all = False
+  cfg.interactive_permission_ask = True
+  old = os.environ.get("GEMCODE_MESH_WORKER_UNATTENDED")
+  try:
+    os.environ["GEMCODE_MESH_WORKER_UNATTENDED"] = "0"
+    _apply_mesh_worker_unattended_policy(cfg)
+  finally:
+    if old is None:
+      os.environ.pop("GEMCODE_MESH_WORKER_UNATTENDED", None)
+    else:
+      os.environ["GEMCODE_MESH_WORKER_UNATTENDED"] = old
+  assert cfg.yes_to_all is False
+  assert cfg.interactive_permission_ask is True
 
 
 def test_mesh_priority_ordering(tmp_path: Path) -> None:

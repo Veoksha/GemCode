@@ -1,3 +1,8 @@
+## 0.4.13
+
+- **Agent mesh**: **`GEMCODE_MESH_WORKER_UNATTENDED`** defaults to **on** (`1`): each mesh job uses non-blocking tool policy (`yes_to_all`, no interactive HITL) so background workers do not steal the main TUI for bash / `org_delegate` / writes. Set **`=0`** so mesh workers inherit the manager’s `--yes` / HITL settings.
+- **Agent mesh / habits**: Serialize **`run_turn`** per ADK SQLite session (same `sessions.sqlite` + `user_id` + `session_id`). Concurrent habits or delegations for one agent no longer trip ADK **`SqliteSessionService.append_event`** optimistic-lock failures (“stale session” / `last_update_time`). Documented in **`configuration.md`**, **`orchestration.md`**, and **`gemcode/README.md`**.
+
 ## 0.4.12
 
 - **Habits / fleet inbox**: `job.report` lines include **member** and **habit** metadata; **`GEMCODE_FLEET_REPORTS_AUTO_CONTINUE` defaults to on** so the manager can digest background output after assistant turns (set `=0` to opt out). Friendlier digest prompt; docs and `habits_add` help updated.
