@@ -111,10 +111,7 @@ async def run_turn(
     try:
       from gemcode.agent_mesh import ensure_mesh
       mesh = ensure_mesh(cfg)
-      try:
-        mesh.start()
-      except Exception:
-        pass
+      mesh.start()  # Starts background thread if not already running
     except Exception:
       pass
 

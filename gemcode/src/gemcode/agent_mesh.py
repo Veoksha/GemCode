@@ -66,7 +66,11 @@ class AgentMesh:
     self._running: dict[str, asyncio.Task] = {}
     self._completed: list[AgentJob] = []
     self._scheduler_task: asyncio.Task | None = None
-    self._stop = asyncio.Event()
+    self._stop: asyncio.Event | None = None  # Created in background loop
+    self._bg_thread: "threading.Thread | None" = None
+    self._bg_loop: asyncio.AbstractEventLoop | None = None
+    # _stop is created lazily in the background loop
+    self._stop_flag = False
 
     # Subscribe to org.assign messages on the bus
     self._bus.subscribe(
@@ -112,25 +116,69 @@ class AgentMesh:
     return self._bus
 
   def start(self) -> None:
-    """Start the background scheduler loop and trigger engine."""
-    if self._scheduler_task is None or self._scheduler_task.done():
-      self._scheduler_task = asyncio.create_task(self._scheduler_loop())
-    # Start self-triggering agents
+    """Start the mesh in a dedicated background thread with its own event loop.
+
+    This is critical: the TUI's event loop is blocked on user input most of the
+    time. If we run mesh jobs on the same loop, they can only execute during the
+    brief moments prompt_toolkit yields control — not enough for a full agent turn.
+
+    By running in a separate thread, mesh jobs execute independently. Results are
+    written to fleet_reports.jsonl and picked up on the next user turn, or printed
+    to the terminal via the notification callback.
+    """
+    if self._bg_thread is not None and self._bg_thread.is_alive():
+      return  # Already running
+
+    import threading
+
+    def _run_bg_loop():
+      """Background thread entry: create a new event loop and run the scheduler."""
+      self._bg_loop = asyncio.new_event_loop()
+      asyncio.set_event_loop(self._bg_loop)
+      try:
+        self._bg_loop.run_until_complete(self._bg_main())
+      except Exception:
+        pass
+      finally:
+        try:
+          self._bg_loop.close()
+        except Exception:
+          pass
+
+    self._bg_thread = threading.Thread(target=_run_bg_loop, daemon=True, name="gemcode-mesh")
+    self._bg_thread.start()
+
+  async def _bg_main(self) -> None:
+    """Main coroutine for the background event loop."""
+    self._stop = asyncio.Event()  # Create in the correct loop
+
+    # Start all sub-systems in this loop
+    self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+
     if self._trigger_engine is not None:
       self._trigger_engine.start()
-    # Start habit scheduler (cron/interval recurring tasks)
     if self._habit_scheduler is not None:
       self._habit_scheduler.start()
 
+    # Wait until stopped
+    await self._stop.wait()
+
   def stop(self) -> None:
     """Stop the scheduler and trigger engine."""
-    self._stop.set()
+    if self._stop is not None:
+      self._stop.set()
     if self._scheduler_task and not self._scheduler_task.done():
       self._scheduler_task.cancel()
     if self._trigger_engine is not None:
       self._trigger_engine.stop()
     if self._habit_scheduler is not None:
       self._habit_scheduler.stop()
+    # Signal the background loop to exit
+    if self._bg_loop is not None:
+      try:
+        self._bg_loop.call_soon_threadsafe(self._bg_loop.stop)
+      except Exception:
+        pass
 
   def enqueue(
     self,
@@ -141,7 +189,7 @@ class AgentMesh:
     member_name: str = "",
     meta: dict[str, Any] | None = None,
   ) -> str:
-    """Enqueue a job and return its job_id."""
+    """Enqueue a job and return its job_id. Thread-safe."""
     job_id = f"mesh_{uuid.uuid4().hex[:10]}"
     self._seq += 1
     job = AgentJob(
@@ -163,13 +211,9 @@ class AgentMesh:
       payload={"job_id": job_id, "member": member_name, "priority": priority},
     ))
 
-    # Auto-start scheduler if not running
-    try:
-      loop = asyncio.get_running_loop()
-      if self._scheduler_task is None or self._scheduler_task.done():
-        self._scheduler_task = loop.create_task(self._scheduler_loop())
-    except RuntimeError:
-      pass
+    # Auto-start the background thread if not running
+    if self._bg_thread is None or not self._bg_thread.is_alive():
+      self.start()
 
     return job_id
 
@@ -267,7 +311,7 @@ class AgentMesh:
 
   async def _scheduler_loop(self) -> None:
     """Continuously dequeue and run jobs."""
-    while not self._stop.is_set():
+    while self._stop is None or not self._stop.is_set():
       try:
         await self._sem.acquire()
         try:
