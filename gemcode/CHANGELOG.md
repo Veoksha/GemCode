@@ -3,6 +3,13 @@
 - **Docs:** Multi-agent model—fleet **`habits.json`** vs per-member skills/workspaces/runtime ([`orchestration.md`](../docs/orchestration.md)); stopping background work (**`/mesh halt`**, **`mesh_halt`**, **`habits_clear_all`**); **`/fleet`** and **`/mesh`** in [`cli-and-repl.md`](../docs/cli-and-repl.md); mesh singleton **`project_root`** in [`configuration.md`](../docs/configuration.md); user manual section in **`README.md`**.
 - **Mesh control:** **`halt_jobs`**, **`mesh_halt`** tool, **`/mesh`** slash, **`habits_clear_all`** — cancel running mesh tasks and drain the queue (habit removal alone does not stop in-flight work). Cancelled jobs do not emit **`job.report`** (fewer trigger follow-ups).
 
+## 0.4.19
+
+- **Web API:** Built-in HTTP server — **`gemcode serve`** and REPL **`/serve`** (`start` · `status` · `stop` · `url`). Default `http://127.0.0.1:3001`. Any frontend (official or custom) connects via `/api/*` — chat SSE, sessions, panel, preview, HITL, org/mesh, runtime, terminal. Implementation: `gemcode/src/gemcode/web/server.py` and `*_api.py` modules.
+- **Docs:** [`web-ui-contract.md`](../docs/web-ui-contract.md), [`install.md`](../docs/install.md), [`cli-and-repl.md`](../docs/cli-and-repl.md), [`integrations.md`](../docs/integrations.md), [`configuration.md`](../docs/configuration.md) updated for serve; web UI repos gitignored (separate from PyPI package).
+- **Fix:** `list_sessions` web API path (session DB resolution).
+- **Doctor:** `/doctor` reports whether the web API is running.
+
 ## 0.4.18
 
 - **TUI timers:** Fix elapsed-time spinner freezing during long tool runs by making `bash` and `run_command` tools async/threaded (no longer block the TUI event loop). Added note in [`cli-and-repl.md`](../docs/cli-and-repl.md).

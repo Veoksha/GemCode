@@ -18,17 +18,13 @@ gemcode/dist/
 gemcode/build/
 gemcode/*.egg-info/
 
-# Web artifacts (keep repo lean)
+# Web UI / editor clients (separate repos — not part of the gemcode PyPI package)
+# Official or custom frontends connect via `gemcode serve` on :3001 (see docs/web-ui-contract.md).
+gemcode-web-ui/
+gemcode-web-ui/.env.local
+gemcode-web-api/
+gemcode-vscode/
 gemcode-vscode/node_modules/
 gemcode-vscode/*.vsix
-gemcode-web-ui/node_modules/
-gemcode-web-ui/.next/
-gemcode-web-ui/out/
-gemcode-web-api/node_modules/
-
-# Ignore bundled sibling projects from the monorepo root
-gemcode-web-api/
-gemcode-web-ui/
-gemcode-vscode/
 veomem/
 openclaude/

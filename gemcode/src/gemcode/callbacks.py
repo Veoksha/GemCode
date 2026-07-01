@@ -35,6 +35,15 @@ _ERROR_KIND_PERMISSION_DENIED = "permission_denied"
 _ERROR_KIND_CIRCUIT_BREAKER = "circuit_breaker"
 _ERROR_KIND_TOOL_EXCEPTION = "tool_exception"
 _ERROR_KIND_PERMISSION_BLOCK = "permission_block"
+
+
+def _interactive_hitl_enabled(cfg: GemCodeConfig) -> bool:
+  """True when in-run y/n (or web Approve/Deny) should gate mutating/shell tools."""
+  if getattr(cfg, "interactive_permission_ask", False):
+    return True
+  if getattr(cfg, "_gemcode_web_sse", False) or getattr(cfg, "_web_interactive_hitl", False):
+    return True
+  return False
 _BT_CC = "gemcode:bt_cc"
 _BT_LD = "gemcode:bt_ld"
 _BT_LG = "gemcode:bt_lg"
@@ -259,7 +268,7 @@ def make_before_tool_callback(cfg: GemCodeConfig):
       if not cfg.yes_to_all:
         # In-run HITL: request ADK tool confirmation and pause execution until
         # the user approves in the current terminal session.
-        if getattr(cfg, "interactive_permission_ask", False):
+        if _interactive_hitl_enabled(cfg):
           # After one approval this ADK session, optional skip (see GEMCODE_HITL_STICKY_SESSION).
           if _hitl_sticky_enabled(tool_context):
             return None
@@ -310,7 +319,7 @@ def make_before_tool_callback(cfg: GemCodeConfig):
           "error_kind": _ERROR_KIND_PERMISSION_DENIED,
         }
       if not cfg.yes_to_all:
-        if getattr(cfg, "interactive_permission_ask", False):
+        if _interactive_hitl_enabled(cfg):
           if _hitl_sticky_enabled(tool_context):
             return None
           tc_state = _tool_confirmation_state(tool_context)

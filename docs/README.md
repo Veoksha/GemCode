@@ -93,8 +93,9 @@ Next: read [`orchestration.md`](orchestration.md) for the full runtime + fleet m
 - [`reference-gemcode-state.md`](reference-gemcode-state.md) — quick reference for the `.gemcode/` directory layout and state files
 
 ## Integration contracts
-- [`web-ui-contract.md`](web-ui-contract.md) — HTTP/SSE contract for compatible web frontends and backends
+- [`web-ui-contract.md`](web-ui-contract.md) — HTTP/SSE contract for `gemcode serve` and compatible frontends (UI repos are optional clients)
 
 ## Notes
 - The documentation is organized by operator concern rather than by file name.
+- **Web UIs** are not part of the `gemcode` PyPI package; run `gemcode serve` and connect any frontend to `http://127.0.0.1:3001`.
 - The code remains the final source of truth; documentation should track `gemcode/src/gemcode/` behavior closely.

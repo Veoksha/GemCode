@@ -2544,6 +2544,95 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True)
 
+  # ── /serve (built-in HTTP API for web UI) ───────────────────────────────
+  if name == "serve":
+    from gemcode.web.serve_state import (
+      DEFAULT_SERVE_PORT,
+      is_serve_running,
+      serve_base_url,
+      start_background_serve,
+      stop_background_serve,
+    )
+
+    args_s = (sc.args or "").strip().lower()
+    first = args_s.split()[0] if args_s else "start"
+    host = "127.0.0.1"
+    port = DEFAULT_SERVE_PORT
+
+    if first in ("help", "?"):
+      out("Web API (any UI can connect):")
+      out("  /serve              Start background server on http://127.0.0.1:3001")
+      out("  /serve status       Show whether the API is running")
+      out("  /serve stop         Stop the background server for this project")
+      out("  /serve url          Print API URL for the web UI")
+      out("")
+      out("Foreground (blocks terminal):")
+      out(f"  gemcode serve -C \"{cfg.project_root}\"")
+      out("")
+      out("Web UI: set API URL to http://127.0.0.1:3001 (default) or npm run dev proxies to it.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if first in ("stop", "kill"):
+      result = stop_background_serve(cfg.project_root)
+      if result.get("stopped"):
+        out(f"[serve] stopped pid {result.get('pid') or '(unknown)'}")
+      else:
+        out(f"[serve] {result.get('message') or result.get('error') or 'not running'}")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if first in ("status", "ps"):
+      running, info = is_serve_running(cfg.project_root, host=host, port=port)
+      if running and info:
+        out("[serve] running")
+        out(f"  url: {info.get('url') or serve_base_url(host, port)}")
+        out(f"  project: {info.get('project_root') or cfg.project_root}")
+        if info.get("session_id"):
+          out(f"  session_id: {info.get('session_id')}")
+        if info.get("pid"):
+          out(f"  pid: {info.get('pid')}")
+        health = info.get("health") if isinstance(info.get("health"), dict) else None
+        if health:
+          out(f"  has_api_key: {health.get('has_api_key')}")
+      else:
+        out("[serve] not running — try `/serve` or `gemcode serve`")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    if first in ("url", "link"):
+      running, info = is_serve_running(cfg.project_root, host=host, port=port)
+      url = (info or {}).get("url") or serve_base_url(host, port)
+      out(f"[serve] API URL: {url}")
+      out(f"[serve] CLI session_id: {session_id}")
+      out("Paste the URL into GemCode web UI → Settings → API URL if not using default.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    # start (default)
+    result = start_background_serve(
+      cfg.project_root,
+      host=host,
+      port=port,
+      session_id=session_id,
+    )
+    if not result.get("ok"):
+      out(f"[serve] failed: {result.get('error') or 'unknown error'}")
+      if result.get("log"):
+        out(f"  log: {result.get('log')}")
+    elif result.get("already_running"):
+      out(f"[serve] already running at {result.get('url')}")
+    else:
+      out(f"[serve] started at {result.get('url')}")
+      if result.get("warming"):
+        out("[serve] warming up — retry /serve status in a moment")
+      if result.get("log"):
+        out(f"  log: {result.get('log')}")
+    out(f"[serve] session_id: {session_id}")
+    out("Open the web UI (npm run dev) — it proxies to port 3001 by default.")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
   # ── /runtime ────────────────────────────────────────────────────────────
   if name == "runtime":
     from gemcode.kaira_ipc import fleet_manager_ipc_path_for_workspace

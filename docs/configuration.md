@@ -74,6 +74,15 @@ Important groups:
 - `GEMCODE_KAIRA_HEARTBEAT_EVERY_S` — optional heartbeat interval (seconds) for the runtime (enqueues a heartbeat prompt repeatedly when automations are enabled).
 - `GEMCODE_KAIRA_HEARTBEAT_PROMPT` — optional prompt text used by the heartbeat job.
 
+### Web API (`gemcode serve`)
+- `GEMCODE_WEB_API_HOST` — bind host for `gemcode serve` (default `127.0.0.1`). CLI flag: `--host`.
+- `GEMCODE_WEB_API_PORT` — bind port (default `3001`). CLI flag: `--port`.
+- `GEMCODE_WEB_PROJECT_ROOT` — active project root for web handlers; set automatically when you run `gemcode serve -C <path>`.
+- `GEMCODE_WEB_ALLOW_MOCK` — when `1`, allows mock chat responses (dev only).
+- `GEMCODE_WEB_MOCK_RESPONSE` — fixed mock reply text when mock mode is allowed.
+
+Background `/serve` state: `.gemcode/web-serve.json`; logs: `.gemcode/web-serve.log`. See [`web-ui-contract.md`](web-ui-contract.md).
+
 ### Agent instruction tuning
 Built-in sections of the agent system prompt are assembled in `gemcode/src/gemcode/agent.py`; the parallel **tool system** manifest in `gemcode/src/gemcode/tool_prompt_manifest.py` stays aligned when present.
 

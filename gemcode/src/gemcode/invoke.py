@@ -90,6 +90,80 @@ def _is_simple_prompt(prompt: str) -> bool:
   return False
 
 
+def _is_simple_prompt_for_cfg(cfg: GemCodeConfig, prompt: str, attachment_paths) -> bool:
+  """Code/Agents mode in the web UI always gets full workspace enrichment."""
+  if getattr(cfg, "_web_workspace_mode", None) in ("code", "agents"):
+    return False
+  if attachment_paths:
+    return False
+  return _is_simple_prompt(prompt)
+
+
+def prepare_turn_prompt(
+    cfg: "GemCodeConfig",
+    prompt: str,
+    *,
+    session_id: str,
+    attachment_paths: Sequence[Path | str] | None = None,
+    consume_fleet_reports: bool = True,
+) -> str:
+  """Apply the same prompt enrichment as ``run_turn`` before invoking the runner."""
+  is_simple = _is_simple_prompt_for_cfg(cfg, prompt, attachment_paths)
+
+  if not is_simple:
+    try:
+      from gemcode.agent_mesh import ensure_mesh
+      mesh = ensure_mesh(cfg)
+      mesh.start()
+    except Exception:
+      pass
+
+    try:
+      if not getattr(cfg, "_intelligence_bootstrapped", False):
+        object.__setattr__(cfg, "_intelligence_bootstrapped", True)
+        from gemcode.agent_intelligence import first_session_bootstrap
+        first_session_bootstrap(cfg)
+    except Exception:
+      pass
+
+  try:
+    object.__setattr__(cfg, "_active_session_id", session_id)
+  except Exception:
+    pass
+
+  if consume_fleet_reports and not is_simple:
+    try:
+      from gemcode.fleet_reports import drain_for_prompt
+      preamble = drain_for_prompt(cfg.project_root)
+      if preamble:
+        prompt = preamble + "\n\n---\n\n" + (prompt or "")
+    except Exception:
+      pass
+
+  if not is_simple:
+    try:
+      from gemcode.agent_intelligence import enhance_turn
+      prompt = enhance_turn(cfg, prompt)
+    except Exception:
+      pass
+
+    try:
+      from gemcode.codebase_awareness import build_awareness_context
+      if getattr(cfg, "_web_workspace_mode", None) != "chat":
+        awareness = build_awareness_context(cfg.project_root)
+        if awareness:
+          prompt = awareness + "\n\n" + prompt
+    except Exception:
+      pass
+
+  try:
+    object.__setattr__(cfg, "_risk_score", _compute_risk_score(prompt, attachment_paths))
+  except Exception:
+    pass
+
+  return prompt
+
+
 async def run_turn(
     runner: Runner,
     *,
@@ -104,7 +178,9 @@ async def run_turn(
   """Execute one user message; collect all Events (caller aggregates text)."""
 
   # ── Fast path: skip heavy machinery for simple prompts ──────────────────
-  is_simple = _is_simple_prompt(prompt) and not attachment_paths
+  is_simple = _is_simple_prompt_for_cfg(cfg, prompt, attachment_paths) if cfg is not None else (
+    _is_simple_prompt(prompt) and not attachment_paths
+  )
 
   # ── Mesh + bootstrap (only on first call or complex prompts) ────────────
   if cfg is not None and not is_simple:
@@ -151,9 +227,10 @@ async def run_turn(
       # Codebase awareness: inject persistent project understanding
       try:
         from gemcode.codebase_awareness import build_awareness_context
-        awareness = build_awareness_context(cfg.project_root)
-        if awareness:
-          prompt = awareness + "\n\n" + prompt
+        if getattr(cfg, "_web_workspace_mode", None) != "chat":
+          awareness = build_awareness_context(cfg.project_root)
+          if awareness:
+            prompt = awareness + "\n\n" + prompt
       except Exception:
         pass
 

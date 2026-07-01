@@ -33,6 +33,7 @@ def test_sse_adapter_mock(tmp_path) -> None:
 
   env = os.environ.copy()
   env["GEMCODE_WEB_PROJECT_ROOT"] = str(tmp_path)
+  env["GEMCODE_WEB_ALLOW_MOCK"] = "1"
   env["GEMCODE_WEB_MOCK_RESPONSE"] = "Hello world from mock"
   env["GEMCODE_WEB_MOCK_CHUNK"] = "4"
 

@@ -173,6 +173,22 @@ Flow:
 
 In IDE mode, mutating shell/file tools may emit proposals instead of directly changing the filesystem.
 
+### HTTP API (`gemcode serve`)
+Entry: `gemcode serve` (REPL/TUI: `/serve`)
+
+Flow:
+1. Bind HTTP on `127.0.0.1:3001` by default
+2. Boot mesh scheduler for scheduled habits (when applicable)
+3. Route `/api/*` to web handler modules (`server.py`, `*_api.py`)
+4. Stream chat via `sse_adapter` subprocess per `POST /api/chat`
+5. Track background process in `.gemcode/web-serve.json` when started via `/serve`
+
+This is the integration surface for **any** frontend — official web UI, custom dashboard, or editor shell. Frontends are not bundled in the PyPI package.
+
+Related docs:
+- `docs/web-ui-contract.md`
+- `docs/integrations.md`
+
 ### GemCode Runtime daemon
 Entry: `gemcode runtime` (alias: `gemcode kaira`)
 

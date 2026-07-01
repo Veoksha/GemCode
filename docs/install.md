@@ -38,6 +38,17 @@ gemcode login
 
 GemCode also reads `.env` files via `load_cli_environment()` in `gemcode/src/gemcode/config.py`.
 
+## Optional: web or custom UI
+GemCode includes a built-in HTTP API. UIs (official app, your own dashboard, editor plugin) are **thin clients** that call it — they are not required to use the CLI.
+
+```bash
+gemcode serve -C /path/to/project
+```
+
+Defaults to `http://127.0.0.1:3001`. From an interactive session you can also run `/serve` to start the API in the background.
+
+See [`web-ui-contract.md`](web-ui-contract.md) for routes and streaming format.
+
 ## First run flow
 On the first interactive run, GemCode may prompt for:
 

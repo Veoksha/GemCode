@@ -56,6 +56,22 @@ def format_doctor_lines(cfg: GemCodeConfig) -> list[str]:
   lines.append(
       f"  gemcode_version: {os.environ.get('GEMCODE_VERSION', get_version())}"
   )
+  try:
+    from gemcode.web.serve_state import DEFAULT_SERVE_PORT, is_serve_running, serve_base_url
+
+    running, info = is_serve_running(cfg.project_root, port=DEFAULT_SERVE_PORT)
+    url = (info or {}).get("url") or serve_base_url("127.0.0.1", DEFAULT_SERVE_PORT)
+    if running:
+      lines.append(f"  web_api: running at {url}")
+      health = (info or {}).get("health") if isinstance(info, dict) else None
+      if isinstance(health, dict) and health.get("has_api_key") is False:
+        lines.append("  web_api_key: MISSING (set GOOGLE_API_KEY or gemcode login)")
+    else:
+      lines.append(
+          f"  web_api: not running (try `/serve` or `gemcode serve -C \"{cfg.project_root}\"`)"
+      )
+  except Exception:
+    pass
   return lines
 
 
@@ -234,6 +250,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     # NOTE: /file /image /img are aliases of /attach; keep alias working but do not list them here.
     ("kaira",       "Background jobs — gemcode runtime (alias: gemcode kaira)"),
     ("runtime",     "Fleet socket status · gemcode runtime · attach/connect"),
+    ("serve",       "HTTP API for web/custom UIs — gemcode serve on :3001"),
     ("bus",         "Runtime bus — send/publish lightweight messages over IPC"),
     ("inbox",       "Bus inbox filters for this UI (to/topics)"),
     ("fleet",       "Fleet inbox — /fleet show | digest (habits / mesh reports)"),
@@ -331,6 +348,7 @@ def slash_help_lines() -> list[str]:
       "Slash commands:",
       "  (CLI) gemcode -C DIR  Use a project folder as root (recommended vs. ~ )",
       "  (CLI) gemcode login   Save or change API key (~/.gemcode/credentials.json)",
+      "  (CLI) gemcode serve   HTTP API for web/custom UIs (default http://127.0.0.1:3001)",
       "",
       "  Project setup:",
       "  /attach <path>        Queue file(s) for the **next** message (PDF, images, …); /attach list|clear",
@@ -394,6 +412,7 @@ def slash_help_lines() -> list[str]:
       "  /login                How to run gemcode login (API key outside REPL)",
       "  /live-audio           How to run gemcode live-audio (mic → Gemini Live)",
       "  /doctor               Environment sanity check",
+      "  /serve [start|status|stop|url]  Start HTTP API for web UI (gemcode serve on :3001)",
       "  /version              Print GemCode version hint",
       "  /exit                 Exit the REPL",
       "",

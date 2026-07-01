@@ -21,6 +21,8 @@ This page is a quick reference for the project-local state GemCode stores under 
 | `.gemcode/org.json` | Agent fleet registry (members, hierarchy, addresses, workspaces) |
 | `.gemcode/agents/` | Per-agent workspaces (`<id>-<slug>/` with `AGENT.md`, optional `workspace/`, agent-local `.gemcode/`) |
 | `.gemcode/kaira/` | Runtime daemon state directory (job registry, etc.; path name is historical) |
+| `.gemcode/web-serve.json` | Background `gemcode serve` / `/serve` process metadata (pid, url, port) |
+| `.gemcode/web-serve.log` | Log output when `/serve` starts the API in the background |
 
 ## Memory
 

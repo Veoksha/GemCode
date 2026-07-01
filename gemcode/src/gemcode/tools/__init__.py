@@ -313,3 +313,55 @@ def build_function_tools(cfg: GemCodeConfig, *, include_subtask: bool = True) ->
     tools.append(make_spawn_subtasks_tool(cfg))
 
   return tools
+
+
+_CHAT_DISALLOWED_TOOLS = frozenset({
+  "read_file",
+  "list_directory",
+  "glob_files",
+  "delete_file",
+  "move_file",
+  "grep_content",
+  "repo_map",
+  "notebook_read",
+  "notebook_edit",
+  "bash",
+  "run_command",
+  "list_tasks",
+  "kill_task",
+  "task_output",
+  "write_file",
+  "search_replace",
+  "checkpoints_list",
+  "checkpoint_undo",
+  "load_tool_result",
+  "run_subtask",
+  "spawn_subtasks",
+  "compress_memory_file",
+  "list_skills",
+  "load_skill",
+  "skills_manifest",
+  "mesh_status",
+  "mesh_halt",
+  "summarise_session",
+})
+
+
+def _tool_callable_name(tool: object) -> str:
+  name = getattr(tool, "__name__", None)
+  if isinstance(name, str) and name:
+    return name
+  for attr in ("func", "_func", "function"):
+    inner = getattr(tool, attr, None)
+    if inner is not None:
+      inner_name = getattr(inner, "__name__", None)
+      if isinstance(inner_name, str) and inner_name:
+        return inner_name
+  return ""
+
+
+def filter_tools_for_web_workspace_mode(tools: list, mode: str | None) -> list:
+  """Chat mode is conversational only — strip filesystem/shell/mutation tools."""
+  if (mode or "").lower() != "chat":
+    return tools
+  return [t for t in tools if _tool_callable_name(t) not in _CHAT_DISALLOWED_TOOLS]

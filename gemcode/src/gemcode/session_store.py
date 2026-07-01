@@ -94,8 +94,7 @@ def list_sessions(project_root: Path, *, max_items: int = 20) -> list[dict[str, 
     events     : int    — approximate turn count
     short_id   : str    — first 8 chars of id
   """
-  from gemcode.session_runtime import session_db_path
-  db = session_db_path(project_root)
+  db = project_root / ".gemcode" / "sessions.sqlite"
   rows = _read_sqlite_sessions(db)
   meta = _load_meta(project_root)
 

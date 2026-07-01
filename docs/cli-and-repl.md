@@ -150,6 +150,7 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/curated` | Curated memory snapshot · `/memory-files` / `/memoryfiles` same |
 | `/diff` | Git diff or checkpoint diff |
 | `/doctor` | Environment sanity check |
+| `/serve` | Built-in HTTP API — `/serve status` · `stop` · `url` · **`gemcode serve`** |
 | `/embeddings` | Semantic file search · `/embed` same |
 | `/eval` | Eval gates (tools + pytest) · `/eval llm` optional |
 | `/exit` | Leave the REPL · `/quit` same |
@@ -277,6 +278,36 @@ If you want the TUI, use:
 ```bash
 gemcode -C .
 ```
+
+## HTTP API for web and custom UIs (`gemcode serve`)
+**GemCode serve** is the built-in HTTP backend. Any frontend connects to it; the UI does not ship inside the PyPI package.
+
+### Foreground (blocks the terminal)
+```bash
+gemcode serve -C /path/to/project
+# optional: --host 127.0.0.1 --port 3001
+```
+
+### From the REPL/TUI
+```text
+/serve              Start background API on http://127.0.0.1:3001
+/serve status       Show whether the API is running
+/serve stop         Stop the background server for this project
+/serve url          Print API URL for your UI
+```
+
+State is tracked in `.gemcode/web-serve.json`; logs append to `.gemcode/web-serve.log`.
+
+### Typical setup (two terminals)
+```bash
+# Terminal 1 — API
+gemcode serve -C .
+
+# Terminal 2 — your UI (official or custom)
+# Point NEXT_PUBLIC_API_URL / VITE_API_URL at http://127.0.0.1:3001
+```
+
+Routes, health checks, and SSE framing: [`web-ui-contract.md`](web-ui-contract.md).
 
 ## Watch runtime + bus traffic (another terminal)
 If you want to see *everything running* (job lifecycle events and bus messages) from a separate terminal, attach to the runtime IPC stream:

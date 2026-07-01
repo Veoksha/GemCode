@@ -344,6 +344,34 @@ def expand_skill_text(skill: GemSkill, *, arguments: str, session_id: str | None
   return out.strip()
 
 
+_INLINE_REF_MAX_BYTES = 20_000
+
+
+def _inline_supporting_files_text(skill: GemSkill, files: list[str]) -> str:
+  """Embed small supporting files in the skill prompt so the model cannot skip them."""
+  if not files:
+    return ""
+  parts: list[str] = ["### Supporting reference files (use these — do not improvise styling)\n\n"]
+  budget = _INLINE_REF_MAX_BYTES
+  for rel in files:
+    path = skill.skill_dir / rel
+    if budget <= 0:
+      parts.append(f"- `{rel}` — read with `read_file` from `{path}`\n")
+      continue
+    try:
+      text = path.read_text(encoding="utf-8")
+    except OSError:
+      parts.append(f"- `{rel}` — read with `read_file` from `{path}`\n")
+      continue
+    nbytes = len(text.encode("utf-8"))
+    if nbytes > budget:
+      parts.append(f"- `{rel}` — read with `read_file` from `{path}` (too large to inline)\n")
+      continue
+    budget -= nbytes
+    parts.append(f"#### `{rel}`\n\n{text.rstrip()}\n\n")
+  return "".join(parts)
+
+
 def list_supporting_files(skill: GemSkill, *, max_items: int = 30) -> list[str]:
   out: list[str] = []
   try:
@@ -368,11 +396,153 @@ def build_skill_manifest_text(project_root: Path) -> str:
   lines: list[str] = []
   lines.append("## GemSkills (optional, loaded on-demand)")
   lines.append("GemSkills are reusable playbooks stored in `.gemcode/skills/<name>/SKILL.md` or `~/.gemcode/skills/<name>/SKILL.md`.")
-  lines.append("Only metadata is listed here; load full text when needed using `load_skill(name, arguments)`.")
+  lines.append("Invoke with `/skill-name` or `use the <name> skill`. In chat, the full skill body is injected automatically.")
   lines.append("")
   for name in sorted(metas.keys()):
     meta, _ = metas[name]
     inv = "manual-only" if meta.disable_model_invocation else "auto-eligible"
     lines.append(f"- **/{meta.name}** ({inv}): {meta.description}")
   return "\n".join(lines).strip()
+
+
+_SKILL_PHRASE_RE = re.compile(
+  r"\b(?:using|use|with|via|run|apply)\s+(?:the\s+)?(.+?)\s+skill\b",
+  re.IGNORECASE,
+)
+
+
+def _slugify_skill_query(query: str) -> str:
+  return re.sub(r"[^a-z0-9]+", "-", (query or "").strip().lower()).strip("-")
+
+
+def _word_matches(query_word: str, name_word: str) -> bool:
+  q = query_word.lower()
+  n = name_word.lower()
+  if not q or not n:
+    return False
+  if q == n or q in n or n in q:
+    return True
+  if q + "s" == n or n + "s" == q:
+    return True
+  return False
+
+
+def fuzzy_resolve_skill_name(project_root: Path, query: str) -> str | None:
+  """Best-effort match for phrases like 'Sandeep doc' → sandeep-docs."""
+  raw = (query or "").strip().lower()
+  if not raw:
+    return None
+  metas = discover_skill_metas(project_root)
+  if not metas:
+    return None
+
+  slug = _slugify_skill_query(raw)
+  if slug in metas:
+    return slug
+
+  for suffix in ("-docs", "-doc", "-skill"):
+    if not slug.endswith(suffix):
+      candidate = f"{slug}{suffix}"
+      if candidate in metas:
+        return candidate
+  if slug.endswith("-doc") and f"{slug}s" in metas:
+    return f"{slug}s"
+
+  words = [w for w in re.findall(r"[a-z0-9]+", raw) if len(w) > 1]
+  if not words:
+    return None
+
+  best_name: str | None = None
+  best_score = 0
+  for name, (meta, _) in metas.items():
+    name_words = [w for w in name.split("-") if w]
+    score = sum(1 for w in words if any(_word_matches(w, nw) for nw in name_words))
+    desc_words = [w for w in re.findall(r"[a-z0-9]+", meta.description.lower()) if len(w) > 2]
+    score = max(score, sum(1 for w in words if any(_word_matches(w, dw) for dw in desc_words)))
+    if score > best_score:
+      best_score = score
+      best_name = name
+
+  if best_name and best_score >= max(1, len(words) - 1):
+    return best_name
+  return None
+
+
+def try_resolve_natural_language_skill(
+  project_root: Path,
+  message: str,
+) -> tuple[str, str] | None:
+  """Return (skill_name, user_task_text) when the message names a skill in plain language."""
+  text = (message or "").strip()
+  if not text:
+    return None
+
+  match = _SKILL_PHRASE_RE.search(text)
+  if match:
+    skill_name = fuzzy_resolve_skill_name(project_root, match.group(1))
+    if skill_name:
+      return skill_name, text
+
+  metas = discover_skill_metas(project_root)
+  lowered = text.lower()
+  for name in sorted(metas.keys(), key=len, reverse=True):
+    aliases = {name, name.replace("-", " ")}
+    if any(alias in lowered for alias in aliases):
+      return name, text
+  return None
+
+
+def build_skill_invocation_prompt(
+  project_root: Path,
+  skill_name: str,
+  *,
+  arguments: str = "",
+  session_id: str = "",
+  inline: bool = False,
+) -> str | None:
+  """Build a model prompt for an invoked GemSkill."""
+  s = load_skill(project_root, skill_name)
+  if s is None:
+    return None
+
+  args = (arguments or "").strip()
+  files = list_supporting_files(s)
+
+  if inline:
+    expanded = expand_skill_text(s, arguments=args, session_id=session_id)
+    parts = [
+      f"## ACTIVE SKILL: /{s.meta.name}\n\n",
+      "The user explicitly invoked this GemSkill. Follow its workflow exactly — "
+      "do not give a generic answer, do not claim the skill is missing, and do not skip deliverables.\n\n",
+      f"### Skill instructions\n{expanded}\n\n",
+    ]
+    if files:
+      parts.append(_inline_supporting_files_text(s, files))
+    parts.extend(
+      [
+        "### Execution requirements\n",
+        "- Apply the theme, structure, and formatting from the reference files above — not generic defaults.\n",
+        "- Use `write_file`, `bash`, or `run_command` to create files the skill specifies (e.g. `.docx`).\n",
+        "- Include cover page, themed headings, styled tables, and callouts when the skill/template requires them.\n",
+        "- Save deliverables to the project workspace unless the user gave another path.\n",
+        "- Do not paste a full long document in chat when the skill expects a file output.\n",
+        "- Do not web-search for content when the skill already defines how to build the deliverable.\n\n",
+        f"### User task\n{args or '(carry out the user request from the conversation)'}\n",
+      ]
+    )
+    return "".join(parts)
+
+  prompt_parts = [
+    f"User invoked GemSkill `/{s.meta.name}`.\n\n",
+    f"## Arguments\n{args or '(none)'}\n\n",
+    "## Instructions\n",
+    "1. Load the skill instructions using the `load_skill` tool (preferred) or by reading the SKILL.md file.\n",
+    "2. Only read supporting files if needed (keep it efficient).\n",
+    "3. Then carry out the user's request.\n\n",
+    f"## Skill file\n{s.skill_md}\n\n",
+  ]
+  if files:
+    prompt_parts.append(f"## Supporting files (optional)\n{', '.join(files)}\n\n")
+  prompt_parts.append("Now proceed.")
+  return "".join(prompt_parts)
 

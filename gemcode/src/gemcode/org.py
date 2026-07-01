@@ -26,8 +26,10 @@ def resolve_fleet_root(start_root: Path) -> Path:
   we still want org tools to operate on the shared `.gemcode/org.json` at the
   parent project root.
 
-  Strategy: walk up ancestors until we find `.gemcode/org.json`. If none is found,
-  fall back to the provided start_root.
+  Strategy: walk up from ``start_root`` and return the **nearest** ancestor whose
+  ``.gemcode/`` directory contains ``org.json``, ``habits.json``, or
+  ``fleet_reports.jsonl``. This keeps workspace-local habits/reports from being
+  shadowed by a distant ``org.json`` (e.g. in the user home directory).
   """
   try:
     cur = start_root.resolve()
@@ -35,12 +37,16 @@ def resolve_fleet_root(start_root: Path) -> Path:
     cur = start_root
   try:
     while True:
-      if (cur / ".gemcode" / "org.json").is_file():
+      gem = cur / ".gemcode"
+      if (gem / "org.json").is_file():
+        return cur
+      if (gem / "habits.json").is_file():
+        return cur
+      if (gem / "fleet_reports.jsonl").is_file():
         return cur
       if cur == cur.parent:
         break
-      nxt = cur.parent
-      cur = nxt
+      cur = cur.parent
   except Exception:
     return start_root
   return start_root

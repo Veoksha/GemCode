@@ -1,28 +1,43 @@
 # Web UI Contract
 
-This document captures the HTTP and streaming contract expected by GemCode-compatible web frontends and backends.
+This document captures the HTTP and streaming contract for **GemCode-compatible frontends**.
+
+The backend is **`gemcode serve`** (built into the PyPI package). Frontends are optional separate clients — official web app, your own UI, or an editor shell — that connect to the API URL (default `http://127.0.0.1:3001`).
 
 Use this document when:
-- implementing a GemCode-backed API server
-- adapting an existing frontend to GemCode streaming behavior
+- building or adapting a frontend for GemCode
+- implementing a custom UI against `gemcode serve`
 - validating `/api/chat` framing and health checks
 
 See also:
+- [Install — optional web UI](install.md)
+- [CLI — `gemcode serve` / `/serve`](cli-and-repl.md#http-api-for-web-and-custom-uis-gemcode-serve)
+- [Integrations — web](integrations.md#web-integration)
 - [GemCode user manual](../gemcode/README.md)
-- [documentation index](README.md)
-- [repository overview](../README.md)
+
+## 0. Start the API
+
+```bash
+gemcode serve -C /path/to/project
+# REPL/TUI alternative: /serve
+```
+
+Environment (optional):
+- `GEMCODE_WEB_API_HOST` — bind host (default `127.0.0.1`)
+- `GEMCODE_WEB_API_PORT` — bind port (default `3001`)
+- `GEMCODE_WEB_PROJECT_ROOT` — set automatically by `gemcode serve`
 
 ## 1. Base URLs
 
-- Frontend origin: the Next.js/Vite web app itself.
-- Backend base URL: configured via `NEXT_PUBLIC_API_URL` (Next.js) or `VITE_API_URL` (Vite).
-- The frontend code generally targets relative paths like `/api/chat` and relies on the web app (or Vite proxy) to reach the backend.
+- **Backend base URL:** where `gemcode serve` listens (default `http://127.0.0.1:3001`).
+- **Frontend origin:** your web app (Next.js, Vite, etc.) — often proxies `/api/*` to the backend.
+- Configure the frontend with `NEXT_PUBLIC_API_URL` (Next.js) or `VITE_API_URL` (Vite).
 
 ## 2. Health / Reachability
 
 ### 2.1 Frontend reachability checks
 
-`web/lib/BackendContext.tsx` (under the web app) health-checks the backend in this order using `HEAD`:
+Compatible UIs health-check the backend in this order using `HEAD`:
 
 1. `HEAD /api/health`
 2. `HEAD /api/status`
@@ -30,30 +45,61 @@ See also:
 
 Any non-5xx response is treated as “backend up”.
 
-### 2.2 Concrete health response (reference implementation)
+### 2.2 Health response (`gemcode serve`)
 
-A typical Node reference server might expose:
+`GET /api/health` and `GET /api/status` return JSON including:
 
-- `GET /health`
-- `GET /health/live`
-- `GET /health/ready`
-- `GET /health/startup`
+```json
+{
+  "status": "ok",
+  "service": "gemcode-serve",
+  "gemcode": true,
+  "has_api_key": true,
+  "mock_mode": false,
+  "project_root": "/absolute/path/to/project",
+  "cwd": "/absolute/path/to/project"
+}
+```
 
-Note: the UI’s reachability check targets `/api/health` (or other `/api/*` fallbacks). If your GemCode backend doesn’t implement `/api/health`, the UI will keep showing “Backend unreachable”.
+`GET /api/session` returns cwd, version, and key flags for the active project root.
 
-## 3. Chat: Streaming Contract
+If `/api/health` is missing or returns 5xx, UIs show “Backend unreachable”.
+
+## 3. API routes (summary)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/health`, `/api/status` | Reachability + config snapshot |
+| GET | `/api/session` | Session/env snapshot |
+| POST | `/api/chat` | Streaming chat (SSE) |
+| POST | `/api/chat/approve` | HITL approval bridge |
+| GET/POST | `/api/sessions` | List / name / touch ADK sessions |
+| GET/POST | `/api/panel` | Git, context, tools, terminal tail, etc. |
+| GET | `/api/preview` | Localhost dev-server port scan |
+| GET/POST | `/api/org`, `/api/habits`, `/api/mesh` | Fleet / habits / mesh |
+| GET/POST | `/api/skills`, `/api/mcp`, `/api/config` | Customization |
+| GET/POST | `/api/runtime`, `/api/runtime/status`, `/api/runtime/inbox` | Runtime IPC bridge |
+| POST | `/api/terminal` | Web terminal |
+| POST | `/api/settings/credentials` | API key helper |
+| GET | `/api/workspace/validate` | Validate project path |
+| POST | `/api/workspace/pick` | Native folder picker (OS dialog) |
+
+Implementation: `gemcode/src/gemcode/web/server.py`.
+
+## 4. Chat: Streaming Contract
 
 The web UI consumes streaming responses in two places. Some components use a simplified “chunk” protocol, and other hooks use a richer “StreamEvent” protocol.
 
-### 3.1 Endpoint
+### 4.1 Endpoint
 
 - `POST /api/chat`
-- Request body shape (from `web/lib/api.ts`):
+- Request body shape:
   - `messages`: array of `{ role, content }`
   - `model`: string model id
   - `stream`: boolean (frontend sets `stream: true`)
+  - `session_id`, `project_root` (recommended)
 
-### 3.2 Response framing
+### 4.2 Response framing
 
 The frontend expects a streaming HTTP response (SSE-like), where each frame is:
 
@@ -61,7 +107,7 @@ The frontend expects a streaming HTTP response (SSE-like), where each frame is:
 - JSON payload after `data: `
 - frames separated by blank lines (standard SSE `\n\n`)
 
-### 3.3 Simplified stream protocol (“StreamChunk”) used by `ChatInput`
+### 4.3 Simplified stream protocol (“StreamChunk”)
 
 `web/components/chat/ChatInput.tsx` imports `streamChat` from `web/lib/api.ts`.
 
@@ -84,7 +130,7 @@ That `streamChat` parser does:
 
 So at minimum, your GemCode `/api/chat` stream should emit StreamChunk frames with one of the above `type` values.
 
-### 3.4 Rich stream protocol (“StreamEvent”) used by `useChat`
+### 4.4 Rich stream protocol (“StreamEvent”)
 
 `web/hooks/useChat.ts` uses `messageAPI` from `web/lib/api/messages.ts`.
 

@@ -598,6 +598,13 @@ def main() -> None:
     print(f"Saved to {credentials_path()}", file=sys.stderr)
     return
 
+  # HTTP API for web UIs and other clients: `gemcode serve`
+  if len(sys.argv) > 1 and sys.argv[1] == "serve":
+    from gemcode.web.server import main as serve_main
+
+    serve_main(sys.argv[2:])
+    return
+
   # Quick command bypass (no prompt parsing): list available Gemini models.
   if (
     len(sys.argv) > 1

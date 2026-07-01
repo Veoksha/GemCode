@@ -24,20 +24,35 @@ Core files:
 The IDE protocol is not just “chat over stdio”; it has different execution semantics and requires a dedicated integration contract.
 
 ## Web integration
-GemCode includes web compatibility surfaces and SSE helpers.
+GemCode includes a built-in HTTP API for web and custom frontends.
 
-Key files:
-- `docs/web-ui-contract.md`
-- `gemcode/src/gemcode/web/sse_adapter.py`
-- `gemcode/src/gemcode/web/web_sse_compat.py`
-- `gemcode/src/gemcode/web/terminal_repl.py`
+### Entry point
+```bash
+gemcode serve -C /path/to/project
+```
+
+From the REPL/TUI: `/serve`, `/serve status`, `/serve stop`, `/serve url`.
+
+### Purpose
+- expose the same agent, tools, and sessions over HTTP
+- let any UI (official web app, internal dashboard, editor shell) connect without bundling GemCode into the frontend repo
+- default bind: `http://127.0.0.1:3001`
+
+### Key files
+- `docs/web-ui-contract.md` — routes, health, SSE framing
+- `gemcode/src/gemcode/web/server.py` — HTTP server (`gemcode serve`)
+- `gemcode/src/gemcode/web/serve_state.py` — background `/serve` process tracking
+- `gemcode/src/gemcode/web/sse_adapter.py` — chat streaming subprocess
+- `gemcode/src/gemcode/web/*_api.py` — panel, sessions, preview, org/mesh, runtime, terminal, etc.
 
 ### What to document
-- health checks
-- `/api/chat` streaming
-- chunk/event framing
-- backend/frontend expectations
-- terminal/web compatibility assumptions
+- `gemcode serve` and `/serve`
+- health checks (`GET /api/health`)
+- `/api/chat` streaming (SSE)
+- HITL approve (`POST /api/chat/approve`)
+- optional `GEMCODE_WEB_API_HOST` / `GEMCODE_WEB_API_PORT`
+
+Frontends live in separate repositories and only need the API URL.
 
 ## MCP integration
 

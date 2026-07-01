@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
+from typing import Any
 
 from google.adk.agents.llm_agent import LlmAgent
 
@@ -25,7 +26,7 @@ from gemcode.config import GemCodeConfig
 from gemcode.context_budget import make_before_model_context_shrink_callback
 from gemcode.limits import make_before_model_limits_callback, make_before_model_token_budget_callback
 from gemcode.thinking import build_thinking_config
-from gemcode.tools import build_function_tools
+from gemcode.tools import build_function_tools, filter_tools_for_web_workspace_mode
 from gemcode.tool_prompt_manifest import build_tool_manifest
 from gemcode.skills import (
   build_skill_manifest_text,
@@ -380,6 +381,14 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
     "(cap via `GEMCODE_FLEET_REPORTS_AUTO_CONTINUE_MAX`, debounce `GEMCODE_FLEET_REPORTS_ENQUEUE_DEBOUNCE_S`)."
   )
 
+  web_serve_section = (
+    "- **Web / custom UI** — `gemcode serve -C <project>` (or `/serve` in the REPL) starts the built-in "
+    "HTTP API on `http://127.0.0.1:3001` by default. Any frontend (official web app, your own dashboard, "
+    "editor plugin) connects to `/api/*` — chat SSE, sessions, panel, preview ports, HITL approve, org/mesh, "
+    "runtime, terminal. The UI is optional and lives outside the PyPI package; GemCode is the server. "
+    "Contract: `docs/web-ui-contract.md`."
+  )
+
   # ── Git context ───────────────────────────────────────────────────────────
   git_ctx = _get_git_context(root)
   git_section = f"\n\n## Git context (snapshot at session start)\n{git_ctx}" if git_ctx else ""
@@ -427,6 +436,7 @@ def _build_runtime_facts(cfg: GemCodeConfig) -> str:
 - **Your tool palette can grow mid-session:** if the user enables a capability via a slash command, the runner rebuilds and you get new tools on the next turn.
 - **Memory system:** when `memory ON`, ADK automatically searches `.gemcode/memories.jsonl` and injects relevant past context before each turn. Facts the user tells you in one session can appear in future sessions. You do not need to manage memory explicitly — it is loaded automatically.
 {kaira_section}
+{web_serve_section}
 - **UI banner** phrases like "GemCode Pro" are terminal marketing, not a separate API tier.
 - **Env toggles** (`GEMCODE_ENABLE_COMPUTER_USE`, `GEMCODE_MODEL`, etc.) affect only the OS process that launched gemcode. Pasting `VAR=1` in chat does NOT reconfigure a running session—tell the user to export in their shell, use project `.env`, or restart the CLI.
 - **Working in subfolders** — call `list_directory(\"Desktop\")`, `glob_files(\"**/query.ts\")`, `read_file(\"testing/ai-edtech-app/src/app/page.tsx\")` directly. Never claim access is blocked unless a tool returned an explicit error.{git_section}{curated_section}{veomem_section}"""
@@ -717,7 +727,7 @@ def build_instruction(cfg: GemCodeConfig) -> str:
     else ""
   )
 
-  base = f"""You are GemCode — an alternative to Claude Code built on Google ADK and Gemini.
+  base = f"""You are GemCode — a local coding agent built on Google ADK and Gemini.
 You run locally via the GemCode CLI. You are the same agent the user launched — not a hosted portal.
 
 {_build_runtime_facts(cfg)}
@@ -1171,7 +1181,26 @@ You have two tools to persist project insights across sessions (auto-memory styl
   workspace_md = _load_agent_workspace_md(cfg.project_root)
   if workspace_md:
     base = f"{base}\n\n{workspace_md}"
+  web_mode = getattr(cfg, "_web_workspace_mode", None)
+  if web_mode in ("code", "agents"):
+    mode_note = (
+      "Agents mode emphasizes org_delegate, org_spawn, run_subtask, and mesh tools for multi-agent work. "
+      if web_mode == "agents"
+      else ""
+    )
+    base = (
+      f"{base}\n\n## Web IDE ({web_mode} mode)\n"
+      f"{mode_note}"
+      "You are running in the GemCode **web UI** with a live connection to the user's local workspace. "
+      "You **have** filesystem tools — use `read_file`, `list_directory`, `repo_map`, etc. "
+      "Never claim you cannot browse or read local files. "
+      "Each user message may include a **Web IDE context** block with the active editor file and workspace root — "
+      'honor it for phrases like "this file", "the current one", or whole-project analysis requests.'
+    )
   extra = _load_gemini_md(cfg.project_root)
+  web_prompt = getattr(cfg, "_web_system_prompt", None)
+  if isinstance(web_prompt, str) and web_prompt.strip():
+    base = f"{base}\n\n## User preferences (web UI)\n{web_prompt.strip()}"
   if extra.strip():
     return f"{base}\n\n## Project instructions (gemcode.md)\n{extra}"
   return base
@@ -1207,6 +1236,10 @@ def build_root_agent(
     tools = list(_tools)
   else:
     tools = build_function_tools(cfg)
+    tools = filter_tools_for_web_workspace_mode(
+      tools,
+      getattr(cfg, "_web_workspace_mode", None),
+    )
   if getattr(cfg, "enable_memory", False):
     # ADK preload_memory injects retrieved memories into the next llm_request.
     from google.adk.tools import preload_memory
@@ -1214,18 +1247,23 @@ def build_root_agent(
 
   # ADK built-in interactive + artifact tools — always available when ADK supports them.
   # In super mode, ``get_user_choice`` auto-picks the first option (no UI).
+  function_tool_count = len(tools)
   try:
     from gemcode.tools.user_choice import append_user_choice_load_artifacts_exit_loop
 
     append_user_choice_load_artifacts_exit_loop(cfg, tools)
   except Exception:
     pass
+  mixes_adk_builtin_with_functions = (
+    len(tools) > function_tool_count and function_tool_count > 0
+  )
 
-  # Agent auto-notes: write project insights to .gemcode/notes.md (project notes file)
+  # Notes tools write to the repo — chat mode stays conversational.
   try:
     from gemcode.tools.notes import build_notes_tools
     notes_tools = build_notes_tools(cfg.project_root)
-    tools = [*tools, *notes_tools]
+    if getattr(cfg, "_web_workspace_mode", None) != "chat":
+      tools = [*tools, *notes_tools]
   except Exception:
     pass
 
@@ -1268,11 +1306,13 @@ def build_root_agent(
     # Unknown values: stay conservative.
     enable_for_run = bool(getattr(cfg, "enable_deep_research", False))
 
-  if enable_for_run and is_gemini_3:
+  if mixes_adk_builtin_with_functions or (
+    enable_for_run and is_gemini_3 and comb_mode != "never"
+  ):
     from google.genai import types
 
-    # Gemini "tool context circulation" enables built-in tools results to
-    # be combined with your client-side function tools in the same workflow.
+    # Gemini requires this when ADK built-in tools (load_artifacts, get_user_choice, …)
+    # are combined with GemCode function tools in the same turn.
     tool_cfg = types.ToolConfig(include_server_side_tool_invocations=True)
 
   if thinking_cfg is not None or tool_cfg is not None:
@@ -1282,6 +1322,28 @@ def build_root_agent(
       thinking_config=thinking_cfg,
       tool_config=tool_cfg,
     )
+
+  web_temp = getattr(cfg, "_web_temperature", None)
+  web_max = getattr(cfg, "_web_max_output_tokens", None)
+  if web_temp is not None or web_max is not None:
+    from google.genai import types
+
+    gen_kwargs: dict[str, Any] = {}
+    if gen_cfg is not None:
+      if getattr(gen_cfg, "thinking_config", None) is not None:
+        gen_kwargs["thinking_config"] = gen_cfg.thinking_config
+      if getattr(gen_cfg, "tool_config", None) is not None:
+        gen_kwargs["tool_config"] = gen_cfg.tool_config
+    elif thinking_cfg is not None:
+      gen_kwargs["thinking_config"] = thinking_cfg
+    if tool_cfg is not None:
+      gen_kwargs["tool_config"] = tool_cfg
+    if web_temp is not None:
+      gen_kwargs["temperature"] = float(web_temp)
+    if web_max is not None:
+      gen_kwargs["max_output_tokens"] = int(web_max)
+    if gen_kwargs:
+      gen_cfg = types.GenerateContentConfig(**gen_kwargs)
 
   # ── ADK multi-agent tree (LLM-controlled transfer) ───────────────────────
   sub_agents = []

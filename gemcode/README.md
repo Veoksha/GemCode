@@ -27,6 +27,7 @@ All state lives under `.gemcode/` in the project root. No external services requ
 | IDE stdio | Editor integration over JSONL stdin/stdout |
 | Agent Mesh | In-process multi-agent orchestration (automatic) |
 | GemCode Runtime | Optional always-on background scheduler (`gemcode runtime`; alias `gemcode kaira`) |
+| HTTP API (`gemcode serve`) | Built-in web/custom UI backend on `http://127.0.0.1:3001` — chat SSE, sessions, panel, HITL |
 | A2A server | Cross-machine agent communication via Google A2A protocol |
 | Live audio (experimental) | Microphone-driven Gemini Live sessions |
 
@@ -79,6 +80,18 @@ export GOOGLE_API_KEY="your-key"
 ```bash
 gemcode -C /path/to/project
 ```
+
+### Connect a web or custom UI (optional)
+GemCode ships the **HTTP API** in the PyPI package; frontends are separate clients.
+
+```bash
+gemcode serve -C /path/to/project
+# default: http://127.0.0.1:3001 — point any UI at this URL (Settings → API URL)
+```
+
+From the REPL/TUI: `/serve` (background), `/serve status`, `/serve stop`, `/serve url`.
+
+Contract and routes: [`../docs/web-ui-contract.md`](../docs/web-ui-contract.md).
 
 ### One-shot run
 ```bash
