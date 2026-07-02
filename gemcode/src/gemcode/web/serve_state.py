@@ -90,6 +90,22 @@ def is_serve_running(
 
   health = probe_health(url)
   if health and health.get("status") == "ok":
+    expected = str(project_root.expanduser().resolve())
+    raw_root = health.get("project_root") or health.get("cwd")
+    if raw_root:
+      try:
+        actual = str(Path(str(raw_root)).expanduser().resolve())
+        if actual != expected:
+          return False, {
+            "url": url,
+            "health": health,
+            "external": True,
+            "project_mismatch": True,
+            "expected_root": expected,
+            "actual_root": actual,
+          }
+      except (OSError, ValueError):
+        pass
     return True, {"url": url, "health": health, "external": True}
   return False, state
 
@@ -103,8 +119,18 @@ def start_background_serve(
 ) -> dict[str, Any]:
   root = project_root.expanduser().resolve()
   running, info = is_serve_running(root, host=host, port=port)
+  if info and info.get("project_mismatch"):
+    return {"ok": False, "project_mismatch": True, **info}
   if running:
     return {"ok": True, "already_running": True, **(info or {})}
+
+  preferred_port = port
+  try:
+    from gemcode.web.serve_bind import find_available_port
+
+    port = find_available_port(host, preferred_port)
+  except OSError as exc:
+    return {"ok": False, "error": str(exc), "preferred_port": preferred_port}
 
   log_path = root / ".gemcode" / "web-serve.log"
   log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -147,7 +173,11 @@ def start_background_serve(
         "log": str(log_path),
       }
       write_serve_state(root, payload)
-      return {"ok": True, "started": True, **payload, "health": health}
+      result = {"ok": True, "started": True, **payload, "health": health}
+      if port != preferred_port:
+        result["preferred_port"] = preferred_port
+        result["port_fallback"] = True
+      return result
   if pid_alive(proc.pid):
     payload = {
       "pid": proc.pid,
@@ -160,7 +190,11 @@ def start_background_serve(
       "warming": True,
     }
     write_serve_state(root, payload)
-    return {"ok": True, "started": True, **payload}
+    result = {"ok": True, "started": True, **payload}
+    if port != preferred_port:
+      result["preferred_port"] = preferred_port
+      result["port_fallback"] = True
+    return result
   return {
     "ok": False,
     "error": f"Server failed to start — see {log_path}",

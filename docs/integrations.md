@@ -36,7 +36,7 @@ From the REPL/TUI: `/serve`, `/serve status`, `/serve stop`, `/serve url`.
 ### Purpose
 - expose the same agent, tools, and sessions over HTTP
 - let any UI (official web app, internal dashboard, editor shell) connect without bundling GemCode into the frontend repo
-- default bind: `http://127.0.0.1:3001`
+- default bind: `http://127.0.0.1:3001` (auto-falls back to the next available port if busy)
 
 ### Key files
 - `docs/web-ui-contract.md` — routes, health, SSE framing

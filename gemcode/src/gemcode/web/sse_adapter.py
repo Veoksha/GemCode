@@ -357,10 +357,11 @@ async def _resolve_web_tool_permission(
   if getattr(cfg, "yes_to_all", False) or getattr(cfg, "super_mode", False):
     return True
 
-  from gemcode.web.hitl_bridge import new_approval_id, wait_for_web_approval
+  from gemcode.web.hitl_bridge import new_approval_id, register_pending_approval, wait_for_web_approval
 
   aid = (approval_id or "").strip() or new_approval_id(session_id, fc_id or tool_name)
   already_emitted = bool((approval_id or "").strip())
+  register_pending_approval(aid)
   if not already_emitted:
     _sse_emit(
       {
@@ -590,7 +591,7 @@ async def _stream_gemcode_turn(
       if not web_hitl:
         return emitted
       try:
-        from gemcode.web.hitl_bridge import new_approval_id
+        from gemcode.web.hitl_bridge import new_approval_id, register_pending_approval
 
         for fc in event.get_function_calls() or []:
           name = getattr(fc, "name", "") or ""
@@ -603,6 +604,7 @@ async def _stream_gemcode_turn(
             continue
           hint = format_tool_call_extras(fc) or ""
           approval_id = new_approval_id(session_id, tool_id)
+          register_pending_approval(approval_id)
           preflight_approvals.append((approval_id, name, hint, tool_id))
           _sse_emit(
             {
@@ -989,11 +991,19 @@ def _apply_web_request_options(cfg: GemCodeConfig, req: dict[str, Any], workspac
       cfg.enable_memory = bool(caps.get("enable_memory"))
     if "enable_web_search" in caps:
       cfg.enable_web_search = bool(caps.get("enable_web_search"))
-    if workspace_mode != "chat":
-      if "enable_deep_research" in caps:
-        cfg.enable_deep_research = bool(caps.get("enable_deep_research"))
-      if "enable_computer_use" in caps:
-        cfg.enable_computer_use = bool(caps.get("enable_computer_use"))
+    if "enable_deep_research" in caps:
+      cfg.enable_deep_research = bool(caps.get("enable_deep_research"))
+    if "enable_computer_use" in caps:
+      cfg.enable_computer_use = bool(caps.get("enable_computer_use"))
+    if "enable_embeddings" in caps:
+      cfg.enable_embeddings = bool(caps.get("enable_embeddings"))
+    if "enable_maps_grounding" in caps:
+      cfg.enable_maps_grounding = bool(caps.get("enable_maps_grounding"))
+    if "enable_code_executor" in caps:
+      cfg.enable_code_executor = bool(caps.get("enable_code_executor"))
+    cap_mode = caps.get("capability_mode")
+    if isinstance(cap_mode, str) and cap_mode.strip():
+      cfg.capability_mode = cap_mode.strip().lower()
     if bool(caps.get("proposal_mode")):
       object.__setattr__(cfg, "ide_proposal_mode", True)
       object.__setattr__(cfg, "ide_allow_write", True)
@@ -1020,6 +1030,17 @@ def _apply_web_request_options(cfg: GemCodeConfig, req: dict[str, Any], workspac
       object.__setattr__(cfg, "_web_max_output_tokens", int(max_tok))
     except (TypeError, ValueError):
       pass
+
+  thinking_budget = req.get("thinking_budget")
+  if thinking_budget is not None:
+    try:
+      cfg.thinking_budget = int(thinking_budget)
+    except (TypeError, ValueError):
+      pass
+
+  thinking_level = req.get("thinking_level")
+  if isinstance(thinking_level, str) and thinking_level.strip():
+    cfg.thinking_level = thinking_level.strip().lower()
 
   return workspace_mode
 
@@ -1071,6 +1092,8 @@ async def run_adapter(req: dict[str, Any]) -> None:
     caps = req.get("capabilities")
     chat_research = isinstance(caps, dict) and bool(caps.get("enable_deep_research"))
     chat_computer = isinstance(caps, dict) and bool(caps.get("enable_computer_use"))
+    chat_embeddings = isinstance(caps, dict) and bool(caps.get("enable_embeddings"))
+    chat_maps = isinstance(caps, dict) and bool(caps.get("enable_maps_grounding"))
     if not chat_research:
       try:
         cfg.enable_deep_research = False
@@ -1080,6 +1103,16 @@ async def run_adapter(req: dict[str, Any]) -> None:
     if not chat_computer:
       try:
         cfg.enable_computer_use = False
+      except Exception:
+        pass
+    if not chat_embeddings:
+      try:
+        cfg.enable_embeddings = False
+      except Exception:
+        pass
+    if not chat_maps:
+      try:
+        cfg.enable_maps_grounding = False
       except Exception:
         pass
 

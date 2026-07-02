@@ -2584,7 +2584,13 @@ async def process_repl_slash(
 
     if first in ("status", "ps"):
       running, info = is_serve_running(cfg.project_root, host=host, port=port)
-      if running and info:
+      if info and info.get("project_mismatch"):
+        out("[serve] port in use by another GemCode API (different project)")
+        out(f"  url: {info.get('url') or serve_base_url(host, port)}")
+        out(f"  this project: {info.get('expected_root') or cfg.project_root}")
+        out(f"  server root: {info.get('actual_root') or '?'}")
+        out("  Stop the other server or run `gemcode serve -C ...` for the matching folder.")
+      elif running and info:
         out("[serve] running")
         out(f"  url: {info.get('url') or serve_base_url(host, port)}")
         out(f"  project: {info.get('project_root') or cfg.project_root}")
@@ -2617,19 +2623,30 @@ async def process_repl_slash(
       session_id=session_id,
     )
     if not result.get("ok"):
-      out(f"[serve] failed: {result.get('error') or 'unknown error'}")
+      if result.get("project_mismatch"):
+        out("[serve] port 3001 is used by GemCode for a different project:")
+        out(f"  expected: {result.get('expected_root')}")
+        out(f"  actual:   {result.get('actual_root')}")
+        out("  Stop that server first, or start this project's API on another port.")
+      else:
+        out(f"[serve] failed: {result.get('error') or 'unknown error'}")
       if result.get("log"):
         out(f"  log: {result.get('log')}")
     elif result.get("already_running"):
       out(f"[serve] already running at {result.get('url')}")
     else:
-      out(f"[serve] started at {result.get('url')}")
+      if result.get("port_fallback"):
+        pref = result.get("preferred_port") or DEFAULT_SERVE_PORT
+        out(f"[serve] port {pref} was busy — started at {result.get('url')}")
+        out(f"  Set NEXT_PUBLIC_API_URL={result.get('url')} in gemcode-web-ui/.env.local")
+      else:
+        out(f"[serve] started at {result.get('url')}")
       if result.get("warming"):
         out("[serve] warming up — retry /serve status in a moment")
       if result.get("log"):
         out(f"  log: {result.get('log')}")
     out(f"[serve] session_id: {session_id}")
-    out("Open the web UI (npm run dev) — it proxies to port 3001 by default.")
+    out("Web UI: npm run dev in gemcode-web-ui → http://localhost:3002")
     out()
     return ReplSlashResult(skip_model_turn=True)
 

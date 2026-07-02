@@ -10,6 +10,12 @@
 - **Fix:** `list_sessions` web API path (session DB resolution).
 - **Doctor:** `/doctor` reports whether the web API is running.
 
+## 0.4.20
+
+- **Web API: reliability:** `gemcode serve` no longer kills long-running chat turns by default (no server-side turn timeout), emits periodic SSE keepalives to prevent proxy/browser idle disconnects, and increases HITL approval wait time (configurable).
+- **Web API: port fallback:** If `3001` is busy, `gemcode serve` (and `/serve`) automatically binds the next available port (skips `3002` reserved for the web UI) and reports the URL to connect to. `/api/health` now includes `port` and `url`.
+- **Web UI parity via serve:** Web requests can enable embeddings, maps grounding, and code executor; sessions API supports `new` and `resume`; workspace panel exposes a `tools` kind; web terminal accepts per-request permissions.
+
 ## 0.4.18
 
 - **TUI timers:** Fix elapsed-time spinner freezing during long tool runs by making `bash` and `run_command` tools async/threaded (no longer block the TUI event loop). Added note in [`cli-and-repl.md`](../docs/cli-and-repl.md).

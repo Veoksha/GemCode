@@ -44,6 +44,12 @@ def handle_panel_get(
       lines = _format_status_lines(cfg, session_id=session_id)
       return 200, {"ok": True, "kind": k, "lines": lines, "text": "\n".join(lines)}
 
+    if k == "tools":
+      from gemcode.repl_commands import format_tools_lines
+
+      lines = format_tools_lines(cfg)
+      return 200, {"ok": True, "kind": k, "lines": lines, "text": "\n".join(lines)}
+
     if k == "hooks":
       from gemcode.repl_commands import format_hooks_lines
 

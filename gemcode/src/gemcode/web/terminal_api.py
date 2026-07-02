@@ -11,10 +11,9 @@ from typing import Any
 
 from gemcode.config import GemCodeConfig
 from gemcode.session_runtime import create_runner
-from gemcode.web.terminal_repl import run_mock_turn, run_single_turn
-
-
 from gemcode.web.project_root import resolve_web_project_root
+from gemcode.web.sse_adapter import _apply_web_permissions, _ensure_web_hitl
+from gemcode.web.terminal_repl import run_mock_turn, run_single_turn
 
 
 def _resolve_root(raw_path: str) -> Path:
@@ -27,18 +26,23 @@ async def _terminal_turn_async(
   prompt: str,
   session_id: str,
   user_id: str,
+  permissions: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
   from gemcode.cli import _initialize_gemcode_project
 
   cfg = GemCodeConfig(project_root=project_root)
   cfg.permission_mode = os.environ.get("GEMCODE_PERMISSION_MODE", cfg.permission_mode)
-  cfg.yes_to_all = os.environ.get("GEMCODE_WEB_YES_TO_ALL", "true").lower() in (
-    "1",
-    "true",
-    "yes",
-    "on",
-  )
+  cfg.yes_to_all = False
   cfg.interactive_permission_ask = False
+  object.__setattr__(cfg, "_gemcode_web_sse", False)
+  if isinstance(permissions, dict):
+    _apply_web_permissions(cfg, {"permissions": permissions})
+  _ensure_web_hitl(cfg)
+  # Terminal is one-shot (no SSE HITL bridge) — respect explicit auto-approve only.
+  if getattr(cfg, "_web_interactive_hitl", False):
+    cfg.yes_to_all = False
+    cfg.interactive_permission_ask = False
+    object.__setattr__(cfg, "_web_interactive_hitl", False)
   _initialize_gemcode_project(cfg)
 
   buf = io.StringIO()
@@ -76,6 +80,7 @@ def handle_terminal_post(data: dict[str, Any], raw_path: str) -> tuple[int, dict
 
   session_id = str(data.get("session_id") or "web-terminal")
   user_id = str(data.get("user_id") or "web-terminal")
+  permissions = data.get("permissions") if isinstance(data.get("permissions"), dict) else None
 
   if not os.environ.get("GEMCODE_WEB_MOCK_RESPONSE") and not (
     os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
@@ -87,7 +92,13 @@ def handle_terminal_post(data: dict[str, Any], raw_path: str) -> tuple[int, dict
 
   try:
     payload = asyncio.run(
-      _terminal_turn_async(root, prompt=prompt, session_id=session_id, user_id=user_id)
+      _terminal_turn_async(
+        root,
+        prompt=prompt,
+        session_id=session_id,
+        user_id=user_id,
+        permissions=permissions,
+      )
     )
     return 200, payload
   except Exception as exc:

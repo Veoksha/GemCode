@@ -26,6 +26,10 @@ Environment (optional):
 - `GEMCODE_WEB_API_HOST` — bind host (default `127.0.0.1`)
 - `GEMCODE_WEB_API_PORT` — bind port (default `3001`)
 - `GEMCODE_WEB_PROJECT_ROOT` — set automatically by `gemcode serve`
+- `GEMCODE_WEB_PORT_SCAN` — when the preferred port is busy, scan this many ports upward (default `30`). Port `3002` is skipped (reserved for the Next.js dev server in the reference web UI).
+- `GEMCODE_WEB_SSE_KEEPALIVE_S` — SSE keepalive interval (seconds) for `/api/chat` when idle (default `20`).
+- `GEMCODE_WEB_TURN_TIMEOUT_S` — optional server-side turn cap (seconds). Default `0` (no cap).
+- `GEMCODE_WEB_HITL_TIMEOUT_S` — HITL approval wait timeout (seconds). Default `3600` (1 hour).
 
 ## 1. Base URLs
 
@@ -57,7 +61,9 @@ Any non-5xx response is treated as “backend up”.
   "has_api_key": true,
   "mock_mode": false,
   "project_root": "/absolute/path/to/project",
-  "cwd": "/absolute/path/to/project"
+  "cwd": "/absolute/path/to/project",
+  "port": 3001,
+  "url": "http://127.0.0.1:3001"
 }
 ```
 

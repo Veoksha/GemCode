@@ -177,7 +177,7 @@ In IDE mode, mutating shell/file tools may emit proposals instead of directly ch
 Entry: `gemcode serve` (REPL/TUI: `/serve`)
 
 Flow:
-1. Bind HTTP on `127.0.0.1:3001` by default
+1. Bind HTTP on `127.0.0.1:3001` by default (auto-falls back to the next available port if busy)
 2. Boot mesh scheduler for scheduled habits (when applicable)
 3. Route `/api/*` to web handler modules (`server.py`, `*_api.py`)
 4. Stream chat via `sse_adapter` subprocess per `POST /api/chat`

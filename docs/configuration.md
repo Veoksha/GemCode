@@ -80,6 +80,10 @@ Important groups:
 - `GEMCODE_WEB_PROJECT_ROOT` — active project root for web handlers; set automatically when you run `gemcode serve -C <path>`.
 - `GEMCODE_WEB_ALLOW_MOCK` — when `1`, allows mock chat responses (dev only).
 - `GEMCODE_WEB_MOCK_RESPONSE` — fixed mock reply text when mock mode is allowed.
+- `GEMCODE_WEB_PORT_SCAN` — when the preferred port is busy, scan this many ports upward (default `30`). Port `3002` is skipped (reserved for the reference web UI dev server).
+- `GEMCODE_WEB_SSE_KEEPALIVE_S` — SSE keepalive interval (seconds) for `/api/chat` when idle (default `20`).
+- `GEMCODE_WEB_TURN_TIMEOUT_S` — optional server-side turn cap (seconds). Default `0` (no cap).
+- `GEMCODE_WEB_HITL_TIMEOUT_S` — HITL approval wait timeout (seconds). Default `3600` (1 hour).
 
 Background `/serve` state: `.gemcode/web-serve.json`; logs: `.gemcode/web-serve.log`. See [`web-ui-contract.md`](web-ui-contract.md).
 

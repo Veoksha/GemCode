@@ -6,16 +6,19 @@ import argparse
 import json
 import os
 import platform
+import queue
 import re
 import signal
 import subprocess
 import sys
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import time
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from gemcode.web.serve_bind import bind_http_server, format_connection_lines
 from gemcode.web.serve_state import (
   clear_serve_state,
   serve_base_url,
@@ -24,6 +27,10 @@ from gemcode.web.serve_state import (
 
 PYTHON = sys.executable
 SERVER_VERSION = "GemCodeServe/1.0"
+
+# SSE / long-turn limits (0 = no server-side turn cap).
+_SSE_KEEPALIVE_S = float(os.environ.get("GEMCODE_WEB_SSE_KEEPALIVE_S", "20"))
+_TURN_TIMEOUT_S = float(os.environ.get("GEMCODE_WEB_TURN_TIMEOUT_S", "0"))
 
 
 def _mock_allowed() -> bool:
@@ -184,6 +191,8 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
             "mock_mode": _mock_mode_active(),
             "project_root": root,
             "cwd": root,
+            "port": self.server.server_address[1],
+            "url": serve_base_url(self.server.server_address[0], self.server.server_address[1]),
           }
         ).encode()
         self.send_response(200)
@@ -436,18 +445,67 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
 
       self.send_response(200)
       self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-      self.send_header("Cache-Control", "no-cache")
+      self.send_header("Cache-Control", "no-cache, no-transform")
       self.send_header("Connection", "keep-alive")
+      self.send_header("X-Accel-Buffering", "no")
       self._cors()
       self.end_headers()
+
+      try:
+        self.connection.settimeout(None)
+      except Exception:
+        pass
+
+      out_q: queue.Queue[bytes | None] = queue.Queue()
+
+      def _stdout_reader() -> None:
+        try:
+          while proc.stdout is not None:
+            chunk = proc.stdout.read(4096)
+            if not chunk:
+              break
+            out_q.put(chunk)
+        except Exception:
+          pass
+        finally:
+          out_q.put(None)
+
+      threading.Thread(target=_stdout_reader, daemon=True).start()
 
       done_re = re.compile(rb'"type"\s*:\s*"done"')
       saw_done = False
       carry = b""
+      last_activity = time.monotonic()
+      turn_deadline = (
+        time.monotonic() + _TURN_TIMEOUT_S if _TURN_TIMEOUT_S > 0 else None
+      )
       try:
         while True:
-          chunk = proc.stdout.read(4096)
-          if not chunk:
+          if turn_deadline is not None and time.monotonic() > turn_deadline:
+            proc.kill()
+            if not saw_done:
+              payload = json.dumps(
+                {
+                  "type": "error",
+                  "error": (
+                    f"Turn exceeded server limit ({int(_TURN_TIMEOUT_S)}s). "
+                    "Set GEMCODE_WEB_TURN_TIMEOUT_S=0 for no cap."
+                  ),
+                }
+              )
+              self.wfile.write(f"data: {payload}\n\n".encode())
+              self.wfile.write(b'data: {"type": "done"}\n\n')
+              self.wfile.flush()
+            break
+          try:
+            chunk = out_q.get(timeout=5.0)
+          except queue.Empty:
+            if time.monotonic() - last_activity >= _SSE_KEEPALIVE_S:
+              self.wfile.write(b": keepalive\n\n")
+              self.wfile.flush()
+              last_activity = time.monotonic()
+            continue
+          if chunk is None:
             break
           window = carry + chunk
           if not saw_done and done_re.search(window):
@@ -455,11 +513,15 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
           carry = chunk[-64:]
           self.wfile.write(chunk)
           self.wfile.flush()
+          last_activity = time.monotonic()
       except (BrokenPipeError, ConnectionResetError):
         proc.kill()
       finally:
         try:
-          proc.wait(timeout=900)
+          if _TURN_TIMEOUT_S > 0:
+            proc.wait(timeout=max(30.0, _TURN_TIMEOUT_S))
+          else:
+            proc.wait()
         except subprocess.TimeoutExpired:
           proc.kill()
           proc.wait(timeout=5)
@@ -548,7 +610,8 @@ def run_server(
     print(f"[serve] Mesh scheduler bootstrap failed: {exc}", flush=True)
 
   handler = _build_handler(str(root))
-  httpd = ThreadingHTTPServer((host, bind_port), handler)
+  preferred_port = bind_port
+  httpd, bind_port = bind_http_server(host, handler, preferred_port)
   url = serve_base_url(host, bind_port)
 
   def _shutdown(*_args: Any) -> None:
@@ -578,7 +641,12 @@ def run_server(
   print(f"Project root: {root}", flush=True)
   if session_id:
     print(f"CLI session id: {session_id}", flush=True)
-  print("Connect the web UI to this URL (Settings → API URL or NEXT_PUBLIC_API_URL).", flush=True)
+  for line in format_connection_lines(host, bind_port, preferred_port=preferred_port):
+    print(line, flush=True)
+  if _TURN_TIMEOUT_S <= 0:
+    print("[serve] Long turns: no server-side turn timeout (GEMCODE_WEB_TURN_TIMEOUT_S=0)", flush=True)
+  else:
+    print(f"[serve] Long turns: server cap {int(_TURN_TIMEOUT_S)}s (set GEMCODE_WEB_TURN_TIMEOUT_S=0 to disable)", flush=True)
   if _mock_mode_active():
     print("[serve] WARNING: mock mode active (GEMCODE_WEB_ALLOW_MOCK=1)", flush=True)
   else:

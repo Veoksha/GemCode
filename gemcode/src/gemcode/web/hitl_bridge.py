@@ -4,16 +4,26 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
 
 _APPROVAL_DIR = Path.home() / ".gemcode" / "web_approvals"
-_DEFAULT_TIMEOUT_S = 300.0
+_DEFAULT_TIMEOUT_S = float(os.environ.get("GEMCODE_WEB_HITL_TIMEOUT_S", "3600"))
 _POLL_INTERVAL_S = 0.25
 # approval_ids currently blocked in wait_for_web_approval (same process)
 _active_waiters: set[str] = set()
+# emitted to the UI but wait_for_web_approval not started yet (preflight)
+_pending_approval_ids: set[str] = set()
+
+
+def register_pending_approval(approval_id: str) -> None:
+  """Mark an approval as expected so early UI clicks are not reported as late."""
+  aid = (approval_id or "").strip()
+  if aid:
+    _pending_approval_ids.add(aid)
 
 
 def _approval_path(approval_id: str) -> Path:
@@ -48,7 +58,7 @@ def resolve_web_approval(approval_id: str, *, confirmed: bool) -> dict[str, Any]
   path = _approval_path(approval_id)
   payload = {"confirmed": bool(confirmed), "resolved_ms": int(time.time() * 1000)}
   path.write_text(json.dumps(payload), encoding="utf-8")
-  late = approval_id not in _active_waiters
+  late = approval_id not in _active_waiters and approval_id not in _pending_approval_ids
   return {
     "ok": True,
     "approval_id": approval_id,
@@ -73,6 +83,7 @@ async def wait_for_web_approval(
   if existing is not None:
     return existing
 
+  _pending_approval_ids.discard(approval_id)
   _active_waiters.add(approval_id)
   try:
     deadline = time.monotonic() + max(1.0, timeout_s)
@@ -93,6 +104,7 @@ async def wait_for_web_approval(
     return False
   finally:
     _active_waiters.discard(approval_id)
+    _pending_approval_ids.discard(approval_id)
 
 
 def new_approval_id(session_id: str, fc_id: str | None) -> str:
