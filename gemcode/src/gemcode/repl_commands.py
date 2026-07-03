@@ -252,6 +252,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("runtime",     "Fleet socket status · gemcode runtime · attach/connect"),
     ("serve",       "HTTP API for web/custom UIs — gemcode serve on :3001"),
     ("hosted",      "Hosted multi-tenant lock — GEMCODE_HOSTED_TENANT_ROOT status"),
+    ("workspace",   "Workspace root + hosted file API routes"),
     ("bus",         "Runtime bus — send/publish lightweight messages over IPC"),
     ("inbox",       "Bus inbox filters for this UI (to/topics)"),
     ("fleet",       "Fleet inbox — /fleet show | digest (habits / mesh reports)"),

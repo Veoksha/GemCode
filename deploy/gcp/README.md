@@ -55,13 +55,13 @@ Point **gemcode-web-ui** at the port-forwarded URL, or deploy a BFF that routes 
 | Build arg | Behavior |
 |-----------|----------|
 | `GEMCODE_SOURCE=repo` (default) | `pip install` from `./gemcode` — includes hosted tenant path locking |
-| `GEMCODE_SOURCE=pypi` | `pip install gemcode==0.4.21` from PyPI |
+| `GEMCODE_SOURCE=pypi` | `pip install gemcode==0.4.22` from PyPI |
 
 ```bash
 GEMCODE_SOURCE=pypi ./deploy/gcp/scripts/build-images.sh
 ```
 
-> PyPI **0.4.21+** includes `GEMCODE_HOSTED_TENANT_ROOT`. Use `GEMCODE_SOURCE=pypi` after release.
+> PyPI **0.4.22+** includes `GEMCODE_HOSTED_TENANT_ROOT`. Use `GEMCODE_SOURCE=pypi` after release.
 
 ## Provisioner API
 

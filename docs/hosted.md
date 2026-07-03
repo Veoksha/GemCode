@@ -48,7 +48,51 @@ From an interactive session:
 /hosted          Show whether hosted tenant lock is active
 /hosted status   Same
 /hosted help     Env vars and doc pointer
+/workspace       Workspace root + hosted lock
+/workspace files File API routes on gemcode serve
 ```
+
+## Full superpowers in isolation
+
+Each tenant pod runs the same stack as local `gemcode serve`:
+
+| Capability | Hosted tenant | Notes |
+|------------|---------------|-------|
+| Chat + tools (bash, git, files) | Yes | Scoped to `/mnt/workspace` |
+| Terminal (`POST /api/terminal`) | Yes | Same pod process |
+| HITL approvals | Yes | Under `{tenant}/.gemcode/web_approvals/` |
+| ADK sessions | Yes | Per-tenant disk |
+| Skills / MCP / mesh APIs | Yes | Tenant-local config |
+| Super mode | Yes | Per-request from UI |
+| File explorer | Yes | Via `/api/files*` on gemcode serve (UI proxies when backend is remote) |
+| Computer use (Playwright) | Optional | Add browser deps to tenant image tier |
+| Native folder picker | No | Headless pod — use fixed workspace |
+
+**Model selection:** the web UI sends `model` on every chat request. Users change models in Settings; the server default when omitted is `gemini-3.1-pro-preview`. Set `GEMCODE_MODEL` on the pod only as a fallback.
+
+**Architecture (recommended):**
+
+```text
+User browser
+    → Web UI (Next.js) + auth (IAP / Firebase)
+    → BFF routes by email → tenant Service (cluster DNS)
+    → gemcode serve (one pod + PVC per user)
+         GEMCODE_HOSTED_TENANT_ROOT=/mnt/workspace
+```
+
+Network policy blocks tenant-to-tenant traffic. The BFF must not expose raw pod URLs; map authenticated user → their tenant service only.
+
+## File API (hosted + local)
+
+When the UI points at a remote backend (`GEMCODE_BACKEND_URL` or non-localhost `:3001`), file routes proxy to gemcode serve:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/files` | Workspace file tree (`?path=`) |
+| GET | `/api/files/read` | Read file (`?path=`) |
+| POST | `/api/files/write` | Write file (`{ path, content }`) |
+
+All paths are validated against `GEMCODE_HOSTED_TENANT_ROOT` when hosted mode is on.
 
 ## GCP reference implementation
 
@@ -57,7 +101,7 @@ The repo ships a full GKE layout under [`deploy/gcp/`](../deploy/gcp/):
 - **One pod + persistent disk per user** in namespace `gemcode-tenants`
 - **Network policy** — tenant pods cannot talk to each other
 - **Provisioner API** — create tenant on first login (by email → `u_<hash>` id)
-- **Docker image** — `pip install gemcode==0.4.21` (or build from repo)
+- **Docker image** — `pip install gemcode==0.4.22` (or build from repo)
 
 Quick start:
 

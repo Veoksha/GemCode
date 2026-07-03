@@ -250,6 +250,38 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
         return
 
       parsed = urlparse(self.path)
+      if parsed.path in ("/api/files", "/api/files/read"):
+        params = parse_qs(parsed.query)
+        raw_path = (params.get("path") or [root])[0]
+        try:
+          from gemcode.web.files_api import handle_files_read_get, handle_files_tree_get
+
+          if parsed.path == "/api/files/read":
+            file_path = (params.get("path") or [""])[0]
+            ws = (params.get("root") or [root])[0]
+            status, payload = handle_files_read_get(ws, file_path)
+          else:
+            cwd = (params.get("cwd") or [""])[0]
+            show_ignored = (params.get("showIgnored") or ["false"])[0].lower() == "true"
+            ws = (params.get("root") or [root])[0]
+            status, payload = handle_files_tree_get(
+              ws,
+              cwd=cwd,
+              show_ignored=show_ignored,
+            )
+        except HostedTenantPathError as exc:
+          status, payload = 403, {"error": str(exc)}
+        except Exception as exc:
+          status, payload = 500, {"error": f"{type(exc).__name__}: {exc}"}
+        body = json.dumps(payload, default=str).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(body)
+        return
+
       fleet_get = {
         "/api/org": "org",
         "/api/habits": "habits",
@@ -353,6 +385,7 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
         "/api/settings/credentials": ("gemcode.web.customize_api", "handle_credentials_post"),
         "/api/runtime": ("gemcode.web.runtime_api", "handle_runtime_post"),
         "/api/terminal": ("gemcode.web.terminal_api", "handle_terminal_post"),
+        "/api/files/write": ("gemcode.web.files_api", "handle_files_write_post"),
       }
 
       if self.path in post_routes:
@@ -374,6 +407,9 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
           elif self.path == "/api/sessions":
             raw_path = str(data.get("path") or root).strip()
             status, payload = handler(raw_path, data)
+          elif self.path == "/api/files/write":
+            raw_path = str(data.get("root") or data.get("path") or root).strip()
+            status, payload = handler(data, raw_path)
           else:
             raw_path = str(data.get("path") or root).strip()
             status, payload = handler(data, raw_path)

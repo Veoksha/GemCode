@@ -2683,6 +2683,34 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True)
 
+  # ── /workspace (hosted tenant + file API) ───────────────────────────────
+  if name == "workspace":
+    from gemcode.web.project_root import hosted_tenant_root
+
+    args_w = (sc.args or "").strip().lower()
+    if args_w in ("help", "?"):
+      out("Workspace / hosted tenant:")
+      out("  /workspace          Show active workspace root and hosted lock")
+      out("  /workspace files    File API routes on gemcode serve")
+      out("")
+      out("Hosted tenants use /api/files, /api/files/read, /api/files/write on gemcode serve.")
+      out("See docs/hosted.md")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    locked = hosted_tenant_root()
+    out(f"  project_root: {cfg.project_root.resolve()}")
+    if locked is not None:
+      out(f"  hosted lock:  {locked}")
+    else:
+      out("  hosted lock:  (not set — local mode)")
+    if args_w == "files":
+      out("  GET  /api/files           — file tree")
+      out("  GET  /api/files/read      — read file")
+      out("  POST /api/files/write     — write file")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
   # ── /runtime ────────────────────────────────────────────────────────────
   if name == "runtime":
     from gemcode.kaira_ipc import fleet_manager_ipc_path_for_workspace

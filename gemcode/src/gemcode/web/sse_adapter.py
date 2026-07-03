@@ -1048,7 +1048,7 @@ def _apply_web_request_options(cfg: GemCodeConfig, req: dict[str, Any], workspac
 async def run_adapter(req: dict[str, Any]) -> None:
   messages = req.get("messages")
   requested_model = req.get("model")
-  model = requested_model or os.environ.get("GEMCODE_MODEL") or "gemini-2.5-flash"
+  model = requested_model or os.environ.get("GEMCODE_MODEL") or "gemini-3.1-pro-preview"
 
   if not isinstance(messages, list):
     raise ValueError("messages must be a list")

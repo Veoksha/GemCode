@@ -98,6 +98,9 @@ If `/api/health` is missing or returns 5xx, UIs show “Backend unreachable”.
 | GET/POST | `/api/skills`, `/api/mcp`, `/api/config` | Customization |
 | GET/POST | `/api/runtime`, `/api/runtime/status`, `/api/runtime/inbox` | Runtime IPC bridge |
 | POST | `/api/terminal` | Web terminal |
+| GET | `/api/files` | Workspace file tree (`?path=`) |
+| GET | `/api/files/read` | Read file content (`?path=`) |
+| POST | `/api/files/write` | Write file (`{ path, content }`) |
 | POST | `/api/settings/credentials` | API key helper |
 | GET | `/api/workspace/validate` | Validate project path |
 | POST | `/api/workspace/pick` | Native folder picker (OS dialog) |

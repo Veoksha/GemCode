@@ -53,6 +53,8 @@ spec:
               value: /mnt/workspace
             - name: GEMCODE_WEB_PROJECT_ROOT
               value: /mnt/workspace
+            - name: GEMCODE_MODEL
+              value: gemini-3.1-pro-preview
             - name: GOOGLE_API_KEY
               valueFrom:
                 secretKeyRef:

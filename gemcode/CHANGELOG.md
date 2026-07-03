@@ -1,3 +1,11 @@
+## 0.4.22
+
+- **Hosted file API:** `GET /api/files`, `GET /api/files/read`, `POST /api/files/write` on `gemcode serve` — workspace tree, read, and write with `GEMCODE_HOSTED_TENANT_ROOT` path locking (enables remote web UI file explorer per tenant).
+- **Web API default model:** `sse_adapter` fallback aligned with CLI — `gemini-3.1-pro-preview` when the client omits `model` (per-request UI model override unchanged).
+- **REPL:** `/workspace` slash — workspace root, hosted lock, file API routes.
+- **Deploy:** GKE network policy DNS egress fix, `GEMCODE_MODEL` on tenant pods, Cloud Build config, private cluster setup script updates.
+- **Docs:** [`hosted.md`](../docs/hosted.md) architecture for full superpowers + isolation; [`web-ui-contract.md`](../docs/web-ui-contract.md) file routes.
+
 ## 0.4.21
 
 - **Hosted multi-tenant web API:** `GEMCODE_HOSTED_TENANT_ROOT` locks `gemcode serve` to one workspace per process — client `path` / `project_root` cannot escape the tenant directory (HTTP 403). HITL approval files live under `{workspace}/.gemcode/web_approvals` when hosted mode is on.

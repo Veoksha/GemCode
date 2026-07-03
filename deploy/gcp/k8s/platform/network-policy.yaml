@@ -22,18 +22,32 @@ spec:
             matchLabels:
               gemcode.io/role: provisioner
   egress:
+    # Cluster DNS (GKE kube-dns / metadata endpoint)
     - to:
-        - namespaceSelector: {}
+        - ipBlock:
+            cidr: 169.254.20.10/32
       ports:
-        - protocol: TCP
-          port: 443
-        - protocol: TCP
-          port: 53
         - protocol: UDP
           port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # HTTPS egress (Gemini API, PyPI, etc.)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
       ports:
         - protocol: TCP
           port: 443

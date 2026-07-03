@@ -1,0 +1,35 @@
+substitutions:
+  _GEMCODE_SOURCE: pypi
+  _GEMCODE_PIP_VERSION: "0.4.22"
+  _TENANT_IMAGE: us-central1-docker.pkg.dev/finai-474319/gemcode/gemcode-tenant:latest
+  _PROVISIONER_IMAGE: us-central1-docker.pkg.dev/finai-474319/gemcode/gemcode-provisioner:latest
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deploy/gcp/docker/gemcode-tenant/Dockerfile
+      - --build-arg
+      - GEMCODE_SOURCE=${_GEMCODE_SOURCE}
+      - --build-arg
+      - GEMCODE_PIP_VERSION=${_GEMCODE_PIP_VERSION}
+      - -t
+      - ${_TENANT_IMAGE}
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deploy/gcp/provisioner/Dockerfile
+      - -t
+      - ${_PROVISIONER_IMAGE}
+      - .
+
+images:
+  - ${_TENANT_IMAGE}
+  - ${_PROVISIONER_IMAGE}
+
+options:
+  logging: CLOUD_LOGGING_ONLY

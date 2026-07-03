@@ -5,13 +5,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT_DIR"
 
-KEY="${GOOGLE_API_KEY:-}"
+KEY="${GOOGLE_API_KEY:-${GEMINI_API_KEY:-}}"
 if [[ -z "$KEY" && -f .env ]]; then
-  KEY="$(grep -E '^GOOGLE_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+  KEY="$(grep -E '^(GOOGLE_API_KEY|GEMINI_API_KEY)=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
 fi
 
 if [[ -z "$KEY" ]]; then
-  echo "Set GOOGLE_API_KEY or add it to repo .env" >&2
+  echo "Set GOOGLE_API_KEY or GEMINI_API_KEY (or add to .env)" >&2
   exit 1
 fi
 
