@@ -1,6 +1,7 @@
 substitutions:
   _GEMCODE_SOURCE: pypi
   _GEMCODE_PIP_VERSION: "0.4.22"
+  _GATEWAY_IMAGE: us-central1-docker.pkg.dev/finai-474319/gemcode/gemcode-tenant-gateway:latest
   _TENANT_IMAGE: us-central1-docker.pkg.dev/finai-474319/gemcode/gemcode-tenant:latest
   _PROVISIONER_IMAGE: us-central1-docker.pkg.dev/finai-474319/gemcode/gemcode-provisioner:latest
 
@@ -27,9 +28,19 @@ steps:
       - ${_PROVISIONER_IMAGE}
       - .
 
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deploy/gcp/gateway/Dockerfile
+      - -t
+      - ${_GATEWAY_IMAGE}
+      - .
+
 images:
   - ${_TENANT_IMAGE}
   - ${_PROVISIONER_IMAGE}
+  - ${_GATEWAY_IMAGE}
 
 options:
   logging: CLOUD_LOGGING_ONLY

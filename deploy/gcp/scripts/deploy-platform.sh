@@ -14,6 +14,7 @@ fi
 
 : "${GEMCODE_TENANT_IMAGE:?}"
 : "${GEMCODE_PROVISIONER_IMAGE:?}"
+: "${GEMCODE_GATEWAY_IMAGE:?}"
 
 echo "==> Applying platform namespaces + network policy..."
 kubectl apply -f deploy/gcp/k8s/platform/namespace.yaml
@@ -33,5 +34,13 @@ sed \
 
 echo "==> Waiting for provisioner..."
 kubectl -n gemcode-platform rollout status deployment/gemcode-provisioner --timeout=180s
+
+echo "==> Tenant gateway..."
+sed \
+  -e "s|__GATEWAY_IMAGE__|${GEMCODE_GATEWAY_IMAGE}|g" \
+  deploy/gcp/k8s/platform/gateway-deployment.yaml | kubectl apply -f -
+
+echo "==> Waiting for tenant gateway..."
+kubectl -n gemcode-platform rollout status deployment/gemcode-tenant-gateway --timeout=180s
 
 echo "==> Platform deployed."

@@ -1,0 +1,86 @@
+# GemCode Web UI — Google Auth + multi-tenant GKE
+
+## Overview
+
+When auth is enabled, users sign in with **Google**. On first login the UI calls the **tenant provisioner**, which creates an isolated GKE pod + PVC. All API routes proxy to that user's tenant via the **tenant gateway**.
+
+```
+Browser → Next.js (auth) → Tenant Gateway /t/{tenant_id}/… → gemcode serve pod
+                              ↑
+                    Provisioner (first login)
+```
+
+## 1. Google OAuth credentials
+
+1. Open [Google Cloud Console → APIs & Credentials](https://console.cloud.google.com/apis/credentials?project=finai-474319)
+2. **OAuth consent screen** — configure (Internal for Workspace org, or External for testing)
+3. **Create credentials → OAuth client ID → Web application**
+4. Authorized redirect URI:
+   ```
+   http://localhost:3002/api/auth/callback/google
+   ```
+5. Copy **Client ID** and **Client secret**
+
+Generate a session secret:
+
+```bash
+openssl rand -base64 32
+```
+
+## 2. Web UI `.env.local`
+
+```env
+# Auth (set AUTH_DISABLED=true to skip during local single-tenant dev)
+NEXTAUTH_URL=http://localhost:3002
+NEXTAUTH_SECRET=<openssl output>
+GOOGLE_CLIENT_ID=<from console>
+GOOGLE_CLIENT_SECRET=<from console>
+
+# Tenant routing (local dev with kubectl port-forwards)
+GEMCODE_PROVISIONER_URL=http://127.0.0.1:8080
+GEMCODE_PROVISIONER_TOKEN=<optional bearer token>
+GEMCODE_TENANT_GATEWAY_URL=http://127.0.0.1:3020
+
+# Legacy single-tenant fallback when AUTH_DISABLED=true
+# NEXT_PUBLIC_API_URL=http://127.0.0.1:3010
+# AUTH_DISABLED=true
+```
+
+## 3. Port-forwards (local dev against GKE)
+
+Run in separate terminals:
+
+```bash
+# Provisioner API
+kubectl -n gemcode-platform port-forward svc/gemcode-provisioner 8080:8080
+
+# Tenant gateway (routes all users after auth)
+kubectl -n gemcode-platform port-forward svc/gemcode-tenant-gateway 3020:8080
+```
+
+## 4. Provisioner admin token (recommended)
+
+```bash
+TOKEN=$(openssl rand -hex 24)
+kubectl -n gemcode-platform create secret generic gemcode-provisioner-admin \
+  --from-literal=token="$TOKEN" \
+  --dry-run=client -o yaml | kubectl apply -f -
+# Set PROVISIONER_ADMIN_TOKEN on provisioner deployment + GEMCODE_PROVISIONER_TOKEN in .env.local
+```
+
+## 5. Deploy gateway to GKE
+
+```bash
+source deploy/gcp/config.env
+gcloud builds submit --config=deploy/gcp/cloudbuild.yaml --project=finai-474319
+./deploy/gcp/scripts/deploy-platform.sh
+```
+
+## 6. Flow
+
+1. User opens http://localhost:3002 → redirected to `/login`
+2. **Continue with Google** → NextAuth session
+3. `POST /api/tenant/ensure` → provisioner creates `gemcode-tenant-u-{hash}` if new
+4. Chat, files, terminal, skills → `/api/*` → gateway → user's pod
+
+Each email maps to a deterministic tenant id (same as `create-tenant.sh`).
