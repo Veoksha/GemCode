@@ -1061,14 +1061,17 @@ async def run_adapter(req: dict[str, Any]) -> None:
   if not prompt.strip():
     raise ValueError("No user message in request")
 
+  from gemcode.web.project_root import HostedTenantPathError, resolve_sse_project_root
+
   req_root = req.get("project_root")
-  if isinstance(req_root, str) and req_root.strip():
-    project_root = req_root.strip()
-  else:
-    project_root = os.environ.get("GEMCODE_WEB_PROJECT_ROOT") or os.getcwd()
-  root_path = Path(project_root).expanduser()
+  raw_root = req_root.strip() if isinstance(req_root, str) and req_root.strip() else None
+  try:
+    root_path = resolve_sse_project_root(raw_root)
+  except HostedTenantPathError as exc:
+    raise ValueError(str(exc)) from exc
   if not root_path.is_dir():
-    raise ValueError(f"project_root is not a directory: {project_root}")
+    raise ValueError(f"project_root is not a directory: {root_path}")
+  project_root = str(root_path)
   from gemcode.org import resolve_fleet_root
 
   fleet_root = resolve_fleet_root(root_path.resolve())

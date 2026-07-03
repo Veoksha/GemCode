@@ -51,6 +51,7 @@ From the REPL/TUI: `/serve`, `/serve status`, `/serve stop`, `/serve url`.
 - `/api/chat` streaming (SSE)
 - HITL approve (`POST /api/chat/approve`)
 - optional `GEMCODE_WEB_API_HOST` / `GEMCODE_WEB_API_PORT`
+- hosted multi-tenant: `GEMCODE_HOSTED_TENANT_ROOT`, `/hosted`, [`hosted.md`](hosted.md), `deploy/gcp/`
 
 Frontends live in separate repositories and only need the API URL.
 

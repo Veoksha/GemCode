@@ -185,6 +185,8 @@ Flow:
 
 This is the integration surface for **any** frontend — official web UI, custom dashboard, or editor shell. Frontends are not bundled in the PyPI package.
 
+**Hosted multi-tenant:** set `GEMCODE_HOSTED_TENANT_ROOT` per process (one tenant per pod/VM). Path locking and GKE reference: [`hosted.md`](hosted.md), `deploy/gcp/`.
+
 Related docs:
 - `docs/web-ui-contract.md`
 - `docs/integrations.md`

@@ -1,3 +1,10 @@
+## 0.4.21
+
+- **Hosted multi-tenant web API:** `GEMCODE_HOSTED_TENANT_ROOT` locks `gemcode serve` to one workspace per process — client `path` / `project_root` cannot escape the tenant directory (HTTP 403). HITL approval files live under `{workspace}/.gemcode/web_approvals` when hosted mode is on.
+- **REPL:** `/hosted` slash command — show hosted-tenant lock status and env hints.
+- **Web API:** `/api/health` includes `hosted_mode` and `hosted_tenant_root` when locked.
+- **Docs:** [`hosted.md`](../docs/hosted.md) — GKE pod-per-user deployment guide (`deploy/gcp/`). Updated [`configuration.md`](../docs/configuration.md), [`web-ui-contract.md`](../docs/web-ui-contract.md), [`cli-and-repl.md`](../docs/cli-and-repl.md).
+
 ## 0.4.17
 
 - **Docs:** Multi-agent model—fleet **`habits.json`** vs per-member skills/workspaces/runtime ([`orchestration.md`](../docs/orchestration.md)); stopping background work (**`/mesh halt`**, **`mesh_halt`**, **`habits_clear_all`**); **`/fleet`** and **`/mesh`** in [`cli-and-repl.md`](../docs/cli-and-repl.md); mesh singleton **`project_root`** in [`configuration.md`](../docs/configuration.md); user manual section in **`README.md`**.

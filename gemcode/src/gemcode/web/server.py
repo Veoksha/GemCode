@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from gemcode.web.project_root import HostedTenantPathError
 from gemcode.web.serve_bind import bind_http_server, format_connection_lines
 from gemcode.web.serve_state import (
   clear_serve_state,
@@ -182,8 +183,10 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
         except Exception:
           pass
         has_key = bool(os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"))
-        body = json.dumps(
-          {
+        from gemcode.web.project_root import hosted_tenant_root
+
+        locked = hosted_tenant_root()
+        health: dict[str, Any] = {
             "status": "ok",
             "service": "gemcode-serve",
             "gemcode": True,
@@ -193,8 +196,11 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
             "cwd": root,
             "port": self.server.server_address[1],
             "url": serve_base_url(self.server.server_address[0], self.server.server_address[1]),
-          }
-        ).encode()
+        }
+        if locked is not None:
+          health["hosted_mode"] = True
+          health["hosted_tenant_root"] = str(locked)
+        body = json.dumps(health).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -371,6 +377,9 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
           else:
             raw_path = str(data.get("path") or root).strip()
             status, payload = handler(data, raw_path)
+        except HostedTenantPathError as exc:
+          payload = {"ok": False, "error": str(exc)}
+          status = 403
         except Exception as exc:
           payload = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
           status = 500

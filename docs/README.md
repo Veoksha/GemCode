@@ -90,6 +90,7 @@ Next: read [`orchestration.md`](orchestration.md) for the full runtime + fleet m
 - [`capabilities.md`](capabilities.md) — deep research, embeddings, memory, VeoMem, browser/computer use, (experimental) live audio, and routing behavior
 - [`integrations.md`](integrations.md) — IDE stdio, web/SSE, MCP, OpenAPI, browser integration, and skills as a workflow surface
 - [`operations.md`](operations.md) — audit/debugging, common failures, GemCode Runtime operations, eval/autotune, and release workflow
+- [`hosted.md`](hosted.md) — multi-tenant `gemcode serve` on GCP (GKE pod-per-user)
 - [`reference-gemcode-state.md`](reference-gemcode-state.md) — quick reference for the `.gemcode/` directory layout and state files
 
 ## Integration contracts

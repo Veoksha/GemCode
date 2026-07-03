@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gemcode-platform
+  labels:
+    app.kubernetes.io/part-of: gemcode-hosting
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gemcode-tenants
+  labels:
+    app.kubernetes.io/part-of: gemcode-hosting
+    gemcode.io/tenant-isolation: "true"

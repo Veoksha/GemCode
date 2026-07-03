@@ -30,6 +30,7 @@ Environment (optional):
 - `GEMCODE_WEB_SSE_KEEPALIVE_S` — SSE keepalive interval (seconds) for `/api/chat` when idle (default `20`).
 - `GEMCODE_WEB_TURN_TIMEOUT_S` — optional server-side turn cap (seconds). Default `0` (no cap).
 - `GEMCODE_WEB_HITL_TIMEOUT_S` — HITL approval wait timeout (seconds). Default `3600` (1 hour).
+- `GEMCODE_HOSTED_TENANT_ROOT` — hosted multi-tenant workspace lock (see [`hosted.md`](hosted.md)).
 
 ## 1. Base URLs
 
@@ -66,6 +67,17 @@ Any non-5xx response is treated as “backend up”.
   "url": "http://127.0.0.1:3001"
 }
 ```
+
+When `GEMCODE_HOSTED_TENANT_ROOT` is set, the response also includes:
+
+```json
+{
+  "hosted_mode": true,
+  "hosted_tenant_root": "/mnt/workspace"
+}
+```
+
+Client `path` / `project_root` outside the hosted root → **403** on affected routes.
 
 `GET /api/session` returns cwd, version, and key flags for the active project root.
 

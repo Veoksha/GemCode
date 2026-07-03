@@ -150,6 +150,7 @@ The canonical command list is defined in `gemcode/src/gemcode/repl_commands.py`.
 | `/curated` | Curated memory snapshot · `/memory-files` / `/memoryfiles` same |
 | `/diff` | Git diff or checkpoint diff |
 | `/doctor` | Environment sanity check |
+| `/hosted` | Hosted multi-tenant lock — `GEMCODE_HOSTED_TENANT_ROOT` status |
 | `/serve` | Built-in HTTP API — `/serve status` · `stop` · `url` · **`gemcode serve`** |
 | `/embeddings` | Semantic file search · `/embed` same |
 | `/eval` | Eval gates (tools + pytest) · `/eval llm` optional |
@@ -297,6 +298,10 @@ gemcode serve -C /path/to/project
 ```
 
 State is tracked in `.gemcode/web-serve.json`; logs append to `.gemcode/web-serve.log`.
+
+### Hosted multi-tenant (`/hosted`)
+
+For shared infrastructure (one `gemcode serve` per user), set `GEMCODE_HOSTED_TENANT_ROOT` on each process. `/hosted` shows lock status. See [`hosted.md`](hosted.md).
 
 ### Typical setup (two terminals)
 ```bash

@@ -10,7 +10,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-_APPROVAL_DIR = Path.home() / ".gemcode" / "web_approvals"
+def _approval_dir() -> Path:
+  tenant = os.environ.get("GEMCODE_HOSTED_TENANT_ROOT", "").strip()
+  if tenant:
+    return Path(tenant).expanduser().resolve() / ".gemcode" / "web_approvals"
+  return Path.home() / ".gemcode" / "web_approvals"
 _DEFAULT_TIMEOUT_S = float(os.environ.get("GEMCODE_WEB_HITL_TIMEOUT_S", "3600"))
 _POLL_INTERVAL_S = 0.25
 # approval_ids currently blocked in wait_for_web_approval (same process)
@@ -28,7 +32,7 @@ def register_pending_approval(approval_id: str) -> None:
 
 def _approval_path(approval_id: str) -> Path:
   safe = "".join(c if c.isalnum() or c in "-_:" else "_" for c in approval_id)
-  return _APPROVAL_DIR / f"{safe}.json"
+  return _approval_dir() / f"{safe}.json"
 
 
 def _read_approval_file(path: Path) -> bool | None:
@@ -54,7 +58,7 @@ def resolve_web_approval(approval_id: str, *, confirmed: bool) -> dict[str, Any]
   """Record the user's approve/deny decision (called from HTTP handler)."""
   if not approval_id.strip():
     return {"ok": False, "error": "approval_id is required"}
-  _APPROVAL_DIR.mkdir(parents=True, exist_ok=True)
+  _approval_dir().mkdir(parents=True, exist_ok=True)
   path = _approval_path(approval_id)
   payload = {"confirmed": bool(confirmed), "resolved_ms": int(time.time() * 1000)}
   path.write_text(json.dumps(payload), encoding="utf-8")
@@ -75,7 +79,7 @@ async def wait_for_web_approval(
   heartbeat_s: float = 15.0,
 ) -> bool:
   """Block until the user approves/denies or timeout (deny on timeout)."""
-  _APPROVAL_DIR.mkdir(parents=True, exist_ok=True)
+  _approval_dir().mkdir(parents=True, exist_ok=True)
   path = _approval_path(approval_id)
 
   # User may have approved before we started waiting (preflight UI is immediate).

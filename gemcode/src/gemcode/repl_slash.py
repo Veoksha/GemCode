@@ -2650,6 +2650,39 @@ async def process_repl_slash(
     out()
     return ReplSlashResult(skip_model_turn=True)
 
+  # ── /hosted (multi-tenant serve lock) ───────────────────────────────────
+  if name == "hosted":
+    from gemcode.web.project_root import hosted_tenant_root
+
+    args_h = (sc.args or "").strip().lower()
+    first_h = args_h.split()[0] if args_h else "status"
+
+    if first_h in ("help", "?"):
+      out("Hosted multi-tenant mode (one workspace per gemcode serve process):")
+      out("  /hosted             Show lock status")
+      out("  /hosted status      Same")
+      out("")
+      out("Set GEMCODE_HOSTED_TENANT_ROOT to the tenant workspace path.")
+      out("Web API then rejects client path/project_root outside that directory.")
+      out("HITL approvals use {workspace}/.gemcode/web_approvals.")
+      out("")
+      out("Deployment guide: docs/hosted.md and deploy/gcp/ in the repo.")
+      out()
+      return ReplSlashResult(skip_model_turn=True)
+
+    locked = hosted_tenant_root()
+    if locked is not None:
+      out("[hosted] active — tenant workspace locked")
+      out(f"  GEMCODE_HOSTED_TENANT_ROOT={locked}")
+      out(f"  project_root: {cfg.project_root}")
+      out("  Client path params must stay inside the tenant root (HTTP 403 otherwise).")
+    else:
+      out("[hosted] not active (local mode)")
+      out("  Client path / project_root query params are honored.")
+      out("  Set GEMCODE_HOSTED_TENANT_ROOT in containers for multi-tenant hosting.")
+    out()
+    return ReplSlashResult(skip_model_turn=True)
+
   # ── /runtime ────────────────────────────────────────────────────────────
   if name == "runtime":
     from gemcode.kaira_ipc import fleet_manager_ipc_path_for_workspace

@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gemcode-provisioner
+  namespace: gemcode-platform
+  labels:
+    app.kubernetes.io/name: gemcode-provisioner
+    gemcode.io/role: provisioner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gemcode-provisioner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gemcode-provisioner
+        gemcode.io/role: provisioner
+    spec:
+      serviceAccountName: gemcode-provisioner
+      containers:
+        - name: provisioner
+          image: __PROVISIONER_IMAGE__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: TENANTS_NAMESPACE
+              value: gemcode-tenants
+            - name: TENANT_IMAGE
+              value: __TENANT_IMAGE__
+            - name: TENANT_PVC_SIZE
+              value: "30Gi"
+            - name: TENANT_CPU_REQUEST
+              value: "500m"
+            - name: TENANT_CPU_LIMIT
+              value: "2"
+            - name: TENANT_MEM_REQUEST
+              value: "1Gi"
+            - name: TENANT_MEM_LIMIT
+              value: "4Gi"
+            - name: PROVISIONER_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gemcode-provisioner-admin
+                  key: token
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tenant-template
+              mountPath: /config
+      volumes:
+        - name: tenant-template
+          configMap:
+            name: gemcode-tenant-manifest-template
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gemcode-provisioner
+  namespace: gemcode-platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gemcode-provisioner
+  ports:
+    - port: 8080
+      targetPort: 8080

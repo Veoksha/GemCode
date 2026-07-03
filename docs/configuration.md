@@ -85,6 +85,9 @@ Important groups:
 - `GEMCODE_WEB_TURN_TIMEOUT_S` — optional server-side turn cap (seconds). Default `0` (no cap).
 - `GEMCODE_WEB_HITL_TIMEOUT_S` — HITL approval wait timeout (seconds). Default `3600` (1 hour).
 
+### Hosted multi-tenant (`gemcode serve` in shared infrastructure)
+- `GEMCODE_HOSTED_TENANT_ROOT` — when set, locks the web API to this workspace directory. Client `path` / `project_root` parameters must stay inside this root; otherwise handlers return **HTTP 403**. Use one value per tenant process (e.g. GKE pod). HITL files go to `{root}/.gemcode/web_approvals/`. REPL: `/hosted`. See [`hosted.md`](hosted.md).
+
 Background `/serve` state: `.gemcode/web-serve.json`; logs: `.gemcode/web-serve.log`. See [`web-ui-contract.md`](web-ui-contract.md).
 
 ### Agent instruction tuning

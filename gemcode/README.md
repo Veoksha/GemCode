@@ -28,6 +28,7 @@ All state lives under `.gemcode/` in the project root. No external services requ
 | Agent Mesh | In-process multi-agent orchestration (automatic) |
 | GemCode Runtime | Optional always-on background scheduler (`gemcode runtime`; alias `gemcode kaira`) |
 | HTTP API (`gemcode serve`) | Built-in web/custom UI backend on `http://127.0.0.1:3001` — chat SSE, sessions, panel, HITL |
+| Hosted multi-tenant | One `gemcode serve` per user with `GEMCODE_HOSTED_TENANT_ROOT` — see [`../docs/hosted.md`](../docs/hosted.md) |
 | A2A server | Cross-machine agent communication via Google A2A protocol |
 | Live audio (experimental) | Microphone-driven Gemini Live sessions |
 
