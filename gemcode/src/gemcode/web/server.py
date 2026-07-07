@@ -435,6 +435,8 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
           elif self.path == "/api/files/write":
             raw_path = str(data.get("root") or data.get("path") or root).strip()
             status, payload = handler(data, raw_path)
+          elif self.path == "/api/ui/chat-store":
+            status, payload = handler(root, data)
           else:
             raw_path = str(data.get("path") or root).strip()
             status, payload = handler(data, raw_path)
