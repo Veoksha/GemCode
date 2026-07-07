@@ -209,8 +209,10 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
         self.wfile.write(body)
         return
       if self.path == "/api/session":
-        body = json.dumps(
-          {
+        from gemcode.web.project_root import hosted_tenant_root
+
+        locked = hosted_tenant_root()
+        session_payload: dict[str, Any] = {
             "cwd": root,
             "env": {"GEMCODE_WEB_PROJECT_ROOT": root},
             "version": SERVER_VERSION,
@@ -219,8 +221,12 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
               os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
             ),
             "mock_mode": _mock_mode_active(),
-          }
-        ).encode()
+            "project_root": root,
+        }
+        if locked is not None:
+          session_payload["hosted_mode"] = True
+          session_payload["hosted_tenant_root"] = str(locked)
+        body = json.dumps(session_payload).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -273,6 +279,22 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
           status, payload = 403, {"error": str(exc)}
         except Exception as exc:
           status, payload = 500, {"error": f"{type(exc).__name__}: {exc}"}
+        body = json.dumps(payload, default=str).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(body)
+        return
+
+      if parsed.path == "/api/ui/chat-store":
+        try:
+          from gemcode.web.ui_chat_store import handle_ui_chat_store_get
+
+          status, payload = handle_ui_chat_store_get(root)
+        except Exception as exc:
+          status, payload = 500, {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         body = json.dumps(payload, default=str).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -348,6 +370,8 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
             from gemcode.web.fleet_api import handle_fleet_get
 
             status, payload = handle_fleet_get(fleet_get, raw_path)
+        except HostedTenantPathError as exc:
+          status, payload = 403, {"ok": False, "error": str(exc)}
         except Exception as exc:
           status, payload = 500, {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         body = json.dumps(payload).encode()
@@ -386,6 +410,7 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
         "/api/runtime": ("gemcode.web.runtime_api", "handle_runtime_post"),
         "/api/terminal": ("gemcode.web.terminal_api", "handle_terminal_post"),
         "/api/files/write": ("gemcode.web.files_api", "handle_files_write_post"),
+        "/api/ui/chat-store": ("gemcode.web.ui_chat_store", "handle_ui_chat_store_post"),
       }
 
       if self.path in post_routes:
@@ -626,6 +651,17 @@ def run_server(
   bind_port = port if port is not None else int(os.environ.get("GEMCODE_WEB_API_PORT", "3001"))
   os.environ["GEMCODE_WEB_PROJECT_ROOT"] = str(root)
   _load_project_dotenv(root)
+
+  try:
+    from gemcode.web.project_root import hosted_tenant_root
+    from gemcode.trust import ensure_hosted_workspace_trust
+
+    locked = hosted_tenant_root()
+    if locked is not None:
+      os.environ.setdefault("GEMCODE_HOME", str(locked / ".gemcode"))
+      ensure_hosted_workspace_trust(locked)
+  except Exception:
+    pass
 
   try:
     from gemcode.config import load_cli_environment
