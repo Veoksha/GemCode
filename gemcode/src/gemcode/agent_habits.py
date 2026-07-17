@@ -66,6 +66,10 @@ class Habit:
   every_seconds: int | None = None  # interval in seconds
   cron: str | None = None  # "M H * * *" (minute, hour)
   daily_at: str | None = None  # "HH:MM"
+  # Trigger chain (fires when another habit's mesh job completes)
+  trigger_after: str | None = None  # upstream habit name
+  trigger_on: str = "finished"  # finished | failed | any
+  trigger_cooldown_s: float = 0.0
   # Metadata
   priority: int = 0
   max_runs: int | None = None  # None = unlimited
@@ -82,6 +86,9 @@ class Habit:
       "every_seconds": self.every_seconds,
       "cron": self.cron,
       "daily_at": self.daily_at,
+      "trigger_after": self.trigger_after,
+      "trigger_on": self.trigger_on,
+      "trigger_cooldown_s": self.trigger_cooldown_s,
       "priority": self.priority,
       "max_runs": self.max_runs,
       "run_count": self.run_count,
@@ -123,6 +130,9 @@ def load_habits(project_root: Path) -> list[Habit]:
         every_seconds=item.get("every_seconds"),
         cron=item.get("cron"),
         daily_at=item.get("daily_at"),
+        trigger_after=(str(item.get("trigger_after") or "").strip().lower() or None),
+        trigger_on=str(item.get("trigger_on") or "finished").strip().lower() or "finished",
+        trigger_cooldown_s=float(item.get("trigger_cooldown_s") or 0),
         priority=int(item.get("priority") or 0),
         max_runs=item.get("max_runs"),
         run_count=int(item.get("run_count") or 0),
@@ -143,8 +153,10 @@ def save_habits(project_root: Path, habits: list[Habit]) -> None:
 
 
 def _is_due(habit: Habit, now_s: float) -> bool:
-  """Check if a habit is due to run."""
+  """Check if a timer-based habit is due to run (trigger-only habits are never due here)."""
   if not habit.enabled:
+    return False
+  if (habit.trigger_after or "").strip():
     return False
   if habit.max_runs is not None and habit.run_count >= habit.max_runs:
     return False

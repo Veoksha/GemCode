@@ -50,3 +50,17 @@ def test_normal_mode_uses_client_path(monkeypatch: pytest.MonkeyPatch) -> None:
   monkeypatch.delenv("GEMCODE_HOSTED_TENANT_ROOT", raising=False)
   outside = Path(tempfile.mkdtemp())
   assert resolve_web_project_root(str(outside)) == outside.resolve()
+
+
+def test_hosted_mode_auto_trusts_workspace(
+  tenant_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  monkeypatch.setenv("GEMCODE_HOME", str(tenant_env / ".gemcode"))
+  from gemcode.trust import ensure_hosted_workspace_trust, is_trusted_root, load_trusted_roots
+
+  assert is_trusted_root(tenant_env)
+  sub = tenant_env / "projects" / "app"
+  sub.mkdir(parents=True)
+  assert is_trusted_root(sub)
+  ensure_hosted_workspace_trust()
+  assert str(tenant_env.resolve()) in load_trusted_roots()

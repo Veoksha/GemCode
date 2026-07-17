@@ -1,0 +1,29 @@
+# HTTPS front door for GemCode Web UI (required for Google OAuth in production).
+# Google rejects http:// and raw-IP redirect URIs — use a real domain.
+#
+# 1. Point DNS A record: GEMCODE_WEB_DOMAIN -> LoadBalancer IP (gemcode-web-ui svc)
+# 2. GEMCODE_WEB_DOMAIN=app.example.com ./deploy/gcp/scripts/setup-web-ui-https.sh
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: gemcode-web-ui-cert
+  namespace: gemcode-platform
+spec:
+  domains:
+    - __GEMCODE_WEB_DOMAIN__
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gemcode-web-ui
+  namespace: gemcode-platform
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    networking.gke.io/managed-certificates: gemcode-web-ui-cert
+    kubernetes.io/ingress.allow-http: "false"
+spec:
+  defaultBackend:
+    service:
+      name: gemcode-web-ui
+      port:
+        number: 80

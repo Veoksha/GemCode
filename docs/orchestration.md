@@ -365,6 +365,16 @@ Each habit run is a **mesh job**. When it finishes, the output is written to **`
 | `every_seconds=300` | Every 5 minutes | Fine-grained interval |
 | `daily_at="02:00"` | Once daily at 2am | Daily schedule |
 | `cron="0 */2 * * *"` | Every 2 hours | Cron expression (M H * * *) |
+| `trigger_after="test-watch"` | After another habit | Chain: fire when upstream mesh job finishes (`trigger_on`: `finished` · `failed` · `any`) |
+
+### Habit chains (0.4.23+)
+
+Habits can form **trigger chains**: when habit A’s mesh job completes, habit B enqueues if `trigger_after` matches A and `trigger_on` matches the outcome.
+
+- Prompt templates may use `{{source_habit}}`, `{{source_status}}`, `{{source_report}}` / `{{report}}`.
+- Cycles are rejected on add.
+- Disable with `GEMCODE_HABIT_CHAINS=0`.
+- Web UI: `POST /api/habits` with `trigger_after` / action `runs` for history (see [`web-ui-contract.md`](web-ui-contract.md)).
 
 ### Configuration
 
@@ -372,6 +382,7 @@ Each habit run is a **mesh job**. When it finishes, the output is written to **`
 |----------|---------|---------|
 | `GEMCODE_AGENT_HABITS` | 1 | Enable habit scheduler |
 | `GEMCODE_HABITS_POLL_S` | 10 | How often to check for due habits (seconds) |
+| `GEMCODE_HABIT_CHAINS` | 1 | Enable trigger-after habit chains |
 
 ### Auto-created habits (super mode)
 

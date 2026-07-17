@@ -1,0 +1,18 @@
+substitutions:
+  _GATEWAY_IMAGE: us-central1-docker.pkg.dev/finai-474319/gemcode/gemcode-tenant-gateway:latest
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deploy/gcp/gateway/Dockerfile
+      - -t
+      - ${_GATEWAY_IMAGE}
+      - .
+
+images:
+  - ${_GATEWAY_IMAGE}
+
+options:
+  logging: CLOUD_LOGGING_ONLY

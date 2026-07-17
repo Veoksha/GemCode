@@ -50,18 +50,49 @@ curl http://127.0.0.1:3001/api/health
 
 Point **gemcode-web-ui** at the port-forwarded URL, or deploy a BFF that routes by user identity.
 
+## Web UI (no tunnels for end users)
+
+Deploy the Next.js UI **inside the cluster**. It talks to provisioner + gateway over
+in-cluster DNS (`GEMCODE_IN_CLUSTER=true`) — users only open a public URL and sign in.
+
+```bash
+# Build & push web UI image
+gcloud builds submit --config=deploy/gcp/cloudbuild-web-ui.yaml --project=$GCP_PROJECT_ID
+
+# OAuth secret (from gemcode-web-ui/.env.local — use your public LoadBalancer URL as NEXTAUTH_URL)
+chmod +x deploy/gcp/scripts/create-web-ui-secret.sh
+./deploy/gcp/scripts/create-web-ui-secret.sh
+
+# Deploy platform + web UI
+DEPLOY_WEB_UI=1 ./deploy/gcp/scripts/deploy-platform.sh
+
+# Google OAuth requires HTTPS + a domain (not http://<IP>). See deploy/gcp/AUTH.md
+kubectl -n gemcode-platform get svc gemcode-web-ui
+# GEMCODE_WEB_DOMAIN=app.yourdomain.com ./deploy/gcp/scripts/setup-web-ui-https.sh
+```
+
+### Local development (developers only)
+
+One command — tunnels start automatically:
+
+```bash
+cd gemcode-web-ui && npm run dev:hosted
+```
+
+Do **not** ask end users to run `dev-tunnel.sh`; that is only for laptop dev.
+
 ## GemCode install source
 
 | Build arg | Behavior |
 |-----------|----------|
 | `GEMCODE_SOURCE=repo` (default) | `pip install` from `./gemcode` — includes hosted tenant path locking |
-| `GEMCODE_SOURCE=pypi` | `pip install gemcode==0.4.22` from PyPI |
+| `GEMCODE_SOURCE=pypi` | `pip install gemcode==0.4.23` from PyPI |
 
 ```bash
 GEMCODE_SOURCE=pypi ./deploy/gcp/scripts/build-images.sh
 ```
 
-> PyPI **0.4.22+** includes `GEMCODE_HOSTED_TENANT_ROOT`. Use `GEMCODE_SOURCE=pypi` after release.
+> PyPI **0.4.23+** includes hosted chat-store, habit chains/runs, and the HITL confirmation batch fix. Use `GEMCODE_SOURCE=pypi` after publishing, or `GEMCODE_SOURCE=repo` for Cloud Build from this tree.
 
 ## Provisioner API
 

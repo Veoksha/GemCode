@@ -61,6 +61,16 @@ def ensure_web_mesh_running(project_root: Path, *, autostart: bool = True) -> di
 
 
 def _habit_schedule_label(h: dict[str, Any]) -> str:
+  after = str(h.get("trigger_after") or "").strip()
+  if after:
+    on = str(h.get("trigger_on") or "finished").strip().lower()
+    if on in ("any", "*"):
+      on_label = "any outcome"
+    elif on == "failed":
+      on_label = "on failure"
+    else:
+      on_label = "on success"
+    return f"After `{after}` ({on_label})"
   if h.get("daily_at"):
     return f"Daily at {h['daily_at']}"
   if h.get("cron"):
@@ -359,6 +369,9 @@ def habits_add_action(
   every_minutes: int = 0,
   daily_at: str = "",
   cron: str = "",
+  trigger_after: str = "",
+  trigger_on: str = "finished",
+  trigger_cooldown_s: float = 0,
 ) -> dict[str, Any]:
   import re
 
@@ -370,14 +383,33 @@ def habits_add_action(
   if not (prompt or "").strip():
     return {"ok": False, "error": "prompt is required"}
 
-  secs = int(every_minutes) * 60 if every_minutes and every_minutes > 0 else None
-  daily = (daily_at or "").strip() or None
-  cron_expr = (cron or "").strip() or None
-  if not secs and not daily and not cron_expr:
-    return {"ok": False, "error": "must specify every_minutes, daily_at, or cron"}
-
   fleet_root = _habits_root(project_root)
   habits = load_habits(fleet_root)
+
+  after = (trigger_after or "").strip().lower()
+  if after:
+    if after == nm:
+      return {"ok": False, "error": "a task cannot trigger itself"}
+    if not any(h.name == after for h in habits):
+      return {"ok": False, "error": f"upstream task not found: {after}"}
+    from gemcode.habit_chains import would_create_habit_cycle
+
+    if would_create_habit_cycle(habits, name=nm, trigger_after=after):
+      return {"ok": False, "error": "trigger chain would create a cycle"}
+    on = (trigger_on or "finished").strip().lower()
+    if on not in ("finished", "failed", "any", "*"):
+      return {"ok": False, "error": "trigger_on must be finished, failed, or any"}
+    secs = None
+    daily = None
+    cron_expr = None
+  else:
+    secs = int(every_minutes) * 60 if every_minutes and every_minutes > 0 else None
+    daily = (daily_at or "").strip() or None
+    cron_expr = (cron or "").strip() or None
+    if not secs and not daily and not cron_expr:
+      return {"ok": False, "error": "must specify every_minutes, daily_at, cron, or trigger_after"}
+    on = "finished"
+
   habits = [h for h in habits if h.name != nm]
   habits.append(
     Habit(
@@ -388,11 +420,87 @@ def habits_add_action(
       every_seconds=secs,
       daily_at=daily,
       cron=cron_expr,
+      trigger_after=after or None,
+      trigger_on=on,
+      trigger_cooldown_s=float(trigger_cooldown_s or 0),
     )
   )
   save_habits(fleet_root, habits)
   scheduler = ensure_web_mesh_running(project_root)
   return {"ok": True, "name": nm, "agent": agent.strip(), "scheduler": scheduler}
+
+
+def habit_runs_snapshot(
+  project_root: Path,
+  *,
+  habit_name: str,
+  limit: int = 50,
+) -> dict[str, Any]:
+  fleet_root = _habits_root(project_root)
+  nm = (habit_name or "").strip().lower()
+  if not nm:
+    return {"ok": False, "error": "habit name is required"}
+
+  habits = load_habits(fleet_root)
+  habit = next((h for h in habits if h.name == nm), None)
+  if habit is None:
+    return {"ok": False, "error": f"habit not found: {nm}"}
+
+  from gemcode.habit_runs import list_habit_runs
+
+  runs = list_habit_runs(fleet_root, habit_name=nm, limit=limit)
+
+  # Merge in-process mesh completions (same API pod) not yet persisted.
+  try:
+    from gemcode.config import GemCodeConfig
+    from gemcode.agent_mesh import get_mesh
+
+    mesh = get_mesh(GemCodeConfig(project_root=fleet_root))
+    if mesh is not None:
+      seen = {str(r.get("job_id") or "") for r in runs}
+      with mesh._completed_lock:
+        completed = list(mesh._completed)
+      for job in reversed(completed):
+        hm = job.meta.get("habit") if isinstance(job.meta, dict) else None
+        if not isinstance(hm, dict) or str(hm.get("name") or "").strip().lower() != nm:
+          continue
+        if job.job_id in seen:
+          continue
+        runs.append(
+          {
+            "ts_ms": int(job.created_ms or 0),
+            "habit_name": nm,
+            "agent": str(hm.get("agent") or job.member_name or ""),
+            "job_id": job.job_id,
+            "status": str(job.status or "").strip().lower(),
+            "report": str(job.result or "").strip()[:12_000],
+            "error": str(job.error or "").strip()[:4000],
+            "session_id": job.session_id,
+            "live_mesh": True,
+          }
+        )
+        seen.add(job.job_id)
+      runs.sort(key=lambda r: int(r.get("ts_ms") or 0), reverse=True)
+      runs = runs[:limit]
+  except Exception:
+    pass
+
+  return {
+    "ok": True,
+    "habit_name": nm,
+    "habit": {
+      "name": habit.name,
+      "agent": habit.agent,
+      "prompt": habit.prompt,
+      "enabled": habit.enabled,
+      "schedule": _habit_schedule_label(habit.to_dict()),
+      "run_count": habit.run_count,
+      "last_run_ms": habit.last_run_ms,
+    },
+    "runs": runs,
+    "total": len(runs),
+    "fleet_root": str(fleet_root),
+  }
 
 
 def handle_habits_post(data: dict[str, Any], raw_path: str) -> tuple[int, dict[str, Any]]:
@@ -410,12 +518,23 @@ def handle_habits_post(data: dict[str, Any], raw_path: str) -> tuple[int, dict[s
       every_minutes=int(data.get("every_minutes") or 0),
       daily_at=str(data.get("daily_at") or ""),
       cron=str(data.get("cron") or ""),
+      trigger_after=str(data.get("trigger_after") or ""),
+      trigger_on=str(data.get("trigger_on") or "finished"),
+      trigger_cooldown_s=float(data.get("trigger_cooldown_s") or 0),
     )
     return (200 if payload.get("ok") else 400), payload
 
   name = str(data.get("name") or "").strip()
+  if action == "runs":
+    try:
+      limit = int(data.get("limit") or 50)
+    except (TypeError, ValueError):
+      limit = 50
+    payload = habit_runs_snapshot(root, habit_name=name, limit=limit)
+    return (200 if payload.get("ok") else 404), payload
+
   if action not in ("pause", "resume", "remove"):
-    return 400, {"ok": False, "error": "action must be add, pause, resume, or remove"}
+    return 400, {"ok": False, "error": "action must be add, pause, resume, remove, or runs"}
   payload = habits_action(root, action=action, name=name)
   return (200 if payload.get("ok") else 400), payload
 

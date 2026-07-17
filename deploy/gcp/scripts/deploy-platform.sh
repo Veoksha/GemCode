@@ -43,4 +43,17 @@ sed \
 echo "==> Waiting for tenant gateway..."
 kubectl -n gemcode-platform rollout status deployment/gemcode-tenant-gateway --timeout=180s
 
+if [[ "${DEPLOY_WEB_UI:-0}" == "1" ]]; then
+  : "${GEMCODE_WEB_UI_IMAGE:?Set GEMCODE_WEB_UI_IMAGE or build web-ui image first}"
+  echo "==> Web UI (in-cluster — no dev tunnels for users)..."
+  sed \
+    -e "s|__WEB_UI_IMAGE__|${GEMCODE_WEB_UI_IMAGE}|g" \
+    deploy/gcp/k8s/platform/web-ui-deployment.yaml | kubectl apply -f -
+  echo "==> Waiting for web UI..."
+  kubectl -n gemcode-platform rollout status deployment/gemcode-web-ui --timeout=300s
+  echo "==> Web UI external IP (add to Google OAuth redirect URIs):"
+  kubectl -n gemcode-platform get svc gemcode-web-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true
+  echo ""
+fi
+
 echo "==> Platform deployed."

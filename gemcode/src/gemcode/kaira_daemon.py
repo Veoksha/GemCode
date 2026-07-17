@@ -784,15 +784,17 @@ class KairaDaemon:
     )
 
     def _get_confirmation_requests(events: list) -> list:
-      out: list = []
-      for ev in events:
+      for ev in reversed(events):
         try:
-          for fc in ev.get_function_calls() or []:
-            if getattr(fc, "name", None) == REQUEST_CONFIRMATION_FC:
-              out.append(fc)
+          fcs = [
+            fc for fc in (ev.get_function_calls() or [])
+            if getattr(fc, "name", None) == REQUEST_CONFIRMATION_FC
+          ]
+          if fcs:
+            return fcs
         except Exception:
           continue
-      return out
+      return []
 
     def _extract_hint_and_tool(fc) -> tuple[str, str]:
       tool_name = "unknown_tool"

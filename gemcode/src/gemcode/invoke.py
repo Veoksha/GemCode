@@ -247,15 +247,18 @@ async def run_turn(
   REQUEST_CONFIRMATION_FC = "adk_request_confirmation"
 
   def _get_confirmation_requests(events: list) -> list[types.FunctionCall]:
-    out: list[types.FunctionCall] = []
-    for ev in events:
+    """Return confirmation FCs from the last event in the batch that has any."""
+    for ev in reversed(events):
       try:
-        for fc in ev.get_function_calls() or []:
-          if getattr(fc, "name", None) == REQUEST_CONFIRMATION_FC:
-            out.append(fc)
+        fcs = [
+          fc for fc in (ev.get_function_calls() or [])
+          if getattr(fc, "name", None) == REQUEST_CONFIRMATION_FC
+        ]
+        if fcs:
+          return fcs
       except Exception:
         continue
-    return out
+    return []
 
   def _extract_hint_and_tool(fc: types.FunctionCall) -> tuple[str, str]:
     tool_name = "unknown_tool"

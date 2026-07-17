@@ -1,3 +1,14 @@
+## 0.4.23
+
+- **Web HITL reliability:** Confirmation handoffs in `sse_adapter`, `invoke`, and `kaira_daemon` respond only to confirmation FCs from the **last** ADK event in a batch (matches TUI). Fixes `Last response event should only contain the responses for the function calls in the same function call event` mid-turn crashes during repeated shell approvals.
+- **UI chat persistence:** `GET`/`POST /api/ui/chat-store` stores the web UI conversation list on the workspace PVC (`.gemcode/ui_chat_store.json`). POST handler args corrected for hosted tenants.
+- **Habit chains:** Habits can fire when another habit completes (`trigger_after` / `trigger_on`) via `habit_chains.py`. Cycle detection on add. Env: `GEMCODE_HABIT_CHAINS` (default on).
+- **Habit run history:** Per-habit run records (`habit_runs.py`) and web API `POST /api/habits` action `runs` for the Agents panel.
+- **Hosted trust:** `ensure_hosted_workspace_trust` auto-trusts `GEMCODE_HOSTED_TENANT_ROOT` for chat turns and tenant entrypoint (no interactive trust prompt on GKE).
+- **Model aliases:** Web `gemcode-fast` maps to `gemini-3.1-flash-lite`.
+- **Deploy:** Gateway/tenant Cloud Build configs, hosted auth/troubleshooting docs, Vercel + tunnel helper scripts.
+- **Docs:** [`web-ui-contract.md`](../docs/web-ui-contract.md) chat-store + habit runs; [`orchestration.md`](../docs/orchestration.md) habit chains; [`hosted.md`](../docs/hosted.md) 0.4.23.
+
 ## 0.4.22
 
 - **Hosted file API:** `GET /api/files`, `GET /api/files/read`, `POST /api/files/write` on `gemcode serve` — workspace tree, read, and write with `GEMCODE_HOSTED_TENANT_ROOT` path locking (enables remote web UI file explorer per tenant).

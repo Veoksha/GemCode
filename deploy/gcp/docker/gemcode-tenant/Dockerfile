@@ -5,7 +5,7 @@
 
 FROM python:3.12-slim-bookworm
 
-ARG GEMCODE_PIP_VERSION=0.4.22
+ARG GEMCODE_PIP_VERSION=0.4.23
 ARG GEMCODE_SOURCE=repo
 
 ENV PYTHONUNBUFFERED=1 \
@@ -13,7 +13,9 @@ ENV PYTHONUNBUFFERED=1 \
     GEMCODE_WEB_API_HOST=0.0.0.0 \
     GEMCODE_WEB_API_PORT=3001 \
     GEMCODE_HOSTED_TENANT_ROOT=/mnt/workspace \
-    GEMCODE_WEB_PROJECT_ROOT=/mnt/workspace
+    GEMCODE_WEB_PROJECT_ROOT=/mnt/workspace \
+    GEMCODE_HOME=/mnt/workspace/.gemcode \
+    GEMCODE_SUPER_MODE=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \

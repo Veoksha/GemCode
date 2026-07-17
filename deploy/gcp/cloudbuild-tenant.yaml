@@ -1,0 +1,21 @@
+substitutions:
+  _GEMCODE_SOURCE: repo
+  _TENANT_IMAGE: us-central1-docker.pkg.dev/finai-474319/gemcode/gemcode-tenant:latest
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deploy/gcp/docker/gemcode-tenant/Dockerfile
+      - --build-arg
+      - GEMCODE_SOURCE=${_GEMCODE_SOURCE}
+      - -t
+      - ${_TENANT_IMAGE}
+      - .
+
+images:
+  - ${_TENANT_IMAGE}
+
+options:
+  logging: CLOUD_LOGGING_ONLY

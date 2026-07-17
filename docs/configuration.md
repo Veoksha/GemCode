@@ -86,9 +86,14 @@ Important groups:
 - `GEMCODE_WEB_HITL_TIMEOUT_S` — HITL approval wait timeout (seconds). Default `3600` (1 hour).
 
 ### Hosted multi-tenant (`gemcode serve` in shared infrastructure)
-- `GEMCODE_HOSTED_TENANT_ROOT` — when set, locks the web API to this workspace directory. Client `path` / `project_root` parameters must stay inside this root; otherwise handlers return **HTTP 403**. Use one value per tenant process (e.g. GKE pod). HITL files go to `{root}/.gemcode/web_approvals/`. REPL: `/hosted`. See [`hosted.md`](hosted.md).
+- `GEMCODE_HOSTED_TENANT_ROOT` — when set, locks the web API to this workspace directory. Client `path` / `project_root` parameters must stay inside this root; otherwise handlers return **HTTP 403**. Use one value per tenant process (e.g. GKE pod). HITL files go to `{root}/.gemcode/web_approvals/`. UI chat list persists at `{root}/.gemcode/ui_chat_store.json` via `GET`/`POST /api/ui/chat-store`. REPL: `/hosted`. See [`hosted.md`](hosted.md).
 
 Background `/serve` state: `.gemcode/web-serve.json`; logs: `.gemcode/web-serve.log`. See [`web-ui-contract.md`](web-ui-contract.md).
+
+### Habits
+- `GEMCODE_AGENT_HABITS` — default on; enable the in-process habit scheduler.
+- `GEMCODE_HABITS_POLL_S` — poll interval seconds (default `10`).
+- `GEMCODE_HABIT_CHAINS` — default on; allow habits with `trigger_after` to enqueue when an upstream habit finishes. See [`orchestration.md`](orchestration.md#habit-chains-0423).
 
 ### Agent instruction tuning
 Built-in sections of the agent system prompt are assembled in `gemcode/src/gemcode/agent.py`; the parallel **tool system** manifest in `gemcode/src/gemcode/tool_prompt_manifest.py` stays aligned when present.

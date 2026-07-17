@@ -101,9 +101,17 @@ If `/api/health` is missing or returns 5xx, UIs show “Backend unreachable”.
 | GET | `/api/files` | Workspace file tree (`?path=`) |
 | GET | `/api/files/read` | Read file content (`?path=`) |
 | POST | `/api/files/write` | Write file (`{ path, content }`) |
+| GET/POST | `/api/ui/chat-store` | Persist web UI conversation list on the workspace (`.gemcode/ui_chat_store.json`) — for hosted PVC / cross-device sync |
 | POST | `/api/settings/credentials` | API key helper |
 | GET | `/api/workspace/validate` | Validate project path |
 | POST | `/api/workspace/pick` | Native folder picker (OS dialog) |
+
+### Habits API notes (0.4.23+)
+
+`POST /api/habits` actions: `add`, `pause`, `resume`, `remove`, **`runs`**.
+
+- **`add`** accepts schedule fields (`every_minutes`, `daily_at`, `cron`) **or** chain fields (`trigger_after`, `trigger_on`) so a habit can fire when another habit’s mesh job finishes.
+- **`runs`** returns recent per-habit run history (for the Agents / Habits UI modal).
 
 Implementation: `gemcode/src/gemcode/web/server.py`.
 

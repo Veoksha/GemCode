@@ -63,7 +63,9 @@ Each tenant pod runs the same stack as local `gemcode serve`:
 | HITL approvals | Yes | Under `{tenant}/.gemcode/web_approvals/` |
 | ADK sessions | Yes | Per-tenant disk |
 | Skills / MCP / mesh APIs | Yes | Tenant-local config |
-| Super mode | Yes | Per-request from UI |
+| Super mode | Yes | `GEMCODE_SUPER_MODE=1` on pod — auto-approve tools |
+| Workspace trust | Yes (automatic) | No folder-trust prompt; `/mnt/workspace` trusted on boot |
+| Shared Gemini API | Yes | `GOOGLE_API_KEY` from cluster secret `gemcode-gemini-api-key` |
 | File explorer | Yes | Via `/api/files*` on gemcode serve (UI proxies when backend is remote) |
 | Computer use (Playwright) | Optional | Add browser deps to tenant image tier |
 | Native folder picker | No | Headless pod — use fixed workspace |
@@ -101,7 +103,7 @@ The repo ships a full GKE layout under [`deploy/gcp/`](../deploy/gcp/):
 - **One pod + persistent disk per user** in namespace `gemcode-tenants`
 - **Network policy** — tenant pods cannot talk to each other
 - **Provisioner API** — create tenant on first login (by email → `u_<hash>` id)
-- **Docker image** — `pip install gemcode==0.4.22` (or build from repo)
+- **Docker image** — `pip install gemcode==0.4.23` (or build from repo with `GEMCODE_SOURCE=repo`)
 
 Quick start:
 

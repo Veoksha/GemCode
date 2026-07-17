@@ -323,11 +323,19 @@ def _confirmation_fcs_in_event(event: Any) -> list[Any]:
 
 
 def _get_confirmation_requests(events: list[Any]) -> list[Any]:
-  """Return all confirmation FCs in the batch (matches invoke.run_turn)."""
-  out: list[Any] = []
-  for ev in events:
-    out.extend(_confirmation_fcs_in_event(ev))
-  return out
+  """Return confirmation FCs from the last event in the batch that has any.
+
+  The ADK runner expects function responses only for the function calls in
+  the most recent event.  Responding to FCs from earlier events in the same
+  batch raises:
+    ValueError: Last response event should only contain the responses for
+      the function calls in the same function call event.
+  """
+  for ev in reversed(events):
+    fcs = _confirmation_fcs_in_event(ev)
+    if fcs:
+      return fcs
+  return []
 
 
 def _permission_block_hint(response: Any) -> str:
@@ -1077,6 +1085,10 @@ async def run_adapter(req: dict[str, Any]) -> None:
   fleet_root = resolve_fleet_root(root_path.resolve())
   cfg = GemCodeConfig(project_root=fleet_root)
 
+  from gemcode.trust import ensure_hosted_workspace_trust
+
+  ensure_hosted_workspace_trust(fleet_root)
+
   if req.get("session_id"):
     try:
       from gemcode.session_store import touch_session
@@ -1132,7 +1144,7 @@ async def run_adapter(req: dict[str, Any]) -> None:
     # Legacy UI aliases → current Gemini models
     "gemcode-pro": "gemini-3.1-pro-preview",
     "gemcode-balanced": "gemini-3.5-flash",
-    "gemcode-fast": "gemini-2.5-flash-lite",
+    "gemcode-fast": "gemini-3.1-flash-lite",
   }
 
   resolved_model: str | None = None

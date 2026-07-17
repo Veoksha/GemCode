@@ -1,0 +1,18 @@
+substitutions:
+  _WEB_UI_IMAGE: us-central1-docker.pkg.dev/finai-474319/gemcode/gemcode-web-ui:latest
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deploy/gcp/docker/gemcode-web-ui/Dockerfile
+      - -t
+      - ${_WEB_UI_IMAGE}
+      - .
+
+images:
+  - ${_WEB_UI_IMAGE}
+
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -124,6 +124,13 @@ class AgentMesh:
     except Exception:
       pass
 
+    self._habit_chain_engine = None
+    try:
+      from gemcode.habit_chains import HabitChainEngine
+      self._habit_chain_engine = HabitChainEngine(cfg)
+    except Exception:
+      pass
+
     # Initialize delegation learning
     self._learner = None
     try:
@@ -213,6 +220,8 @@ class AgentMesh:
 
     if self._trigger_engine is not None:
       self._trigger_engine.start()
+    if self._habit_chain_engine is not None:
+      self._habit_chain_engine.start()
     if self._habit_scheduler is not None:
       self._habit_scheduler.start()
 
@@ -227,6 +236,8 @@ class AgentMesh:
       self._scheduler_task.cancel()
     if self._trigger_engine is not None:
       self._trigger_engine.stop()
+    if self._habit_chain_engine is not None:
+      self._habit_chain_engine.stop()
     if self._habit_scheduler is not None:
       self._habit_scheduler.stop()
     # Signal the background loop to exit
@@ -628,6 +639,23 @@ class AgentMesh:
         if isinstance(hm, dict):
           pl["habit"] = hm
         maybe_append_job_report(fleet_root, pl)
+        try:
+          from gemcode.habit_runs import append_habit_run
+
+          hm = job.meta.get("habit") if isinstance(job.meta, dict) else None
+          if isinstance(hm, dict) and hm.get("name"):
+            append_habit_run(
+              fleet_root,
+              habit_name=str(hm.get("name") or ""),
+              agent=str(hm.get("agent") or job.member_name or ""),
+              job_id=job.job_id,
+              status="finished",
+              report=result_text,
+              duration_ms=duration_ms,
+              session_id=job.session_id,
+            )
+        except Exception:
+          pass
       except Exception:
         pass
 
@@ -667,6 +695,23 @@ class AgentMesh:
         if isinstance(hm, dict):
           plf["habit"] = hm
         maybe_append_job_report(fleet_root, plf)
+        try:
+          from gemcode.habit_runs import append_habit_run
+
+          hm = job.meta.get("habit") if isinstance(job.meta, dict) else None
+          if isinstance(hm, dict) and hm.get("name"):
+            append_habit_run(
+              fleet_root,
+              habit_name=str(hm.get("name") or ""),
+              agent=str(hm.get("agent") or job.member_name or ""),
+              job_id=job.job_id,
+              status="failed",
+              report="",
+              error=job.error,
+              session_id=job.session_id,
+            )
+        except Exception:
+          pass
       except Exception:
         pass
 
@@ -959,6 +1004,9 @@ def _sync_mesh_cfg_project_root(mesh: AgentMesh, cfg: GemCodeConfig) -> None:
     if mesh._trigger_engine is not None:
       mesh._trigger_engine.cfg = mesh.cfg
       mesh._trigger_engine.reload()
+    if mesh._habit_chain_engine is not None:
+      mesh._habit_chain_engine.cfg = mesh.cfg
+      mesh._habit_chain_engine.reload()
     if mesh._habit_scheduler is not None:
       mesh._habit_scheduler.cfg = mesh.cfg
     if mesh._learner is not None:

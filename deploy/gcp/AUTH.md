@@ -15,11 +15,52 @@ Browser → Next.js (auth) → Tenant Gateway /t/{tenant_id}/… → gemcode ser
 1. Open [Google Cloud Console → APIs & Credentials](https://console.cloud.google.com/apis/credentials?project=finai-474319)
 2. **OAuth consent screen** — configure (Internal for Workspace org, or External for testing)
 3. **Create credentials → OAuth client ID → Web application**
-4. Authorized redirect URI:
+4. **Authorized JavaScript origins:**
+   ```
+   http://localhost:3002
+   ```
+5. **Authorized redirect URIs:**
    ```
    http://localhost:3002/api/auth/callback/google
    ```
-5. Copy **Client ID** and **Client secret**
+6. Copy **Client ID** and **Client secret**
+
+### Production (GKE / Vercel) — HTTPS + domain required
+
+Google **rejects** OAuth redirect URIs that use:
+
+- `http://` on anything except `localhost` / `127.0.0.1`
+- Raw IP addresses (e.g. `http://35.238.244.56`)
+
+You will see **Error 400: invalid_request** — *"doesn't comply with Google's OAuth 2.0 policy"*.
+
+**Fix:** serve the Web UI on a real domain with HTTPS, then register:
+
+| Field | Example |
+|-------|---------|
+| Authorized JavaScript origins | `https://app.yourdomain.com` |
+| Authorized redirect URIs | `https://app.yourdomain.com/api/auth/callback/google` |
+
+Set `NEXTAUTH_URL` to the same origin (no trailing slash) in the K8s secret or Vercel env.
+
+```bash
+# GKE: after DNS A record points to the Web UI LoadBalancer IP
+GEMCODE_WEB_DOMAIN=app.yourdomain.com ./deploy/gcp/scripts/setup-web-ui-https.sh
+NEXTAUTH_URL=https://app.yourdomain.com ./deploy/gcp/scripts/create-web-ui-secret.sh
+kubectl -n gemcode-platform rollout restart deployment/gemcode-web-ui
+```
+
+If the OAuth consent screen is **External → Testing**, add each user's Google email under **Test users**.
+
+### `redirect_uri_mismatch` (Error 400)
+
+NextAuth sends `http://localhost:3002/api/auth/callback/google`. If that exact URI is missing from the OAuth client, Google blocks sign-in.
+
+```bash
+./deploy/gcp/scripts/sync-oauth-redirect.sh
+```
+
+Opens the credentials page — add the origin and redirect URI above, save, then retry sign-in. `NEXTAUTH_URL` in `.env.local` must match the origin (no trailing slash).
 
 Generate a session secret:
 
