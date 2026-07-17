@@ -92,7 +92,7 @@ Do **not** ask end users to run `dev-tunnel.sh`; that is only for laptop dev.
 GEMCODE_SOURCE=pypi ./deploy/gcp/scripts/build-images.sh
 ```
 
-> PyPI **0.4.25+** includes hosted chat-store, habit chains/runs, and the HITL confirmation batch fix. Use `GEMCODE_SOURCE=pypi` after publishing, or `GEMCODE_SOURCE=repo` for Cloud Build from this tree.
+> PyPI **0.4.31+** includes Gemini 3 thought streaming for web (`include_thoughts` + `thinking_level`). Use `GEMCODE_SOURCE=pypi` after publishing, or `GEMCODE_SOURCE=repo` for Cloud Build from this tree.
 
 ## Provisioner API
 
