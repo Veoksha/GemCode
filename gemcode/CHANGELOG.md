@@ -1,3 +1,7 @@
+## 0.4.26
+
+- **Web HITL resume:** Approve/deny no longer falsely reports `late` across the parent `gemcode serve` ↔ `sse_adapter` subprocess boundary. Uses `*.waiting` marker files so Yes continues the same SSE turn (CLI-style) instead of the UI injecting a new "Continue…" message.
+
 ## 0.4.25
 
 - **Web HITL root fix:** Interactive web chat now **overrides** process-level `GEMCODE_SUPER_MODE`. Hosted tenants no longer silently auto-approve every tool while the model still invents "Approve / Deny" text. UI Auto-approve / `super_mode` is the source of truth per turn.
