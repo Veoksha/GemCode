@@ -1,3 +1,7 @@
+## 0.4.31
+
+- **Web thinking:** Gemini 3.x now requests `include_thoughts` with an explicit `thinking_level` so thought summaries actually stream over SSE (not just thought token counts).
+
 ## 0.4.30
 
 - **Hosted project folders:** Chat/tools now use the UI-selected project path as `project_root` (e.g. `/mnt/workspace/final todo`). Fleet/org still resolve to the tenant root, but "analyze codebase" no longer widens to the whole PVC.

@@ -96,8 +96,16 @@ def build_thinking_config(cfg: GemCodeConfig) -> Optional[types.ThinkingConfig]:
     )
 
   # If the user only wants thought summaries, we can set include_thoughts
-  # without forcing a budget/level.
+  # without forcing a budget/level (Gemini 2.5). Gemini 3.x also needs an
+  # explicit thinking_level or the model may consume thought tokens without
+  # streaming readable summaries to the client.
   if include:
+    if not is_25:
+      show_full = bool(getattr(cfg, "show_full_thinking", False))
+      level = "high" if show_full else "medium"
+      if _is_gemini_3_pro(model_id) and level == "minimal":
+        level = "low"
+      return types.ThinkingConfig(include_thoughts=True, thinking_level=level)
     return types.ThinkingConfig(include_thoughts=True)
 
   # Otherwise: familiar auto mapping based on model_mode.

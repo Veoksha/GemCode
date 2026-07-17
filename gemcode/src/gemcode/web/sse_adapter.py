@@ -53,7 +53,7 @@ def extract_parts_from_event(event: Any) -> tuple[str, str]:
       t = getattr(p, "text", None)
       if not isinstance(t, str) or not t:
         continue
-      if getattr(p, "thought", None):
+      if getattr(p, "thought", None) is True:
         thought_parts.append(t)
       else:
         final_parts.append(t)

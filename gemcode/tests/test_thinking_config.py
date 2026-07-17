@@ -37,6 +37,26 @@ def test_include_thought_summaries_only_gemini25(tmp_path) -> None:
   assert thinking_cfg == types.ThinkingConfig(include_thoughts=True)
 
 
+def test_include_thought_summaries_gemini3_sets_level(tmp_path) -> None:
+  cfg = GemCodeConfig(project_root=tmp_path)
+  cfg.model = "gemini-3.1-pro-preview"
+  cfg.disable_thinking = False
+  cfg.include_thought_summaries = True
+  cfg.show_full_thinking = False
+  thinking_cfg = build_thinking_config(cfg)
+  assert thinking_cfg == types.ThinkingConfig(
+    include_thoughts=True,
+    thinking_level="medium",
+  )
+
+  cfg.show_full_thinking = True
+  thinking_cfg = build_thinking_config(cfg)
+  assert thinking_cfg == types.ThinkingConfig(
+    include_thoughts=True,
+    thinking_level="high",
+  )
+
+
 def test_thinking_level_is_ignored_for_gemini25(tmp_path) -> None:
   cfg = GemCodeConfig(project_root=tmp_path)
   cfg.model = "gemini-2.5-flash"
