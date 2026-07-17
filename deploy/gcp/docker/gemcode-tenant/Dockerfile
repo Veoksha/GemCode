@@ -6,8 +6,6 @@
 FROM python:3.12-slim-bookworm
 
 ARG GEMCODE_PIP_VERSION=0.4.26
-# already done - skip
-
 ARG GEMCODE_SOURCE=repo
 
 ENV PYTHONUNBUFFERED=1 \
