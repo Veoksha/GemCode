@@ -1,3 +1,7 @@
+## 0.4.30
+
+- **Hosted project folders:** Chat/tools now use the UI-selected project path as `project_root` (e.g. `/mnt/workspace/final todo`). Fleet/org still resolve to the tenant root, but "analyze codebase" no longer widens to the whole PVC.
+
 ## 0.4.29
 
 - **Web preview:** Wait for HTTP readiness (not just TCP) when auto-starting the static server; retry briefly on early 404s after startup.

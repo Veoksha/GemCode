@@ -1,6 +1,6 @@
 substitutions:
   _GEMCODE_SOURCE: pypi
-  _GEMCODE_PIP_VERSION: "0.4.29"
+  _GEMCODE_PIP_VERSION: "0.4.30"
   _GATEWAY_IMAGE: us-central1-docker.pkg.dev/finai-474319/gemcode/gemcode-tenant-gateway:latest
   _TENANT_IMAGE: us-central1-docker.pkg.dev/finai-474319/gemcode/gemcode-tenant:latest
   _PROVISIONER_IMAGE: us-central1-docker.pkg.dev/finai-474319/gemcode/gemcode-provisioner:latest

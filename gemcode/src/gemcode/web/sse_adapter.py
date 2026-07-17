@@ -437,6 +437,8 @@ def _inject_web_code_context(cfg: GemCodeConfig, prompt: str, req: dict[str, Any
     "Use them proactively; never tell the user you cannot access their files.",
     f"Workspace root: `{root}`",
     "Tool paths are relative to this workspace root.",
+    "When the user asks to analyze the codebase / project / repo, stay **inside this workspace root only** — "
+    "do not walk up to parent directories or sibling folders outside this root.",
   ]
 
   active = req.get("active_file")
@@ -1125,15 +1127,21 @@ async def run_adapter(req: dict[str, Any]) -> None:
     raise ValueError(str(exc)) from exc
   if not root_path.is_dir():
     raise ValueError(f"project_root is not a directory: {root_path}")
-  project_root = str(root_path)
+  project_root = str(root_path.resolve())
   from gemcode.org import resolve_fleet_root
 
-  fleet_root = resolve_fleet_root(root_path.resolve())
-  cfg = GemCodeConfig(project_root=fleet_root)
+  # Fleet/org lives at the nearest ancestor with .gemcode/org.json (often the
+  # tenant PVC root). Tooling + "analyze codebase" must stay on the *selected*
+  # project folder the UI sent — do not widen to fleet_root.
+  project_path = root_path.resolve()
+  fleet_root = resolve_fleet_root(project_path)
+  cfg = GemCodeConfig(project_root=project_path)
 
   from gemcode.trust import ensure_hosted_workspace_trust
 
   ensure_hosted_workspace_trust(fleet_root)
+  if project_path != fleet_root:
+    ensure_hosted_workspace_trust(project_path)
 
   if req.get("session_id"):
     try:
