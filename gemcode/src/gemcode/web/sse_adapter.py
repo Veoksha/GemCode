@@ -1035,9 +1035,16 @@ def _apply_web_request_options(cfg: GemCodeConfig, req: dict[str, Any], workspac
     elif tm == "brief":
       cfg.disable_thinking = False
       cfg.show_full_thinking = False
+      # Web UI "brief" should still request thought summaries so the UI can
+      # render a streaming/collapsible "Thinking" block.
+      cfg.include_thought_summaries = True
     elif tm == "auto":
       cfg.disable_thinking = False
       cfg.show_full_thinking = False
+      # Treat web "auto" as "show brief thinking when available".
+      # Without this, Gemini can enter a thinking phase but the adapter
+      # won't receive any thought content to stream via SSE.
+      cfg.include_thought_summaries = True
 
   caps = req.get("capabilities")
   if isinstance(caps, dict):
