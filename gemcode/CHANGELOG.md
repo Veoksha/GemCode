@@ -1,3 +1,7 @@
+## 0.4.29
+
+- **Web preview:** Wait for HTTP readiness (not just TCP) when auto-starting the static server; retry briefly on early 404s after startup.
+
 ## 0.4.28
 
 - **Hosted workspace validate:** `/api/workspace/validate` rejects paths outside the tenant PVC root (project subfolders under the root remain allowed).

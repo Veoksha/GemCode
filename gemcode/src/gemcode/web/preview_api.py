@@ -157,14 +157,30 @@ def _cleanup_managed_servers() -> None:
 atexit.register(_cleanup_managed_servers)
 
 
+def _http_responds(port: int, request_path: str = "/", *, timeout: float = 1.0) -> bool:
+  try:
+    conn = HTTPConnection("127.0.0.1", port, timeout=timeout)
+    conn.request(
+      "GET",
+      request_path or "/",
+      headers={"User-Agent": "GemCode-Web-Preview/1.0", "Accept": "*/*"},
+    )
+    resp = conn.getresponse()
+    resp.read()
+    conn.close()
+    return True
+  except OSError:
+    return False
+
+
 def ensure_workspace_static_server(port: int, root: Path) -> tuple[bool, str | None]:
   """
-  Ensure something accepts TCP on ``127.0.0.1:port``.
+  Ensure something accepts HTTP on ``127.0.0.1:port``.
 
   If the port is free and eligible, start ``python -m http.server`` in ``root``.
   Returns (ok, note).
   """
-  if _port_open("127.0.0.1", port, timeout=0.35):
+  if _http_responds(port):
     return True, None
   if port not in STATIC_AUTOSTART_PORTS:
     return False, (
@@ -176,16 +192,16 @@ def ensure_workspace_static_server(port: int, root: Path) -> tuple[bool, str | N
     return False, f"Workspace root is not a directory: {root}"
 
   with _server_lock:
-    if _port_open("127.0.0.1", port, timeout=0.35):
+    if _http_responds(port):
       return True, None
     existing = _managed_servers.get(port)
     if existing is not None and existing.poll() is None:
-      for _ in range(25):
-        if _port_open("127.0.0.1", port, timeout=0.2):
+      for _ in range(40):
+        if _http_responds(port):
           return True, "managed"
         if existing.poll() is not None:
           break
-        time.sleep(0.08)
+        time.sleep(0.1)
     try:
       proc = subprocess.Popen(
         [
@@ -204,13 +220,13 @@ def ensure_workspace_static_server(port: int, root: Path) -> tuple[bool, str | N
     except OSError as exc:
       return False, f"Could not start static preview server: {exc}"
     _managed_servers[port] = proc
-    for _ in range(30):
-      if _port_open("127.0.0.1", port, timeout=0.2):
+    for _ in range(50):
+      if _http_responds(port):
         return True, "started"
       if proc.poll() is not None:
         _managed_servers.pop(port, None)
         return False, "Static preview server exited immediately (port may be busy)."
-      time.sleep(0.08)
+      time.sleep(0.1)
     return False, "Timed out waiting for static preview server."
 
 
@@ -299,13 +315,29 @@ def handle_preview_proxy(
     if root is not None:
       ok, note = ensure_workspace_static_server(port, root)
       if ok:
-        try:
-          time.sleep(0.05)
-          status, body, ctype, headers_list = _fetch()
-        except OSError as second_exc:
+        status = 0
+        body = b""
+        ctype = ""
+        headers_list = []
+        last_err: OSError | None = None
+        # Retry briefly — TCP can accept before http.server is ready to route paths.
+        for attempt in range(12):
+          try:
+            time.sleep(0.08 if attempt else 0.05)
+            status, body, ctype, headers_list = _fetch()
+            if status != 404:
+              break
+            # 404 right after start: file may not be visible yet; retry a few times.
+            if attempt < 8:
+              continue
+            break
+          except OSError as second_exc:
+            last_err = second_exc
+            continue
+        if last_err is not None and status == 0:
           msg = (
             f'{{"error":"Preview upstream unreachable after starting static server: '
-            f'{type(second_exc).__name__}: {second_exc}"}}'
+            f'{type(last_err).__name__}: {last_err}"}}'
           )
           return 502, msg.encode(), {"Content-Type": "application/json; charset=utf-8"}
       else:
@@ -315,6 +347,25 @@ def handle_preview_proxy(
     else:
       msg = f'{{"error":"Preview upstream unreachable: {type(first_exc).__name__}: {first_exc}"}}'
       return 502, msg.encode(), {"Content-Type": "application/json; charset=utf-8"}
+  else:
+    # Live server returned 404 — retry once after a short wait (startup race).
+    if status == 404 and root is not None:
+      for _ in range(6):
+        time.sleep(0.12)
+        try:
+          status, body, ctype, headers_list = _fetch()
+          if status != 404:
+            break
+        except OSError:
+          ok, _ = ensure_workspace_static_server(port, root)
+          if not ok:
+            break
+          try:
+            status, body, ctype, headers_list = _fetch()
+          except OSError:
+            break
+          if status != 404:
+            break
 
   headers: dict[str, str] = {}
   for key, value in headers_list:
