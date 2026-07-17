@@ -239,8 +239,18 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
         params = parse_qs(parsed.query)
         raw_path = (params.get("path") or [""])[0]
         try:
+          from gemcode.web.project_root import hosted_tenant_root, _is_within_root
+
           resolved = Path(raw_path).expanduser().resolve()
-          if resolved.is_dir():
+          tenant = hosted_tenant_root()
+          if tenant is not None and not (
+            resolved == tenant.resolve() or _is_within_root(tenant, resolved)
+          ):
+            payload = {
+              "valid": False,
+              "error": f"Folder must be inside tenant workspace ({tenant})",
+            }
+          elif resolved.is_dir():
             payload = {"valid": True, "resolved": str(resolved)}
           else:
             payload = {"valid": False, "error": "Folder not found"}

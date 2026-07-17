@@ -1,3 +1,7 @@
+## 0.4.28
+
+- **Hosted workspace validate:** `/api/workspace/validate` rejects paths outside the tenant PVC root (project subfolders under the root remain allowed).
+
 ## 0.4.27
 
 - **Web preview:** If nothing listens on static ports (8000/8080/…), auto-start `python -m http.server` in the workspace so hosted HTML apps open without a manual bash step. Nested paths (e.g. `/final todo/index.html`) are proxied correctly.
