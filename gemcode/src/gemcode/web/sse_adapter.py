@@ -512,10 +512,15 @@ def _inject_web_code_context(cfg: GemCodeConfig, prompt: str, req: dict[str, Any
   else:
     lines.append(
       "**Web UI permissions — interactive.** Shell and mutating tools pause for an "
-      "**inline Yes/No card in the chat** (also pinned above the composer). "
+      "**inline Yes/No card in the chat**. "
       "Do **not** invent Approve/Deny dialog text or tell the user to open a popup — "
       "wait silently; after they tap Yes or No the turn continues."
     )
+  lines.append(
+    "**Web preview:** For static HTML/CSS/JS, prefer `http://localhost:8000/...` links. "
+    "GemCode will auto-serve the workspace on common static ports (8000/8080/…) when "
+    "nothing is listening. For Vite/Next (3000/5173), start the real dev server with bash first."
+  )
 
   if mode == "agents":
     lines.extend(

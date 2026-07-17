@@ -318,7 +318,7 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
           else:
             port, sub_path = parsed_proxy
             status, body, hdrs = handle_preview_proxy(
-              port, sub_path, query=parsed.query or ""
+              port, sub_path, query=parsed.query or "", workspace_root=root
             )
         except Exception as exc:
           status = 500

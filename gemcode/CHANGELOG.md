@@ -1,3 +1,7 @@
+## 0.4.27
+
+- **Web preview:** If nothing listens on static ports (8000/8080/…), auto-start `python -m http.server` in the workspace so hosted HTML apps open without a manual bash step. Nested paths (e.g. `/final todo/index.html`) are proxied correctly.
+
 ## 0.4.26
 
 - **Web HITL resume:** Approve/deny no longer falsely reports `late` across the parent `gemcode serve` ↔ `sse_adapter` subprocess boundary. Uses `*.waiting` marker files so Yes continues the same SSE turn (CLI-style) instead of the UI injecting a new "Continue…" message.
