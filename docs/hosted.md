@@ -63,7 +63,7 @@ Each tenant pod runs the same stack as local `gemcode serve`:
 | HITL approvals | Yes | Under `{tenant}/.gemcode/web_approvals/` |
 | ADK sessions | Yes | Per-tenant disk |
 | Skills / MCP / mesh APIs | Yes | Tenant-local config |
-| Super mode | Yes | `GEMCODE_SUPER_MODE=1` on pod — auto-approve tools |
+| Super mode | Opt-in | UI Auto-approve / `permissions.super_mode` per chat turn (0.4.25+). Pod `GEMCODE_SUPER_MODE` defaults **off**; mesh stays unattended via `GEMCODE_MESH_WORKER_UNATTENDED` |
 | Workspace trust | Yes (automatic) | No folder-trust prompt; `/mnt/workspace` trusted on boot |
 | Shared Gemini API | Yes | `GOOGLE_API_KEY` from cluster secret `gemcode-gemini-api-key` |
 | File explorer | Yes | Via `/api/files*` on gemcode serve (UI proxies when backend is remote) |
@@ -103,7 +103,7 @@ The repo ships a full GKE layout under [`deploy/gcp/`](../deploy/gcp/):
 - **One pod + persistent disk per user** in namespace `gemcode-tenants`
 - **Network policy** — tenant pods cannot talk to each other
 - **Provisioner API** — create tenant on first login (by email → `u_<hash>` id)
-- **Docker image** — `pip install gemcode==0.4.24` (or build from repo with `GEMCODE_SOURCE=repo`)
+- **Docker image** — `pip install gemcode==0.4.25` (or build from repo with `GEMCODE_SOURCE=repo`)
 
 Quick start:
 
@@ -117,6 +117,12 @@ cp deploy/gcp/config.env.example deploy/gcp/config.env
 ```
 
 See [`deploy/gcp/README.md`](../deploy/gcp/README.md) and [`deploy/gcp/TROUBLESHOOTING.md`](../deploy/gcp/TROUBLESHOOTING.md).
+
+## Web UI permissions vs SUPER_MODE
+
+Interactive web chat uses the **UI Auto-approve / permissions** payload per turn.
+Process-level `GEMCODE_SUPER_MODE` no longer forces skip-HITL on `/api/chat` (0.4.25+).
+Tenant images default `GEMCODE_SUPER_MODE=0`. Mesh/habit workers remain unattended via `GEMCODE_MESH_WORKER_UNATTENDED`.
 
 ## Security requirements (production)
 

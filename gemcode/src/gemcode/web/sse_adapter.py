@@ -489,17 +489,33 @@ def _inject_web_code_context(cfg: GemCodeConfig, prompt: str, req: dict[str, Any
         "or type @path — unless they mean the whole project (see below)."
       )
 
-  lines.extend(
-    [
-      'When the user says "this file", "the current one", or similar, use the active / @-referenced file above.',
-      'When they ask to analyze the whole codebase, project, repo, or "all files", start with `repo_map` and '
-      '`list_directory` on `.` — do not ask which file first.',
-      "**Web UI permissions** — shell and mutating tools pause for an **inline Yes/No card in the chat** "
-      "(above the composer). Do **not** tell the user to open a dialog, popup, terminal, or separate Approve button — "
-      "just wait; the UI card is the approval UI. After they tap Yes or No, continue automatically.",
-      "When Auto-approve / Super mode is on, tools run without asking — do not mention approvals.",
-    ]
+  # Permission mode for THIS turn (must match actual HITL / auto-approve behavior).
+  lines.append(
+    'When the user says "this file", "the current one", or similar, use the active / @-referenced file above.'
   )
+  lines.append(
+    'When they ask to analyze the whole codebase, project, repo, or "all files", start with `repo_map` and '
+    '`list_directory` on `.` — do not ask which file first.'
+  )
+  auto_on = bool(
+    getattr(cfg, "yes_to_all", False)
+    or getattr(cfg, "super_mode", False)
+    or not getattr(cfg, "_web_interactive_hitl", True)
+  )
+  if auto_on:
+    lines.append(
+      "**Web UI permissions — AUTO-APPROVE is ON for this turn.** "
+      "Shell and mutating tools run immediately with **no** Yes/No card. "
+      "Never mention Approve, Deny, approval prompts, dialogs, or waiting for the user — "
+      "just run tools and report what you did."
+    )
+  else:
+    lines.append(
+      "**Web UI permissions — interactive.** Shell and mutating tools pause for an "
+      "**inline Yes/No card in the chat** (also pinned above the composer). "
+      "Do **not** invent Approve/Deny dialog text or tell the user to open a popup — "
+      "wait silently; after they tap Yes or No the turn continues."
+    )
 
   if mode == "agents":
     lines.extend(
@@ -922,6 +938,7 @@ def _apply_web_permissions(cfg: GemCodeConfig, req: dict[str, Any]) -> None:
   }
   object.__setattr__(cfg, "_web_auto_approve", normalized)
 
+  # UI is source of truth for web chat — do not leave env GEMCODE_SUPER_MODE stuck on.
   super_mode = bool(perms.get("super_mode"))
   if super_mode:
     cfg.super_mode = True
@@ -931,6 +948,7 @@ def _apply_web_permissions(cfg: GemCodeConfig, req: dict[str, Any]) -> None:
     object.__setattr__(cfg, "_web_interactive_hitl", False)
     return
 
+  cfg.super_mode = False
   if all(normalized.values()):
     cfg.yes_to_all = True
     cfg.interactive_permission_ask = False
@@ -948,13 +966,33 @@ def _apply_web_permissions(cfg: GemCodeConfig, req: dict[str, Any]) -> None:
 
 
 def _configure_web_permissions(cfg: GemCodeConfig, req: dict[str, Any]) -> None:
-  """Web chat defaults to interactive Approve/Deny unless everything is auto-approved."""
+  """Web chat HITL follows the UI request, not process-level GEMCODE_SUPER_MODE.
+
+  Hosted tenant images historically set ``GEMCODE_SUPER_MODE=1`` so mesh/jobs are
+  unattended. That must not silently skip Yes/No cards when the user has
+  Auto-approve off in the web UI. Mesh workers still use
+  ``GEMCODE_MESH_WORKER_UNATTENDED`` independently.
+  """
   object.__setattr__(cfg, "_gemcode_web_sse", True)
-  _apply_web_permissions(cfg, req)
-  if not isinstance(req.get("permissions"), dict):
+
+  perms = req.get("permissions")
+  has_perms = isinstance(perms, dict)
+
+  # Clear env-applied super mode before applying the UI payload.
+  if not (has_perms and bool(perms.get("super_mode"))):
+    cfg.super_mode = False
     cfg.yes_to_all = False
     cfg.interactive_permission_ask = True
     object.__setattr__(cfg, "_web_interactive_hitl", True)
+
+  if has_perms:
+    _apply_web_permissions(cfg, req)
+  else:
+    cfg.super_mode = False
+    cfg.yes_to_all = False
+    cfg.interactive_permission_ask = True
+    object.__setattr__(cfg, "_web_interactive_hitl", True)
+
   _ensure_web_hitl(cfg)
   if os.environ.get("GEMCODE_WEB_YES_TO_ALL", "").lower() in ("1", "true", "yes", "on"):
     cfg.yes_to_all = True
@@ -963,8 +1001,9 @@ def _configure_web_permissions(cfg: GemCodeConfig, req: dict[str, Any]) -> None:
 
 
 def _ensure_web_hitl(cfg: GemCodeConfig) -> None:
-  """Web chat always uses the UI approval bridge when tools are not fully auto-approved."""
+  """Web chat uses the UI approval bridge when tools are not fully auto-approved."""
   if getattr(cfg, "yes_to_all", False) or getattr(cfg, "super_mode", False):
+    object.__setattr__(cfg, "_web_interactive_hitl", False)
     return
   cfg.interactive_permission_ask = True
   object.__setattr__(cfg, "_web_interactive_hitl", True)
@@ -1248,6 +1287,10 @@ async def run_adapter(req: dict[str, Any]) -> None:
           "model": model,
           "project_root": str(cfg.project_root),
           "workspace_mode": workspace_mode,
+          "hitl_interactive": bool(getattr(cfg, "_web_interactive_hitl", False)),
+          "auto_approve": bool(
+            getattr(cfg, "yes_to_all", False) or getattr(cfg, "super_mode", False)
+          ),
           **({"skill": resolved.skill_name} if resolved.skill_name else {}),
         }
       )
