@@ -102,6 +102,8 @@ If `/api/health` is missing or returns 5xx, UIs show “Backend unreachable”.
 | GET | `/api/files/read` | Read file content (`?path=`) |
 | POST | `/api/files/write` | Write file (`{ path, content }`) |
 | GET/POST | `/api/ui/chat-store` | Persist web UI conversation list on the workspace (`.gemcode/ui_chat_store.json`) — for hosted PVC / cross-device sync |
+| GET | `/api/preview` | Scan listening HTTP ports on the serve host (tenant pod when hosted) |
+| GET | `/api/preview/proxy/{port}/…` | Reverse-proxy a port on the serve host (for in-UI iframe of apps started by the agent) |
 | POST | `/api/settings/credentials` | API key helper |
 | GET | `/api/workspace/validate` | Validate project path |
 | POST | `/api/workspace/pick` | Native folder picker (OS dialog) |

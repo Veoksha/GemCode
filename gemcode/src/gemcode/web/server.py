@@ -304,6 +304,35 @@ def _build_handler(project_root: str) -> type[BaseHTTPRequestHandler]:
         self.wfile.write(body)
         return
 
+      if parsed.path.startswith("/api/preview/proxy/"):
+        try:
+          from gemcode.web.preview_api import handle_preview_proxy, parse_preview_proxy_path
+
+          parsed_proxy = parse_preview_proxy_path(parsed.path)
+          if not parsed_proxy:
+            status, body, hdrs = (
+              400,
+              b'{"error":"Invalid preview proxy path"}',
+              {"Content-Type": "application/json; charset=utf-8"},
+            )
+          else:
+            port, sub_path = parsed_proxy
+            status, body, hdrs = handle_preview_proxy(
+              port, sub_path, query=parsed.query or ""
+            )
+        except Exception as exc:
+          status = 500
+          body = json.dumps({"error": f"{type(exc).__name__}: {exc}"}).encode()
+          hdrs = {"Content-Type": "application/json; charset=utf-8"}
+        self.send_response(status)
+        for hk, hv in hdrs.items():
+          self.send_header(hk, hv)
+        self.send_header("Content-Length", str(len(body)))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(body)
+        return
+
       fleet_get = {
         "/api/org": "org",
         "/api/habits": "habits",

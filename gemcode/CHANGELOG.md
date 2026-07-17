@@ -1,3 +1,8 @@
+## 0.4.24
+
+- **Web HITL copy:** System prompt no longer tells the model about an "Approve dialog" — it describes the **inline Yes/No card** in chat so the agent stops asking users to approve a popup.
+- **Preview proxy (hosted):** `GET /api/preview/proxy/{port}/…` reverse-proxies `127.0.0.1:{port}` on the tenant pod so the web UI can preview apps running inside GKE (not the user's laptop).
+
 ## 0.4.23
 
 - **Web HITL reliability:** Confirmation handoffs in `sse_adapter`, `invoke`, and `kaira_daemon` respond only to confirmation FCs from the **last** ADK event in a batch (matches TUI). Fixes `Last response event should only contain the responses for the function calls in the same function call event` mid-turn crashes during repeated shell approvals.

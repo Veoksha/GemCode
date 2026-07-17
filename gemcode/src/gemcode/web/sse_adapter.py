@@ -494,8 +494,10 @@ def _inject_web_code_context(cfg: GemCodeConfig, prompt: str, req: dict[str, Any
       'When the user says "this file", "the current one", or similar, use the active / @-referenced file above.',
       'When they ask to analyze the whole codebase, project, repo, or "all files", start with `repo_map` and '
       '`list_directory` on `.` — do not ask which file first.',
-      "**Web UI permissions** — shell and mutating tools show an **Approve / Deny** dialog in the browser. "
-      "Never tell the user to approve in a terminal; wait for the in-app prompt and continue after approval.",
+      "**Web UI permissions** — shell and mutating tools pause for an **inline Yes/No card in the chat** "
+      "(above the composer). Do **not** tell the user to open a dialog, popup, terminal, or separate Approve button — "
+      "just wait; the UI card is the approval UI. After they tap Yes or No, continue automatically.",
+      "When Auto-approve / Super mode is on, tools run without asking — do not mention approvals.",
     ]
   )
 

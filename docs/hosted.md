@@ -103,7 +103,7 @@ The repo ships a full GKE layout under [`deploy/gcp/`](../deploy/gcp/):
 - **One pod + persistent disk per user** in namespace `gemcode-tenants`
 - **Network policy** — tenant pods cannot talk to each other
 - **Provisioner API** — create tenant on first login (by email → `u_<hash>` id)
-- **Docker image** — `pip install gemcode==0.4.23` (or build from repo with `GEMCODE_SOURCE=repo`)
+- **Docker image** — `pip install gemcode==0.4.24` (or build from repo with `GEMCODE_SOURCE=repo`)
 
 Quick start:
 

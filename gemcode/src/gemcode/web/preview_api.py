@@ -1,10 +1,12 @@
-"""Detect local dev servers for in-UI localhost preview."""
+"""Detect local (or tenant-pod) dev servers and reverse-proxy them for the web UI."""
 
 from __future__ import annotations
 
 import socket
+from http.client import HTTPConnection
 from typing import Any
 from urllib.error import URLError
+from urllib.parse import unquote
 from urllib.request import Request, urlopen
 
 # Common dev-server ports (GemCode web UI uses 3002; API 3001)
@@ -20,6 +22,18 @@ COMMON_DEV_PORTS = (
   5000,
   4321,
   8888,
+)
+
+_STRIP_RESPONSE_HEADERS = frozenset(
+  {
+    "transfer-encoding",
+    "connection",
+    "content-length",
+    "content-encoding",
+    "x-frame-options",
+    "content-security-policy",
+    "content-security-policy-report-only",
+  }
 )
 
 
@@ -50,7 +64,7 @@ def scan_local_preview_ports(
   host: str = "127.0.0.1",
   extra_ports: list[int] | None = None,
 ) -> list[dict[str, Any]]:
-  """Return listening HTTP-ish ports on localhost."""
+  """Return listening HTTP-ish ports on localhost (tenant pod when hosted)."""
   ports: list[int] = list(COMMON_DEV_PORTS)
   if extra_ports:
     for p in extra_ports:
@@ -80,3 +94,120 @@ def handle_preview_get(kind: str) -> tuple[int, dict[str, Any]]:
     ports = scan_local_preview_ports()
     return 200, {"ok": True, "ports": ports, "host": "127.0.0.1"}
   return 400, {"ok": False, "error": f"Unknown preview kind: {kind}"}
+
+
+def _inject_base_href(html: str, base_path: str) -> str:
+  base_tag = f'<base href="{base_path}">'
+  if "<base " in html.lower():
+    return html
+  lower = html.lower()
+  idx = lower.find("<head")
+  if idx >= 0:
+    gt = html.find(">", idx)
+    if gt >= 0:
+      return html[: gt + 1] + base_tag + html[gt + 1 :]
+  return base_tag + html
+
+
+def handle_preview_proxy(
+  port: int,
+  sub_path: str = "/",
+  *,
+  query: str = "",
+) -> tuple[int, bytes, dict[str, str]]:
+  """
+  Reverse-proxy HTTP from 127.0.0.1:{port} (on this process / tenant pod).
+
+  Returns (status, body, response_headers).
+  """
+  if not isinstance(port, int) or port < 1 or port > 65535:
+    return 400, b'{"error":"Invalid port"}', {"Content-Type": "application/json; charset=utf-8"}
+
+  # Block GemCode's own API/UI ports from being framed as "app preview"
+  if port in (3001, 3002):
+    return (
+      400,
+      b'{"error":"Port reserved for GemCode API/UI"}',
+      {"Content-Type": "application/json; charset=utf-8"},
+    )
+
+  raw = sub_path or "/"
+  if not raw.startswith("/"):
+    raw = "/" + raw
+  # Collapse .. segments
+  parts: list[str] = []
+  for seg in raw.split("/"):
+    if seg in ("", "."):
+      continue
+    if seg == "..":
+      if parts:
+        parts.pop()
+      continue
+    parts.append(seg)
+  path = "/" + "/".join(parts)
+  if raw.endswith("/") and path != "/":
+    path += "/"
+
+  qs = (query or "").lstrip("?")
+  request_path = path if not qs else f"{path}?{qs}"
+
+  try:
+    conn = HTTPConnection("127.0.0.1", port, timeout=20.0)
+    conn.request(
+      "GET",
+      request_path,
+      headers={"User-Agent": "GemCode-Web-Preview/1.0", "Accept": "*/*"},
+    )
+    resp = conn.getresponse()
+    body = resp.read()
+    ctype = (resp.getheader("Content-Type") or "").lower()
+    headers: dict[str, str] = {}
+    for key, value in resp.getheaders():
+      if key.lower() in _STRIP_RESPONSE_HEADERS:
+        continue
+      headers[key] = value
+    status = int(resp.status)
+    conn.close()
+  except OSError as exc:
+    msg = f'{{"error":"Preview upstream unreachable: {type(exc).__name__}: {exc}"}}'
+    return 502, msg.encode(), {"Content-Type": "application/json; charset=utf-8"}
+
+  proxy_base = f"/api/preview/proxy/{port}/"
+  if "text/html" in ctype:
+    try:
+      text = body.decode("utf-8", errors="replace")
+      text = _inject_base_href(text, proxy_base)
+      body = text.encode("utf-8")
+      headers["Content-Type"] = "text/html; charset=utf-8"
+    except Exception:
+      pass
+
+  headers["Cache-Control"] = "no-store"
+  headers["X-Frame-Options"] = "SAMEORIGIN"
+  headers["Content-Security-Policy"] = (
+    "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; "
+    "script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline'; "
+    "frame-ancestors 'self';"
+  )
+  return status, body, headers
+
+
+def parse_preview_proxy_path(raw_path: str) -> tuple[int, str] | None:
+  """Parse `/api/preview/proxy/{port}` or `/api/preview/proxy/{port}/...` → (port, sub_path)."""
+  prefix = "/api/preview/proxy/"
+  if not raw_path.startswith(prefix):
+    return None
+  rest = raw_path[len(prefix) :]
+  if not rest:
+    return None
+  parts = rest.split("/", 1)
+  try:
+    port = int(parts[0])
+  except ValueError:
+    return None
+  sub = "/"
+  if len(parts) > 1 and parts[1]:
+    sub = "/" + unquote(parts[1])
+  elif rest.endswith("/") or raw_path.endswith("/"):
+    sub = "/"
+  return port, sub
