@@ -1,3 +1,9 @@
+## 0.4.25
+
+- **Web HITL root fix:** Interactive web chat now **overrides** process-level `GEMCODE_SUPER_MODE`. Hosted tenants no longer silently auto-approve every tool while the model still invents "Approve / Deny" text. UI Auto-approve / `super_mode` is the source of truth per turn.
+- **Prompt:** Permission instructions are dynamic — AUTO-APPROVE turns forbid mentioning approvals; interactive turns describe the inline Yes/No card only.
+- **Deploy:** Tenant default `GEMCODE_SUPER_MODE=0` (mesh stays unattended via `GEMCODE_MESH_WORKER_UNATTENDED`). Set `=1` only if you want every web turn to skip cards.
+
 ## 0.4.24
 
 - **Web HITL copy:** System prompt no longer tells the model about an "Approve dialog" — it describes the **inline Yes/No card** in chat so the agent stops asking users to approve a popup.

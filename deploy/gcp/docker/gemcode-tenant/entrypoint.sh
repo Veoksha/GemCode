@@ -5,7 +5,9 @@ ROOT="${GEMCODE_HOSTED_TENANT_ROOT:-/mnt/workspace}"
 export GEMCODE_HOSTED_TENANT_ROOT="$ROOT"
 export GEMCODE_WEB_PROJECT_ROOT="$ROOT"
 export GEMCODE_HOME="${GEMCODE_HOME:-$ROOT/.gemcode}"
-export GEMCODE_SUPER_MODE="${GEMCODE_SUPER_MODE:-1}"
+# Interactive web HITL by default. Mesh workers stay unattended via GEMCODE_MESH_WORKER_UNATTENDED.
+# Set GEMCODE_SUPER_MODE=1 only if you want every web chat turn to skip Yes/No cards.
+export GEMCODE_SUPER_MODE="${GEMCODE_SUPER_MODE:-0}"
 
 mkdir -p "$GEMCODE_HOME"
 

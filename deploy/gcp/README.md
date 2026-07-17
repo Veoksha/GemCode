@@ -86,13 +86,13 @@ Do **not** ask end users to run `dev-tunnel.sh`; that is only for laptop dev.
 | Build arg | Behavior |
 |-----------|----------|
 | `GEMCODE_SOURCE=repo` (default) | `pip install` from `./gemcode` — includes hosted tenant path locking |
-| `GEMCODE_SOURCE=pypi` | `pip install gemcode==0.4.24` from PyPI |
+| `GEMCODE_SOURCE=pypi` | `pip install gemcode==0.4.25` from PyPI |
 
 ```bash
 GEMCODE_SOURCE=pypi ./deploy/gcp/scripts/build-images.sh
 ```
 
-> PyPI **0.4.24+** includes hosted chat-store, habit chains/runs, and the HITL confirmation batch fix. Use `GEMCODE_SOURCE=pypi` after publishing, or `GEMCODE_SOURCE=repo` for Cloud Build from this tree.
+> PyPI **0.4.25+** includes hosted chat-store, habit chains/runs, and the HITL confirmation batch fix. Use `GEMCODE_SOURCE=pypi` after publishing, or `GEMCODE_SOURCE=repo` for Cloud Build from this tree.
 
 ## Provisioner API
 
