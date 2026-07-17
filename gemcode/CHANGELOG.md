@@ -1,3 +1,7 @@
+## 0.4.32
+
+- **Web thinking stream:** Emit thought SSE in small paced chunks so the UI can show reasoning before/while the answer starts, instead of dumping the whole block at once.
+
 ## 0.4.31
 
 - **Web thinking:** Gemini 3.x now requests `include_thoughts` with an explicit `thinking_level` so thought summaries actually stream over SSE (not just thought token counts).

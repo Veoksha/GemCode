@@ -139,9 +139,13 @@ async def _emit_text_delta(index: int, delta: str) -> None:
 
 
 async def _emit_thinking_delta(delta: str) -> None:
+  """Stream thought text in small pieces so the UI can show it before the answer."""
   if not delta:
     return
-  _sse_emit({"type": "thinking", "content": delta})
+  chunk_size = int(os.environ.get("GEMCODE_WEB_THINKING_CHUNK", "24"))
+  for piece in _iter_chunks(delta, max(1, chunk_size)):
+    _sse_emit({"type": "thinking", "content": piece})
+    await asyncio.sleep(0.008)
 
 
 def _emit_status(phase: str, *, message: str = "", elapsed_s: float | None = None) -> None:
