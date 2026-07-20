@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Sequence
 
-from google.adk.agents.run_config import RunConfig
+from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import Runner
 from google.genai import types
 
@@ -240,9 +240,12 @@ async def run_turn(
     except Exception:
       pass
 
-  run_config = (
-    RunConfig(max_llm_calls=max_llm_calls) if max_llm_calls is not None else None
-  )
+  run_kwargs: dict[str, Any] = {
+    "streaming_mode": StreamingMode.SSE
+  }
+  if max_llm_calls is not None:
+    run_kwargs["max_llm_calls"] = max_llm_calls
+  run_config = RunConfig(**run_kwargs)
 
   REQUEST_CONFIRMATION_FC = "adk_request_confirmation"
 

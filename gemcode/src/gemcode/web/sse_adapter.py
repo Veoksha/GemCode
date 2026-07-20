@@ -750,28 +750,39 @@ async def _stream_gemcode_turn(
         final_text, thought_text = extract_parts_from_event(event)
 
         if thought_text:
-          if thought_text.startswith(emitted_thought):
-            thought_delta = thought_text[len(emitted_thought) :]
+          if is_partial:
+            # ADK yields pure deltas during partial SSE streaming.
+            thought_delta = thought_text
           else:
-            common = 0
-            max_common = min(len(thought_text), len(emitted_thought))
-            while common < max_common and thought_text[common] == emitted_thought[common]:
-              common += 1
-            thought_delta = thought_text[common:]
+            # Final event contains the full accumulated string.
+            if thought_text.startswith(emitted_thought):
+              thought_delta = thought_text[len(emitted_thought) :]
+            else:
+              common = 0
+              max_common = min(len(thought_text), len(emitted_thought))
+              while common < max_common and thought_text[common] == emitted_thought[common]:
+                common += 1
+              thought_delta = thought_text[common:]
+              
           if thought_delta:
             emitted_thought += thought_delta
             _emit_status("thinking", message="Thinking…", elapsed_s=elapsed)
             await _emit_thinking_delta(thought_delta)
 
         if final_text:
-          if final_text.startswith(emitted_text):
-            delta = final_text[len(emitted_text) :]
+          if is_partial:
+            # ADK yields pure deltas during partial SSE streaming.
+            delta = final_text
           else:
-            common = 0
-            max_common = min(len(final_text), len(emitted_text))
-            while common < max_common and final_text[common] == emitted_text[common]:
-              common += 1
-            delta = final_text[common:]
+            if final_text.startswith(emitted_text):
+              delta = final_text[len(emitted_text) :]
+            else:
+              common = 0
+              max_common = min(len(final_text), len(emitted_text))
+              while common < max_common and final_text[common] == emitted_text[common]:
+                common += 1
+              delta = final_text[common:]
+              
           if delta:
             emitted_text += delta
             if not had_tool_calls:
