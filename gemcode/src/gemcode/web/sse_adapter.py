@@ -139,13 +139,18 @@ async def _emit_text_delta(index: int, delta: str) -> None:
 
 
 async def _emit_thinking_delta(delta: str) -> None:
-  """Stream thought text in small pieces so the UI can show it before the answer."""
+  """Stream thought text in small pieces so the UI can paint progressively.
+
+  ADK SSE mode usually already yields small partials; this also paces any
+  larger dumps (e.g. aggregated final thoughts) so they still feel typed.
+  """
   if not delta:
     return
-  chunk_size = int(os.environ.get("GEMCODE_WEB_THINKING_CHUNK", "24"))
+  # Prefer word-sized pieces when the model dumps a large blob at once.
+  chunk_size = int(os.environ.get("GEMCODE_WEB_THINKING_CHUNK", "12"))
   for piece in _iter_chunks(delta, max(1, chunk_size)):
     _sse_emit({"type": "thinking", "content": piece})
-    await asyncio.sleep(0.008)
+    await asyncio.sleep(0.012)
 
 
 def _emit_status(phase: str, *, message: str = "", elapsed_s: float | None = None) -> None:
@@ -334,8 +339,12 @@ def _get_confirmation_requests(events: list[Any]) -> list[Any]:
   batch raises:
     ValueError: Last response event should only contain the responses for
       the function calls in the same function call event.
+
+  Skip partial SSE events — confirmation FCs are only actionable when complete.
   """
   for ev in reversed(events):
+    if getattr(ev, "partial", False):
+      continue
     fcs = _confirmation_fcs_in_event(ev)
     if fcs:
       return fcs
@@ -583,7 +592,7 @@ async def _stream_gemcode_turn(
     attachment_paths: list[Path] | None = None,
 ) -> str:
   """Stream one GemCode turn through the real runner (tools + text)."""
-  from google.adk.agents.run_config import RunConfig
+  from google.adk.agents.run_config import RunConfig, StreamingMode
   from google.genai import types
 
   from gemcode.invoke import prepare_turn_prompt
@@ -610,9 +619,15 @@ async def _stream_gemcode_turn(
 
   try:
     enriched = prepare_turn_prompt(cfg, prompt, session_id=session_id)
-    run_config = (
-      RunConfig(max_llm_calls=cfg.max_llm_calls) if cfg.max_llm_calls is not None else None
-    )
+    # StreamingMode.NONE (ADK default) only yields final aggregated events, so
+    # thoughts appear as one dump after a long "Planning next moves…" wait.
+    # SSE mode yields partial thought/text chunks as the model generates them.
+    run_kwargs: dict[str, Any] = {
+      "streaming_mode": StreamingMode.SSE,
+    }
+    if cfg.max_llm_calls is not None:
+      run_kwargs["max_llm_calls"] = cfg.max_llm_calls
+    run_config = RunConfig(**run_kwargs)
     _emit_status("thinking", elapsed_s=0.0)
 
     web_hitl = bool(
@@ -716,17 +731,21 @@ async def _stream_gemcode_turn(
         user_id=user_id,
         session_id=session_id,
         new_message=current_message,
-        **({"run_config": run_config} if run_config is not None else {}),
+        run_config=run_config,
       ):
         batch.append(event)
         elapsed = time.monotonic() - turn_t0
+        is_partial = bool(getattr(event, "partial", False))
 
-        if _emit_tool_calls_and_preflight(event):
-          had_tool_calls = True
-          _emit_status("running", elapsed_s=elapsed)
+        # Partial FC/FR chunks are incomplete argument streams — only emit
+        # complete (non-partial) tool frames to the UI.
+        if not is_partial:
+          if _emit_tool_calls_and_preflight(event):
+            had_tool_calls = True
+            _emit_status("running", elapsed_s=elapsed)
 
-        if _emit_tool_results(event, skip_response=_skip_permission_block):
-          _emit_status("querying", elapsed_s=elapsed)
+          if _emit_tool_results(event, skip_response=_skip_permission_block):
+            _emit_status("querying", elapsed_s=elapsed)
 
         final_text, thought_text = extract_parts_from_event(event)
 
